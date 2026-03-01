@@ -15,13 +15,22 @@ All notable changes to Conductor are documented here.
 - **Upload progress bar** — file uploads now show a real-time progress bar with loaded/total MB and percentage (uses XMLHttpRequest for progress events)
 - **Configurable upload warning** — no hard upload size limit; files over the configured threshold (default 20 MB) prompt for confirmation instead of blocking. Threshold is adjustable in Settings ("Upload warning")
 
+### Worktree UX overhaul
+
+- **Worktrees are normal sessions** — worktree sessions now behave exactly like regular sessions: same play/stop buttons, same terminal handling, no special read-only mode
+- **Merge anytime** — merge a worktree into its base branch at any time, even while the session is running; uncommitted changes are auto-committed before merge
+- **No finalize step** — removed the finalize concept; merge and discard are always available directly
+- **Worktree branch icon** — larger git-branch icon on the left side of worktree session items; branch name only shown in subtitle when it differs from the session name
+- **Discard via × button** — the dismiss button on exited worktree sessions triggers discard (with confirmation), matching the normal session pattern
+
 ### Dashboard UI
 
-- **Auto merge prompt** — when a worktree session finishes (agent exits or session is killed), the merge dialog opens automatically so the user is immediately prompted to merge or discard — no risk of forgetting about finalized sessions
+- **Busy dialogs** — stop, resume, and create operations show a blocking spinner dialog to prevent interaction during async transitions; auto-dismisses after 10 seconds if something goes wrong
+- **Layout persistence** — open panels, split layout, and focus are saved to localStorage and restored on page reload; only panels with running sessions are restored
 - **Custom dialogs** — all notifications and confirmations use themed in-app dialogs; no browser-native alert/confirm popups anywhere
-- **Worktree branch icon** — worktree badge uses an inline SVG git-branch icon instead of a Unicode character
+- **New session opens full-screen** — creating or resuming a session closes all existing panels and opens the new one as the only terminal
+- **Play button styling** — dimmed green by default, bright on hover; removed redundant spinner badges from sidebar items
 - **Server connection state** — server dots show an unfilled/unknown state on page load; only colored green or red once the connection is confirmed
-- **Worktree tooltip** — hover over a worktree badge to see status, branch name, commits ahead, and base branch
 
 ## v0.3.7
 
