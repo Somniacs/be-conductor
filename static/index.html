@@ -272,6 +272,34 @@
         .new-session .run-btn:disabled { background: #1a1a3a; border-color: #2a2a4a; color: #505070; cursor: not-allowed; }
         .new-session .run-btn:hover:not(:disabled) { background: #3a3a7a; }
 
+        /* New/Resume mode toggle */
+        .session-mode-toggle {
+            display: flex;
+            gap: 0;
+            margin-bottom: 8px;
+            border: 1px solid #2a2a5a;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .session-mode-toggle button {
+            flex: 1;
+            padding: 5px 0;
+            font-size: 11px;
+            background: #0a0a1a;
+            color: #7878a0;
+            border: none;
+            cursor: pointer;
+        }
+        .session-mode-toggle button.active {
+            background: #2a2a5a;
+            color: #d0d0ff;
+        }
+        .session-mode-toggle button:hover:not(.active) { background: #1a1a3a; }
+        .resume-token-row { display: none; }
+        .resume-token-row.visible { display: block; }
+        .resume-info { font-size: 11px; color: #7878a0; margin-top: 4px; display: none; }
+        .resume-info.visible { display: block; }
+
         /* Worktree checkbox row */
         .worktree-row {
             display: flex;
@@ -1738,19 +1766,30 @@
                     <label>Machine</label>
                     <select id="new-session-server" onchange="onNewSessionServerChange()"></select>
                 </div>
+                <div class="session-mode-toggle">
+                    <button class="active" onclick="setSessionMode('new')">New</button>
+                    <button onclick="setSessionMode('resume')">Resume</button>
+                </div>
+                <label>Command</label>
+                <select id="new-command" onchange="onCommandChange()"></select>
                 <label>Session name</label>
                 <input type="text" id="new-name" placeholder="e.g. research" autocomplete="off">
                 <div id="name-error" style="font-size:11px;color:#ff6666;margin-top:2px;display:none;">Name already taken</div>
-                <label>Command</label>
-                <select id="new-command"></select>
-                <label>Working directory</label>
-                <div class="dir-picker" id="dir-picker"></div>
-                <div class="worktree-row" id="worktree-row">
-                    <input type="checkbox" id="new-worktree" onchange="onWorktreeToggle()">
-                    <label class="worktree-label" for="new-worktree">Isolate with git worktree</label>
-                    <span class="worktree-status" id="worktree-status"></span>
+                <div class="resume-token-row" id="resume-token-row">
+                    <label>Resume token</label>
+                    <input type="text" id="new-resume-token" placeholder="Paste UUID from agent output" autocomplete="off" oninput="validateNewSession()">
                 </div>
-                <div class="worktree-branch-preview" id="worktree-branch-preview"></div>
+                <div class="resume-info" id="resume-info"></div>
+                <div id="new-session-fields">
+                    <label>Working directory</label>
+                    <div class="dir-picker" id="dir-picker"></div>
+                    <div class="worktree-row" id="worktree-row">
+                        <input type="checkbox" id="new-worktree" onchange="onWorktreeToggle()">
+                        <label class="worktree-label" for="new-worktree">Isolate with git worktree</label>
+                        <span class="worktree-status" id="worktree-status"></span>
+                    </div>
+                    <div class="worktree-branch-preview" id="worktree-branch-preview"></div>
+                </div>
                 <button class="run-btn" id="run-btn" onclick="createSession()" disabled>Run</button>
             </div>
         </aside>
@@ -4922,6 +4961,46 @@
             }
         }
 
+        let _newSessionMode = 'new';
+
+        function setSessionMode(mode) {
+            _newSessionMode = mode;
+            const toggle = document.querySelector('.session-mode-toggle');
+            toggle.children[0].classList.toggle('active', mode === 'new');
+            toggle.children[1].classList.toggle('active', mode === 'resume');
+            // Show/hide fields based on mode
+            document.getElementById('new-session-fields').style.display = mode === 'new' ? '' : 'none';
+            updateResumeFields();
+            validateNewSession();
+        }
+
+        function onCommandChange() {
+            if (_newSessionMode === 'resume') updateResumeFields();
+            validateNewSession();
+        }
+
+        function updateResumeFields() {
+            const tokenRow = document.getElementById('resume-token-row');
+            const infoEl = document.getElementById('resume-info');
+            if (_newSessionMode !== 'resume') {
+                tokenRow.classList.remove('visible');
+                infoEl.classList.remove('visible');
+                return;
+            }
+            const command = document.getElementById('new-command').value;
+            const cmdConfig = allowedCommands.find(c => c.command === command);
+            if (cmdConfig && cmdConfig.resume_command) {
+                // Command-based resume (Codex, Copilot) — no token needed
+                tokenRow.classList.remove('visible');
+                infoEl.textContent = `Will run: ${cmdConfig.resume_command}`;
+                infoEl.classList.add('visible');
+            } else {
+                // Token-based resume (Claude, others)
+                tokenRow.classList.add('visible');
+                infoEl.classList.remove('visible');
+            }
+        }
+
         const _SAFE_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9 _.~-]{0,63}$/;
 
         function validateNewSession() {
@@ -4937,16 +5016,28 @@
             nameError.style.display = (nameTaken || nameInvalid) ? 'block' : 'none';
             nameInput.style.borderColor = (nameTaken || nameInvalid) ? '#ff6666' : '#2a2a5a';
 
-            // Worktree validation: if checked, must be a confirmed git repo
-            const wtChecked = document.getElementById('new-worktree').checked;
-            const wtBlocked = wtChecked && (_gitCheckState === 'checking' ||
-                (_gitCheckState && !_gitCheckState.is_git) ||
-                (_gitCheckState && _gitCheckState.error));
+            const nameOk = name && !nameTaken && !nameInvalid;
 
-            btn.disabled = !name || nameTaken || nameInvalid || !selectedCwd || wtBlocked;
-
-            // Update branch preview when name changes
-            if (wtChecked) updateWorktreeStatus();
+            if (_newSessionMode === 'resume') {
+                const command = document.getElementById('new-command').value;
+                const cmdConfig = allowedCommands.find(c => c.command === command);
+                if (cmdConfig && cmdConfig.resume_command) {
+                    // Command-based: just need name + command
+                    btn.disabled = !nameOk;
+                } else {
+                    // Token-based: need name + command + token
+                    const token = document.getElementById('new-resume-token').value.trim();
+                    btn.disabled = !nameOk || !token;
+                }
+            } else {
+                // New mode: existing validation
+                const wtChecked = document.getElementById('new-worktree').checked;
+                const wtBlocked = wtChecked && (_gitCheckState === 'checking' ||
+                    (_gitCheckState && !_gitCheckState.is_git) ||
+                    (_gitCheckState && _gitCheckState.error));
+                btn.disabled = !nameOk || !selectedCwd || wtBlocked;
+                if (wtChecked) updateWorktreeStatus();
+            }
         }
 
         function toggleNewSession() {
@@ -4962,12 +5053,26 @@
         async function createSession() {
             const name = document.getElementById('new-name').value.trim();
             const command = document.getElementById('new-command').value;
-            const cwd = selectedCwd || null;
-            const useWorktree = document.getElementById('new-worktree').checked;
             if (!name || !command) return;
 
-            const body = { name, command, cwd };
-            if (useWorktree) body.worktree = true;
+            let body;
+            if (_newSessionMode === 'resume') {
+                const cmdConfig = allowedCommands.find(c => c.command === command);
+                let finalCommand;
+                if (cmdConfig && cmdConfig.resume_command) {
+                    finalCommand = cmdConfig.resume_command;
+                } else {
+                    const token = document.getElementById('new-resume-token').value.trim();
+                    const flag = (cmdConfig && cmdConfig.resume_flag) || '--resume';
+                    finalCommand = `${command} ${flag} ${token}`;
+                }
+                body = { name, command: finalCommand };
+            } else {
+                const cwd = selectedCwd || null;
+                const useWorktree = document.getElementById('new-worktree').checked;
+                body = { name, command, cwd };
+                if (useWorktree) body.worktree = true;
+            }
 
             try {
                 const resp = await fetch(serverUrl(_newSessionServer, '/sessions/run'), {
@@ -4977,6 +5082,7 @@
                 });
                 if (resp.ok) {
                     document.getElementById('new-name').value = '';
+                    document.getElementById('new-resume-token').value = '';
                     document.getElementById('new-worktree').checked = false;
                     document.getElementById('new-session-dialog').classList.remove('open');
                     _gitCheckState = null;

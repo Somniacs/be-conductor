@@ -444,16 +444,18 @@ def list_sessions(use_json):
 @cli.command()
 @click.argument("name")
 @click.option("-d", "--detach", is_flag=True, help="Resume in background (don't attach)")
-@click.option("-t", "--token", default=None, help="External resume token (e.g. UUID from claude --resume)")
-def resume(name, detach, token):
+@click.option("-t", "--token", default=None, help="External resume token (e.g. UUID from agent output)")
+@click.option("-c", "--command", "cmd", default=None, help="Agent command (default: claude)")
+def resume(name, detach, token, cmd):
     """Resume an exited session.
 
     Restarts a session that exited with a resume token (e.g. Claude Code's
     --resume <id>). Attaches to the new session by default.
 
-    Use --token to resume an external Claude session inside Conductor:
+    Use --token to resume an external session inside Conductor:
 
         conductor resume my-session --token <UUID>
+        conductor resume my-session --token <UUID> --command aider
 
     Press Ctrl+] to detach without stopping the session.
     """
@@ -465,11 +467,22 @@ def resume(name, detach, token):
         click.echo(f"Server started on {BASE_URL}")
 
     if token:
-        # External resume: create a new session with claude --resume <token>
+        # External resume: create a new session with <command> <flag> <token>
+        agent = cmd or "claude"
+        # Look up resume_flag from server config
+        flag = "--resume"
+        try:
+            cfg = httpx.get(f"{BASE_URL}/config", headers=_auth_headers(), timeout=5).json()
+            for entry in cfg.get("allowed_commands", []):
+                if entry.get("command", "").split()[0] == agent.split()[0]:
+                    flag = entry.get("resume_flag", "--resume")
+                    break
+        except Exception:
+            pass
         size = shutil.get_terminal_size()
         payload = {
             "name": name,
-            "command": f"claude --resume {token}",
+            "command": f"{agent} {flag} {token}",
             "cwd": os.getcwd(),
             "source": "cli",
             "rows": size.lines,

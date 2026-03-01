@@ -26,13 +26,15 @@ All notable changes to Conductor are documented here.
 - **Panel overflow menu** — header actions (theme, upload, font size, maximize) collapsed into a "⋯" menu; only the close button remains in the header bar
 - **Move panel** — rearrange panels in the layout via directional arrows (← → ↑ ↓) in the overflow menu
 - **Cleaner resumable sessions** — removed redundant red "resumable" badge from sidebar; the green play button is sufficient
+- **Resume from dashboard** — New/Resume toggle in the new-session dialog; in resume mode, paste an external resume token (e.g. from Claude's `--resume` output) to pick up the conversation inside Conductor. Command-based agents (Codex, Copilot) show their resume command automatically — no token needed
+- **Command-first dialog** — new-session dialog now shows the command picker before the session name, matching the CLI argument order
 
 ### CLI
 
 - **CLI resume** — `conductor resume <name>` resumes an exited session from the terminal, attaching automatically (use `-d` to resume in background)
 - **Restart/shutdown safety** — `conductor restart` and `conductor shutdown` now warn about active sessions before killing them; pass `-f` to skip
 - **Resume auto-start** — `conductor resume` now auto-starts the server daemon if it isn't running, matching `conductor run` and `conductor open`
-- **External resume** — `conductor resume <name> --token <UUID>` brings an external Claude session into Conductor; start Claude in any terminal, exit, copy the UUID from its `--resume` output, then resume it inside Conductor for remote access from your phone or dashboard
+- **External resume** — `conductor resume <name> --token <UUID>` brings an external agent session into Conductor; works with any agent (`--command` flag, defaults to claude)
 
 ### Fixes
 
