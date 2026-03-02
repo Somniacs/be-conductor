@@ -25,10 +25,14 @@ Conductor keeps them moving. It runs entirely on your machines. No remote backen
 | Agent | Command |
 |---|---|
 | Claude Code | `conductor run claude research` |
+| Gemini CLI | `conductor run gemini research` |
+| OpenCode | `conductor run opencode backend` |
 | Codex CLI | `conductor run codex backend` |
 | Aider | `conductor run aider refactor` |
 | Goose | `conductor run goose api` |
 | GitHub Copilot | `conductor run copilot chat` |
+| Amp | `conductor run amp feature` |
+| Forge | `conductor run forge pair` |
 | Custom (allowlisted) | `conductor run python3 train` |
 
 ```
@@ -68,7 +72,7 @@ Each process runs in a PTY on your machine. Output goes into a rolling in-memory
 
 Conductor works with any interactive terminal process. The dashboard ships with presets for common AI agents, but you can run anything from the CLI:
 
-- **AI coding agents** — Claude Code, Aider, Codex CLI, GitHub Copilot CLI, Goose
+- **AI coding agents** — Claude Code, Gemini CLI, OpenCode, Codex CLI, GitHub Copilot CLI, Goose, Amp, Aider, Forge, Cursor Agent
 - **Training jobs** — long-running GPU training with live output
 - **Builds and test suites** — compilation, CI pipelines, test runs
 - **Any terminal process** — if it runs in a terminal, Conductor can manage it
@@ -77,7 +81,7 @@ Conductor works with any interactive terminal process. The dashboard ships with 
 
 The dashboard can only launch commands from the allowlist. The CLI is unrestricted.
 
-**From the dashboard (recommended):** Open the hamburger menu → **Settings** (only visible on localhost). Add, edit, or remove commands from the **Allowed Commands** section and click **Save**. Changes take effect immediately on all connected clients — no restart needed. Settings are stored in `~/.conductor/config.yaml`.
+**From the dashboard (recommended):** Open the hamburger menu → **Settings** (only visible on localhost). The dialog is organized into three tabs — **Agents** (command allowlist), **Directories** (default paths), and **General** (limits and server info). Add, edit, or remove commands and click **Save**. Changes take effect immediately on all connected clients — no restart needed. Settings are stored in `~/.conductor/config.yaml`.
 
 **From the config file:** Edit `~/.conductor/config.yaml` directly (created on first save from Settings):
 
@@ -94,10 +98,13 @@ Optional fields for advanced behavior:
 ```yaml
   - command: "my-agent"
     label: "My Agent"
-    resume_pattern: "--resume\\s+(\\S+)"  # regex to capture resume token from output
-    resume_flag: "--resume"               # flag used when resuming
-    stop_sequence: ["\x03", "/exit", "\r"] # graceful stop keystrokes
+    resume_pattern: "--resume\\s+(\\S+)"    # regex to capture resume token from output
+    resume_flag: "--resume"                 # flag used when resuming (token-based)
+    resume_command: "my-agent --continue"   # fixed command for resume (command-based)
+    stop_sequence: ["\x03", "/exit", "\r"]  # graceful stop keystrokes
 ```
+
+Use `resume_pattern` + `resume_flag` for agents that print a resume token on exit (e.g. Claude Code). Use `resume_command` for agents that manage their own session history (e.g. Gemini, OpenCode, Goose). Don't set both.
 
 After editing the file, restart the server: `conductor restart`.
 
@@ -395,7 +402,7 @@ The web dashboard provides:
 - **Link Device** — QR code in the hamburger menu for opening the dashboard on another device
 - **Git worktree isolation** — run any agent in an isolated git worktree; each gets its own branch and working copy, so parallel agents never conflict with each other or your work. Auto-commits before merge, non-destructive merge cycle (work → merge → resume → merge again → delete when done). Merge dialog with conflict detection, strategy picker (squash/merge/rebase), and fullscreen diff viewer with file sidebar, keyboard navigation (j/k, ↑/↓), and font zoom (+/−). Merge button only appears when there are commits to merge
 - **Layout persistence** — open panels, split layout, and focus are saved to localStorage and restored on page reload; only panels with running sessions are restored
-- **Settings panel** — manage allowed commands, directories, buffer size, upload warning threshold, and stop timeout from the dashboard (localhost only). Changes persist and propagate to all clients automatically
+- **Settings panel** — tabbed dialog (Agents, Directories, General) for managing allowed commands, directories, buffer size, upload warning threshold, and stop timeout from the dashboard (localhost only). Changes persist and propagate to all clients automatically
 - **Server management** — add/remove servers, Tailscale device picker, QR scanner, connection status
 - **File upload** — drag and drop files onto the terminal (desktop), paste from clipboard (Ctrl+V), or tap the attachment button (mobile) to upload any file (images, PDFs, code, text, etc.); shows an upload dialog with progress, then lets you insert the file path into the terminal or copy it to clipboard. Uploaded files are auto-cleaned when the session ends
 - **Mobile extra keys** — on-screen toolbar with ESC, TAB, arrows, CTRL, ALT, Page Up/Down, Home/End, and attachment button; appears above the virtual keyboard on touch devices, with collapsible drawer (state persisted)

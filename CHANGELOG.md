@@ -2,6 +2,23 @@
 
 All notable changes to Conductor are documented here.
 
+## v0.3.9
+
+### New agents
+
+- **Gemini CLI** — Google's terminal AI agent (`gemini`), with resume support via `gemini --resume`
+- **OpenCode** — open-source AI coding agent (`opencode`), with resume support via `opencode --continue`
+- **Amp** — Sourcegraph's AI coding agent (`amp`)
+- **Forge** — open-source pair-programming agent (`forge`)
+- **Goose resume** — Goose (Block) sessions are now resumable via `goose session --resume`
+
+The default command list now includes 12 agents. All agents support git worktree isolation out of the box. Users with a saved `~/.conductor/config.yaml` keep their own list — reset via Settings → "Reset to defaults" to pick up the new agents.
+
+### Settings tabs
+
+- **Tabbed settings dialog** — the Settings panel is now organized into three tabs: Agents, Directories, and General. Makes the growing command list easier to manage
+- **Resume command field** — the command editor now includes a "Resume command" field for agents that manage their own session history (e.g. `gemini --resume`, `opencode --continue`)
+
 ## v0.3.8
 
 ### Resume support

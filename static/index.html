@@ -1565,6 +1565,29 @@
             margin-top: 6px;
         }
         .settings-add-btn:hover { border-color: #4040aa; color: #a0a0d0; }
+        .settings-tabs {
+            display: flex;
+            gap: 0;
+            margin-bottom: 14px;
+            border-bottom: 1px solid #2a2a5a;
+        }
+        .settings-tab {
+            padding: 7px 16px;
+            font-size: 12px;
+            color: #7878a0;
+            background: none;
+            border: none;
+            border-bottom: 2px solid transparent;
+            cursor: pointer;
+            transition: color 0.15s, border-color 0.15s;
+        }
+        .settings-tab:hover { color: #a0a0d0; }
+        .settings-tab.active {
+            color: #8080ff;
+            border-bottom-color: #8080ff;
+        }
+        .settings-tab-panel { display: none; }
+        .settings-tab-panel.active { display: block; }
         .settings-edit-form {
             background: #0e0e2a;
             border: 1px solid #2a2a5a;
@@ -4585,6 +4608,14 @@
             }
         }
 
+        let _settingsTab = 'agents';
+
+        function switchSettingsTab(tab) {
+            _settingsTab = tab;
+            document.querySelectorAll('.settings-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+            document.querySelectorAll('.settings-tab-panel').forEach(p => p.classList.toggle('active', p.dataset.tab === tab));
+        }
+
         function renderSettings() {
             const el = document.getElementById('settings-content');
             const d = _settingsData;
@@ -4592,7 +4623,15 @@
 
             let html = '';
 
-            // ── Commands section
+            // ── Tabs
+            html += '<div class="settings-tabs">';
+            html += `<button class="settings-tab${_settingsTab === 'agents' ? ' active' : ''}" data-tab="agents" onclick="switchSettingsTab('agents')">Agents</button>`;
+            html += `<button class="settings-tab${_settingsTab === 'directories' ? ' active' : ''}" data-tab="directories" onclick="switchSettingsTab('directories')">Directories</button>`;
+            html += `<button class="settings-tab${_settingsTab === 'general' ? ' active' : ''}" data-tab="general" onclick="switchSettingsTab('general')">General</button>`;
+            html += '</div>';
+
+            // ── Agents tab
+            html += `<div class="settings-tab-panel${_settingsTab === 'agents' ? ' active' : ''}" data-tab="agents">`;
             html += '<div class="settings-section"><div class="settings-section-title">Allowed Commands</div>';
             html += '<div id="settings-commands">';
             (d.allowed_commands || []).forEach((cmd, i) => {
@@ -4607,11 +4646,11 @@
             html += '</div>';
             html += '<button class="settings-add-btn" onclick="addCommand()">+ Add command</button>';
             html += '</div>';
-
-            // ── Command edit form (hidden by default)
             html += '<div id="settings-cmd-edit" style="display:none"></div>';
+            html += '</div>';
 
-            // ── Directories section
+            // ── Directories tab
+            html += `<div class="settings-tab-panel${_settingsTab === 'directories' ? ' active' : ''}" data-tab="directories">`;
             html += '<div class="settings-section"><div class="settings-section-title">Default Directories</div>';
             html += '<div id="settings-dirs">';
             (d.default_directories || []).forEach((dir, i) => {
@@ -4623,8 +4662,10 @@
             html += '</div>';
             html += '<button class="settings-add-btn" onclick="addDir()">+ Add directory</button>';
             html += '</div>';
+            html += '</div>';
 
-            // ── Limits section
+            // ── General tab
+            html += `<div class="settings-tab-panel${_settingsTab === 'general' ? ' active' : ''}" data-tab="general">`;
             html += '<div class="settings-section"><div class="settings-section-title">Limits</div>';
             html += '<div class="settings-row"><label>Buffer size (MB)</label>';
             html += `<input type="number" min="1" max="100" value="${Math.round((d.buffer_max_bytes || 1000000) / (1024*1024))}" onchange="_settingsData.buffer_max_bytes = Math.round(this.value * 1024 * 1024)">`;
@@ -4636,8 +4677,6 @@
             html += `<input type="number" min="5" max="300" value="${d.graceful_stop_timeout || 30}" onchange="_settingsData.graceful_stop_timeout = parseInt(this.value)">`;
             html += '</div>';
             html += '</div>';
-
-            // ── Info section (read-only)
             html += '<div class="settings-section"><div class="settings-section-title">Server Info</div>';
             html += `<div class="settings-info-row"><span class="info-label">Version</span><span class="info-value">${escHtml(d.version || '')}</span></div>`;
             html += `<div class="settings-info-row"><span class="info-label">Host</span><span class="info-value">${escHtml(d.host || '')}:${d.port || ''}</span></div>`;
@@ -4645,6 +4684,7 @@
             if (!d.auth_enabled) {
                 html += '<div class="settings-hint">Set <code>CONDUCTOR_TOKEN</code> in your environment or systemd service to require authentication for API access.</div>';
             }
+            html += '</div>';
             html += '</div>';
 
             el.innerHTML = html;
@@ -4659,6 +4699,7 @@
                 <div class="settings-edit-form">
                     <div class="form-row"><label>Label</label><input class="settings-input" id="cmd-edit-label" value="${escHtml(cmd.label || '')}"></div>
                     <div class="form-row"><label>Command</label><input class="settings-input" id="cmd-edit-command" value="${escHtml(cmd.command || '')}"></div>
+                    <div class="form-row"><label>Resume command</label><input class="settings-input" id="cmd-edit-resume-command" value="${escHtml(cmd.resume_command || '')}" placeholder="e.g. gemini --resume"></div>
                     <div class="form-row"><label>Resume pattern</label><input class="settings-input" id="cmd-edit-resume-pattern" value="${escHtml(cmd.resume_pattern || '')}" placeholder="e.g. --resume\\s+(\\S+)"></div>
                     <div class="form-row"><label>Resume flag</label><input class="settings-input" id="cmd-edit-resume-flag" value="${escHtml(cmd.resume_flag || '')}" placeholder="e.g. --resume"></div>
                     <div class="form-row"><label>Stop sequence</label><input class="settings-input" id="cmd-edit-stop" value="${escHtml((cmd.stop_sequence || []).join(', '))}" placeholder="e.g. \\x03, /exit, \\r"></div>
@@ -4679,8 +4720,10 @@
             cmd.label = label;
             cmd.command = command;
 
+            const rc = document.getElementById('cmd-edit-resume-command').value.trim();
             const rp = document.getElementById('cmd-edit-resume-pattern').value.trim();
             const rf = document.getElementById('cmd-edit-resume-flag').value.trim();
+            if (rc) cmd.resume_command = rc; else delete cmd.resume_command;
             if (rp) cmd.resume_pattern = rp; else delete cmd.resume_pattern;
             if (rf) cmd.resume_flag = rf; else delete cmd.resume_flag;
 

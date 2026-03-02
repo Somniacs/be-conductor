@@ -81,9 +81,32 @@ _DEFAULT_ALLOWED_COMMANDS = [
         "label": "GitHub Copilot CLI (allow all)",
         "resume_command": "copilot --continue",
     },
+    {
+        "command": "gemini",
+        "label": "Gemini CLI",
+        "resume_command": "gemini --resume",
+        "stop_sequence": ["\x03"],
+    },
+    {
+        "command": "opencode",
+        "label": "OpenCode",
+        "resume_command": "opencode --continue",
+        "stop_sequence": ["\x03"],
+    },
+    {
+        "command": "amp",
+        "label": "Amp (Sourcegraph)",
+        "stop_sequence": ["\x03"],
+    },
     {"command": "aider", "label": "Aider"},
+    {
+        "command": "goose",
+        "label": "Goose (Block)",
+        "resume_command": "goose session --resume",
+        "stop_sequence": ["\x03"],
+    },
+    {"command": "forge", "label": "Forge"},
     {"command": "cursor", "label": "Cursor Agent"},
-    {"command": "goose", "label": "Goose (Block)"},
 ]
 
 _DEFAULT_DIRECTORIES = [
