@@ -32,6 +32,10 @@ from pydantic import BaseModel
 # Session names: alphanumeric, hyphens, underscores, spaces, dots. Max 64 chars.
 _SAFE_NAME = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9 _.~-]{0,63}$")
 
+from conductor.external.observer import SessionObserver
+from conductor.external.scanner import ExternalSessionScanner
+from conductor.notifications.manager import NotificationEvent
+from conductor.notifications.webhook import send_webhook, test_webhook
 from conductor.sessions.registry import SessionRegistry
 from conductor.utils import config as cfg
 from conductor.utils.config import (
@@ -40,6 +44,59 @@ from conductor.utils.config import (
 
 router = APIRouter()
 registry = SessionRegistry()
+_external_scanner = ExternalSessionScanner()
+
+# Active observers for external session observation (file_id → SessionObserver)
+_observers: dict[str, SessionObserver] = {}
+
+# Set of active WebSocket connections for notification broadcast.
+_notification_ws: set[WebSocket] = set()
+
+
+async def _broadcast_notification(event: NotificationEvent):
+    """Send a notification event to all connected WebSocket clients.
+
+    Also dispatches to configured webhooks.
+    """
+    # WebSocket broadcast — send as a specially-prefixed text message
+    msg = json.dumps({
+        "type": "notification",
+        "session_id": event.session_id,
+        "session_name": event.session_name,
+        "reason": event.reason,
+        "snippet": event.snippet,
+        "timestamp": event.timestamp,
+    })
+    dead: list[WebSocket] = []
+    for ws in list(_notification_ws):
+        try:
+            await ws.send_text(msg)
+        except Exception:
+            dead.append(ws)
+    for ws in dead:
+        _notification_ws.discard(ws)
+
+    # Webhook dispatch — send to all devices with webhooks configured
+    for device_id, settings in registry.notification_manager.get_all_device_settings().items():
+        url = settings.get("webhook_url", "")
+        enabled = settings.get("webhook_enabled", False)
+        if url and enabled:
+            # Check session filter
+            session_filter = settings.get("sessions", "all")
+            if session_filter != "all" and isinstance(session_filter, list):
+                if event.session_id not in session_filter:
+                    continue
+            asyncio.ensure_future(send_webhook(
+                url=url,
+                session_name=event.session_name,
+                reason=event.reason,
+                snippet=event.snippet,
+                chat_id=settings.get("webhook_chat_id"),
+            ))
+
+
+# Register the broadcast handler with the notification manager.
+registry.notification_manager.register_handler(_broadcast_notification)
 
 
 def _allowed_base_commands() -> set[str]:
@@ -354,6 +411,42 @@ async def reset_admin_settings(request: Request):
     _require_localhost(request)
     cfg.reset_to_defaults()
     return {"status": "ok", "config_version": cfg.get_config_version()}
+
+
+# ---------------------------------------------------------------------------
+# Notification settings (accessible from all devices — not localhost-only)
+# ---------------------------------------------------------------------------
+
+@router.get("/notifications/settings")
+async def get_notification_settings(request: Request):
+    """Get notification settings for a device (identified by X-Device-Id header)."""
+    device_id = request.headers.get("x-device-id", "")
+    if not device_id:
+        return {}
+    return registry.notification_manager.get_device_settings(device_id)
+
+
+@router.put("/notifications/settings")
+async def put_notification_settings(request: Request):
+    """Save notification settings for a device."""
+    device_id = request.headers.get("x-device-id", "")
+    if not device_id:
+        raise HTTPException(status_code=400, detail="X-Device-Id header required")
+    data = await request.json()
+    registry.notification_manager.set_device_settings(device_id, data)
+    return {"status": "ok"}
+
+
+@router.post("/notifications/webhook/test")
+async def test_notification_webhook(request: Request):
+    """Send a test notification to verify webhook configuration."""
+    data = await request.json()
+    url = data.get("url", "")
+    chat_id = data.get("chat_id")
+    if not url:
+        raise HTTPException(status_code=400, detail="Webhook URL required")
+    ok, message = await test_webhook(url, chat_id=chat_id)
+    return {"ok": ok, "message": message}
 
 
 @router.get("/sessions")
@@ -736,6 +829,167 @@ async def worktree_gc(req: GCRequest):
 
 
 # ---------------------------------------------------------------------------
+# External Claude Code sessions — discovery, resume, and observation
+# ---------------------------------------------------------------------------
+
+# file_id must be a UUID (Claude session filenames are always UUIDs).
+# This prevents path traversal and command injection.
+_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
+
+
+def _validate_file_id(file_id: str):
+    """Raise 400 if file_id is not a valid UUID."""
+    if not _UUID_RE.match(file_id):
+        raise HTTPException(status_code=400, detail="Invalid session file ID")
+
+
+def _conductor_resume_ids() -> set[str]:
+    """Collect file_ids already managed by Conductor (to exclude from scan)."""
+    ids = set()
+    for session in registry.sessions.values():
+        # Check if command contains --resume <file_id>
+        import re as _re
+        m = _re.search(r'--resume\s+(\S+)', session.command)
+        if m:
+            ids.add(m.group(1))
+    return ids
+
+
+@router.get("/external/sessions")
+async def list_external_sessions(project: str | None = None):
+    """Discover external Claude Code sessions from ~/.claude/projects/."""
+    loop = asyncio.get_event_loop()
+    conductor_ids = _conductor_resume_ids()
+    results = await loop.run_in_executor(
+        None, _external_scanner.scan, project, conductor_ids
+    )
+    return results
+
+
+class ExternalResumeRequest(BaseModel):
+    name: str
+
+
+@router.post("/external/sessions/{file_id}/resume")
+async def resume_external_session(file_id: str, req: ExternalResumeRequest, request: Request):
+    """Resume an external Claude Code session in a Conductor PTY."""
+    _validate_file_id(file_id)
+    req.name = req.name.strip()
+    if not _SAFE_NAME.match(req.name):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid session name.",
+        )
+
+    # Look up session info from scanner
+    loop = asyncio.get_event_loop()
+    info = await loop.run_in_executor(None, _external_scanner.get_session_info, file_id)
+    if not info:
+        raise HTTPException(status_code=404, detail="External session not found")
+
+    if info.get("is_live"):
+        raise HTTPException(status_code=409, detail="Session is still running in IDE — use observe instead")
+
+    # Build the resume command
+    command = f"claude --resume {file_id}"
+    cwd = info.get("cwd")
+
+    try:
+        session = await registry.create(req.name, command, cwd=cwd)
+        d = session.to_dict()
+        d["ws_url"] = _ws_url_for(request, session.id)
+        _external_scanner.invalidate()
+        return d
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=400, detail=f"Command not found: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.websocket("/external/sessions/{file_id}/observe")
+async def observe_external_session(ws: WebSocket, file_id: str):
+    """WebSocket endpoint for read-only observation of a running IDE session."""
+    if not _UUID_RE.match(file_id):
+        await ws.close(code=4003, reason="Invalid session file ID")
+        return
+    if not _check_ws_auth(ws):
+        await ws.close(code=4001, reason="Unauthorized")
+        return
+
+    # Find the JSONL file
+    loop = asyncio.get_event_loop()
+    jsonl_path = await loop.run_in_executor(None, _external_scanner.get_jsonl_path, file_id)
+    if not jsonl_path:
+        await ws.close(code=4004, reason="Session file not found")
+        return
+
+    await ws.accept()
+
+    # Get or create observer for this file
+    observer = _observers.get(file_id)
+    if not observer:
+        observer = SessionObserver(jsonl_path)
+        _observers[file_id] = observer
+        await observer.start()
+
+    # Send history buffer
+    buffer = observer.get_buffer()
+    if buffer:
+        await ws.send_bytes(buffer)
+
+    queue = observer.subscribe()
+
+    async def writer():
+        try:
+            while True:
+                try:
+                    data = await asyncio.wait_for(queue.get(), timeout=30)
+                    if data is None:
+                        break
+                    await ws.send_bytes(data)
+                except asyncio.TimeoutError:
+                    # Keepalive ping
+                    try:
+                        await ws.send_bytes(b"")
+                    except Exception:
+                        break
+        except Exception:
+            pass
+
+    async def reader():
+        """Consume client messages but ignore them (read-only)."""
+        try:
+            while True:
+                message = await ws.receive()
+                if message["type"] == "websocket.disconnect":
+                    break
+                # Ignore all input — this is read-only
+        except WebSocketDisconnect:
+            pass
+        except Exception:
+            pass
+
+    writer_task = asyncio.create_task(writer())
+    reader_task = asyncio.create_task(reader())
+
+    try:
+        done, pending = await asyncio.wait(
+            {writer_task, reader_task},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for task in pending:
+            task.cancel()
+    finally:
+        observer.unsubscribe(queue)
+        # If no more subscribers, stop and remove observer
+        if observer.subscriber_count == 0:
+            await observer.stop()
+            _observers.pop(file_id, None)
+
+
+# ---------------------------------------------------------------------------
 # WebSocket — supports typed=true mode for agent clients
 # ---------------------------------------------------------------------------
 
@@ -753,10 +1007,16 @@ async def stream_session(ws: WebSocket, session_id: str, typed: bool = False):
 
     await ws.accept()
 
-    if typed:
-        await _stream_typed(ws, session)
-    else:
-        await _stream_raw(ws, session)
+    # Track this WebSocket for notification broadcast.
+    _notification_ws.add(ws)
+
+    try:
+        if typed:
+            await _stream_typed(ws, session)
+        else:
+            await _stream_raw(ws, session)
+    finally:
+        _notification_ws.discard(ws)
 
 
 async def _stream_raw(ws: WebSocket, session: Any):

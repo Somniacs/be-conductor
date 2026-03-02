@@ -4,6 +4,24 @@ All notable changes to Conductor are documented here.
 
 ## v0.3.9
 
+### External session discovery and observation
+
+- **Discover IDE sessions** — the Resume tab now scans `~/.claude/projects/` for Claude Code session files (JSONL) and lists them with slug, project path, branch, and recency. Sessions running in VS Code or JetBrains IDEs are detected via `~/.claude/ide/*.lock` files and shown with a live badge
+- **Resume external sessions** — select a closed IDE session from the list and resume it in a Conductor PTY using `claude --resume`. The conversation continues where the IDE left off
+- **Observe live sessions** — select a running IDE session to open a read-only observation panel. The JSONL file is tailed in real-time with ANSI-colored formatting (user messages in cyan, assistant in green, tool calls in yellow with timestamps). Input is disabled server-side; typing shows a "read-only" toast
+- **Session scanner** — new `conductor.external` package handles discovery (10s cache, excludes subagent files, filters out sessions already in Conductor) and observation (history limited to last 200 records for large files, auto-cleanup on last subscriber disconnect)
+- **Security** — file IDs are validated as UUIDs to prevent path traversal and command injection
+
+### Notification system
+
+- **Server-side notification detection** — the server now monitors terminal output and detects when an AI agent is waiting for user input (confirmation prompts, permission requests, questions). Pattern matching runs after 5 seconds of silence, with a 60-second cooldown to prevent spam
+- **Browser notifications** — opt-in system notifications when an agent needs attention (only fires when the tab is not visible). Configurable per device via the new Notifications settings tab
+- **Audio alerts** — optional notification chime that plays when an agent is waiting. Preview button in settings to hear the sound before enabling
+- **Webhook integration** — send notifications to Telegram, Discord, Slack, or any generic JSON endpoint. Auto-detects the platform from the URL and formats messages accordingly. Includes a test button to verify webhook configuration
+- **Per-device notification settings** — each device (phone, tablet, desktop) has its own notification preferences stored in localStorage with webhook config synced server-side. Unique device ID generated automatically
+- **Settings visible to all devices** — the Settings dialog is now accessible from any device (not just localhost). Remote devices see only the Notifications tab; admin tabs (Agents, Directories, General) remain localhost-only
+- **Custom notification patterns** — per-agent `notification_patterns` can be configured to match agent-specific prompts beyond the built-in defaults
+
 ### UI fixes
 
 - **Empty state action** — restored the "+ New Session" button on the empty state screen (lost during the v0.3.8 rework)

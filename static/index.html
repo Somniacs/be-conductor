@@ -305,6 +305,26 @@
         .resume-info { font-size: 11px; color: #7878a0; margin-top: 4px; display: none; }
         .resume-info.visible { display: block; }
 
+        /* External session picker */
+        .external-session-list { max-height: 200px; overflow-y: auto; margin-top: 4px; }
+        .ext-session-item {
+            padding: 6px 10px; border: 1px solid #2a2a5a; border-radius: 5px;
+            margin-bottom: 3px; cursor: pointer; font-size: 12px;
+        }
+        .ext-session-item:hover { background: #1a1a3e; }
+        .ext-session-item.selected { background: #252560; border-color: #6060bb; }
+        .ext-session-live { color: #44dd77; font-size: 10px; font-weight: 500; }
+        .ext-session-meta { color: #7878a0; font-size: 10px; margin-top: 2px; }
+
+        /* Read-only observation banner & panel */
+        .observe-banner {
+            background: #2a1a1a; border-bottom: 2px solid #5a3030;
+            color: #ff9060; font-size: 11px; font-weight: 600;
+            text-align: center; padding: 4px 12px;
+            letter-spacing: 0.5px; text-transform: uppercase;
+        }
+        .panel.observe-panel .panel-header { background: #1a1010; }
+
         /* Worktree checkbox row */
         .worktree-row {
             display: flex;
@@ -1595,6 +1615,101 @@
         }
         .settings-tab-panel { display: none; }
         .settings-tab-panel.active { display: block; }
+        /* Toggle switch */
+        .settings-toggle-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 0;
+        }
+        .settings-toggle-row + .settings-toggle-row {
+            border-top: 1px solid #1a1a3a;
+        }
+        .settings-toggle-label {
+            font-size: 13px;
+            color: #c0c0e0;
+        }
+        .settings-toggle-label small {
+            display: block;
+            font-size: 11px;
+            color: #7878a0;
+            margin-top: 2px;
+        }
+        .toggle-switch {
+            position: relative;
+            width: 38px;
+            height: 20px;
+            flex-shrink: 0;
+        }
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            inset: 0;
+            background: #2a2a5a;
+            border-radius: 20px;
+            transition: background 0.2s;
+        }
+        .toggle-slider::before {
+            content: '';
+            position: absolute;
+            width: 14px;
+            height: 14px;
+            left: 3px;
+            bottom: 3px;
+            background: #7878a0;
+            border-radius: 50%;
+            transition: transform 0.2s, background 0.2s;
+        }
+        .toggle-switch input:checked + .toggle-slider {
+            background: #3030aa;
+        }
+        .toggle-switch input:checked + .toggle-slider::before {
+            transform: translateX(18px);
+            background: #fff;
+        }
+        .notif-webhook-row {
+            margin-top: 10px;
+        }
+        .notif-webhook-row label {
+            display: block;
+            font-size: 12px;
+            color: #a0a0c0;
+            margin-bottom: 4px;
+        }
+        .notif-webhook-row input {
+            width: 100%;
+            box-sizing: border-box;
+        }
+        .notif-webhook-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 8px;
+            align-items: center;
+        }
+        .notif-webhook-actions button {
+            padding: 4px 12px;
+            font-size: 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            background: #1a1a3a;
+            border: 1px solid #2a2a5a;
+            color: #a0a0c0;
+        }
+        .notif-webhook-actions button:hover {
+            border-color: #4040aa;
+            color: #c0c0e0;
+        }
+        .notif-test-result {
+            font-size: 11px;
+            color: #7878a0;
+        }
+        .notif-test-result.ok { color: #60c060; }
+        .notif-test-result.fail { color: #ff6060; }
         .settings-edit-form {
             background: #0e0e2a;
             border: 1px solid #2a2a5a;
@@ -1922,6 +2037,10 @@
                     <input type="text" id="new-resume-token" placeholder="Paste UUID from agent output" autocomplete="off" oninput="validateNewSession()">
                 </div>
                 <div class="resume-info" id="resume-info"></div>
+                <div id="external-sessions-section" style="display:none;">
+                    <label>Claude Code sessions</label>
+                    <div id="external-session-list" class="external-session-list"></div>
+                </div>
                 <div id="new-session-fields">
                     <label>Working directory</label>
                     <div class="dir-picker" id="dir-picker"></div>
@@ -3607,7 +3726,10 @@
 
                 // Connect WebSocket — on connect, we'll fetch PTY dimensions
                 // and resize xterm.js to match (host terminal is the authority).
-                if (!panel.ws) connectWebSocket(panel);
+                if (!panel.ws) {
+                    if (panel._isObserve) connectObserveWebSocket(panel);
+                    else connectWebSocket(panel);
+                }
 
                 // Watch the flex-sized outer container for size changes.
                 // .panel-terminal gets an explicit pixel height from _fitPanelCore
@@ -4450,7 +4572,20 @@
 
             ws.onmessage = (event) => {
                 if (event.data instanceof ArrayBuffer && event.data.byteLength === 0) return;
-                if (!panel._bufferReplay) trackActivity(panel);
+
+                // Server-side notification events arrive as JSON text
+                if (typeof event.data === 'string') {
+                    try {
+                        const msg = JSON.parse(event.data);
+                        if (msg.type === 'notification') {
+                            _handleServerNotification(msg, panel);
+                            return;
+                        }
+                    } catch (_) {
+                        // Not JSON — treat as terminal data
+                    }
+                }
+
                 if (panel.terminal) {
                     const data = event.data instanceof ArrayBuffer
                         ? new Uint8Array(event.data)
@@ -4511,6 +4646,190 @@
                 panel.ws.send(input.value + '\n');
                 input.value = '';
             }
+        }
+
+        // --- Observe Panel (read-only external session) ---
+
+        function openObservePanel(fileId, displayName) {
+            const panelId = 'observe::' + fileId;
+            if (panels.find(p => p.id === panelId)) return;
+
+            const panel = {
+                id: panelId, server: 'local', sessionId: fileId, name: displayName,
+                ws: null, terminal: null, fitAddon: null,
+                element: null, _resizeObserver: null, _theme: 'default',
+                _sizeChecked: false, _dimensionsReady: true, _ptyRows: null, _ptyCols: null,
+                _isObserve: true, _fileId: fileId,
+            };
+            panels.push(panel);
+            buildObservePanelElement(panel);
+            insertIntoTree(panelId, 'right');
+            layoutPanels();
+            setFocus(panelId);
+        }
+
+        function buildObservePanelElement(panel) {
+            const div = document.createElement('div');
+            div.className = 'panel observe-panel';
+
+            const termOuter = document.createElement('div');
+            termOuter.className = 'panel-terminal-outer';
+            const termEl = document.createElement('div');
+            termEl.className = 'panel-terminal';
+            const termWrapper = document.createElement('div');
+            termWrapper.className = 'terminal-wrapper';
+            termEl.appendChild(termWrapper);
+            termOuter.appendChild(termEl);
+
+            // Scroll proxies (same as normal panels)
+            const scrollProxy = document.createElement('div');
+            scrollProxy.className = 'xterm-scroll-proxy';
+            const scrollThumb = document.createElement('div');
+            scrollThumb.className = 'xterm-scroll-thumb';
+            scrollProxy.appendChild(scrollThumb);
+            termOuter.appendChild(scrollProxy);
+
+            const hScrollProxy = document.createElement('div');
+            hScrollProxy.className = 'xterm-hscroll-proxy';
+            const hScrollThumb = document.createElement('div');
+            hScrollThumb.className = 'xterm-hscroll-thumb';
+            hScrollProxy.appendChild(hScrollThumb);
+            termOuter.appendChild(hScrollProxy);
+
+            const pid = panel.id.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+            div.innerHTML = `
+                <div class="panel-header">
+                    <span class="panel-title">${escHtml(panel.name)}</span>
+                    <div class="panel-header-actions" style="position:relative;">
+                        <button class="close-btn" onclick="closePanel('${pid}')">&times;</button>
+                    </div>
+                </div>
+            `;
+
+            // Read-only banner
+            const banner = document.createElement('div');
+            banner.className = 'observe-banner';
+            banner.textContent = 'READ-ONLY — OBSERVING IDE SESSION';
+            div.appendChild(banner);
+
+            div.appendChild(termOuter);
+
+            // Prevent header buttons from stealing focus
+            const hdrActions = div.querySelector('.panel-header-actions');
+            if (hdrActions) hdrActions.addEventListener('mousedown', e => e.preventDefault());
+
+            panel.element = div;
+            panel._termEl = termEl;
+            panel._termWrapper = termWrapper;
+            panel._scrollProxy = scrollProxy;
+            panel._scrollThumb = scrollThumb;
+            panel._hScrollProxy = hScrollProxy;
+
+            if (hasXterm) {
+                const defT = THEMES['default'];
+                const term = new Terminal({
+                    cursorBlink: false,
+                    fontSize: window.innerWidth <= 700 ? 8 : 14,
+                    fontFamily: "'Consolas', 'Monaco', 'Courier New', monospace",
+                    theme: {
+                        background: defT.background, foreground: defT.foreground,
+                        cursor: defT.cursor, selectionBackground: defT.selectionBackground,
+                        black: defT.black, red: defT.red, green: defT.green, yellow: defT.yellow,
+                        blue: defT.blue, magenta: defT.magenta, cyan: defT.cyan, white: defT.white,
+                        brightBlack: defT.brightBlack, brightRed: defT.brightRed,
+                        brightGreen: defT.brightGreen, brightYellow: defT.brightYellow,
+                        brightBlue: defT.brightBlue, brightMagenta: defT.brightMagenta,
+                        brightCyan: defT.brightCyan, brightWhite: defT.brightWhite,
+                    },
+                    scrollback: 5000,
+                    convertEol: false,
+                    disableStdin: true,
+                });
+                panel.terminal = term;
+                if (typeof FitAddon !== 'undefined') {
+                    const fitAddon = new FitAddon.FitAddon();
+                    term.loadAddon(fitAddon);
+                    panel.fitAddon = fitAddon;
+                }
+                // Show toast on first keypress
+                let _toastShown = false;
+                term.onData(() => {
+                    if (!_toastShown) {
+                        _toastShown = true;
+                        showToast('This panel is read-only');
+                    }
+                });
+            }
+
+            // Clicking sets focus
+            div.addEventListener('mousedown', (e) => {
+                if (!e.target.closest('.panel-header-actions')) setFocus(panel.id);
+            });
+            div.addEventListener('touchstart', (e) => {
+                if (!e.target.closest('.panel-header-actions')) setFocus(panel.id);
+            }, { passive: true });
+        }
+
+        function connectObserveWebSocket(panel) {
+            let wsUrl = serverWsUrl(panel.server, `/external/sessions/${panel._fileId}/observe`);
+            if (_conductorToken) wsUrl += (wsUrl.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(_conductorToken);
+            const ws = new WebSocket(wsUrl);
+            ws.binaryType = 'arraybuffer';
+
+            ws.onopen = () => {
+                panel._dimensionsReady = true;
+                panel._sizeChecked = true;
+                _fitPanelCore(panel);
+            };
+
+            let writeBuf = [];
+            let writeRaf = null;
+            function flushWrites() {
+                writeRaf = null;
+                if (!writeBuf.length || !panel.terminal) return;
+                let total = 0;
+                for (const c of writeBuf) total += c.length;
+                const merged = new Uint8Array(total);
+                let off = 0;
+                for (const c of writeBuf) { merged.set(c, off); off += c.length; }
+                writeBuf = [];
+                panel.terminal.write(merged);
+            }
+
+            ws.onmessage = (event) => {
+                if (event.data instanceof ArrayBuffer && event.data.byteLength === 0) return;
+                if (panel.terminal) {
+                    const data = event.data instanceof ArrayBuffer
+                        ? new Uint8Array(event.data)
+                        : new TextEncoder().encode(event.data);
+                    writeBuf.push(data);
+                    if (!writeRaf) writeRaf = requestAnimationFrame(flushWrites);
+                }
+            };
+
+            ws.onclose = () => {
+                // Don't auto-reconnect for observe panels
+                if (panel.terminal) {
+                    panel.terminal.write('\r\n\x1b[90m[Session is no longer updating]\x1b[0m\r\n');
+                }
+            };
+
+            ws.onerror = () => {};
+
+            panel.ws = ws;
+        }
+
+        function showToast(message) {
+            let toast = document.getElementById('observe-toast');
+            if (!toast) {
+                toast = document.createElement('div');
+                toast.id = 'observe-toast';
+                toast.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#2a2a5a;color:#d0d0ff;padding:6px 16px;border-radius:4px;font-size:12px;z-index:9999;transition:opacity 0.3s;';
+                document.body.appendChild(toast);
+            }
+            toast.textContent = message;
+            toast.style.opacity = '1';
+            setTimeout(() => { toast.style.opacity = '0'; }, 2000);
         }
 
         // --- New Session ---
@@ -4587,8 +4906,9 @@
 
         let _settingsData = null;  // loaded from /admin/settings
 
-        // Show settings menu item only on localhost
-        if (isLocalhost()) {
+        // Show settings menu item for all devices (notifications tab is universal).
+        // Admin tabs (Agents, Directories, General) are only shown on localhost.
+        {
             const mi = document.getElementById('settings-menu-item');
             if (mi) mi.style.display = '';
         }
@@ -4605,12 +4925,37 @@
             const el = document.getElementById('settings-content');
             el.innerHTML = '<div style="color:#7878a0;font-size:13px;padding:8px 0;">Loading...</div>';
             try {
-                const resp = await fetch('/admin/settings');
-                if (resp.status === 403) {
-                    el.innerHTML = '<div style="color:#ff6060;font-size:13px;">Settings are only available from localhost.</div>';
-                    return;
+                if (isLocalhost()) {
+                    const resp = await fetch('/admin/settings');
+                    if (resp.ok) {
+                        _settingsData = await resp.json();
+                    }
                 }
-                _settingsData = await resp.json();
+                // If no admin data (remote device), create minimal shell for notifications tab
+                if (!_settingsData) {
+                    _settingsData = { _remote: true };
+                    _settingsTab = 'notifications';
+                }
+                // Load server-stored notification settings and merge with localStorage.
+                // Server is the source of truth for webhook_url / webhook_chat_id so
+                // they persist across browser clears.
+                try {
+                    const resp = await fetch('/notifications/settings', {
+                        headers: { 'X-Device-Id': _getDeviceId() },
+                    });
+                    if (resp.ok) {
+                        const serverNs = await resp.json();
+                        if (serverNs && Object.keys(serverNs).length) {
+                            const localNs = _getNotifSettings();
+                            // Merge: server wins for webhook fields, local wins for browser/sound
+                            const merged = { ...serverNs, ...localNs };
+                            // But always take server webhook_url if local is empty
+                            if (!merged.webhook_url && serverNs.webhook_url) merged.webhook_url = serverNs.webhook_url;
+                            if (!merged.webhook_chat_id && serverNs.webhook_chat_id) merged.webhook_chat_id = serverNs.webhook_chat_id;
+                            _saveNotifSettings(merged);
+                        }
+                    }
+                } catch (_) {}
                 renderSettings();
             } catch (e) {
                 el.innerHTML = '<div style="color:#ff6060;font-size:13px;">Failed to load settings.</div>';
@@ -4623,6 +4968,119 @@
             _settingsTab = tab;
             document.querySelectorAll('.settings-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
             document.querySelectorAll('.settings-tab-panel').forEach(p => p.classList.toggle('active', p.dataset.tab === tab));
+            // Show/hide footer buttons based on tab
+            const resetBtn = document.querySelector('.settings-footer .btn-reset');
+            if (resetBtn) resetBtn.style.display = (tab !== 'notifications' && isLocalhost()) ? '' : 'none';
+        }
+
+        // ── Notification settings (per-device, stored in localStorage) ────
+
+        function _getDeviceId() {
+            let id = localStorage.getItem('conductor-device-id');
+            if (!id) {
+                id = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36);
+                localStorage.setItem('conductor-device-id', id);
+            }
+            return id;
+        }
+
+        function _getNotifSettings() {
+            try {
+                return JSON.parse(localStorage.getItem('conductor-notifications') || '{}');
+            } catch { return {}; }
+        }
+
+        function _saveNotifSettings(ns) {
+            localStorage.setItem('conductor-notifications', JSON.stringify(ns));
+        }
+
+        function _updateNotifSetting(key, value) {
+            const ns = _getNotifSettings();
+            ns[key] = value;
+            _saveNotifSettings(ns);
+            // If enabling browser notifications, request permission
+            if (key === 'browser' && value) {
+                requestNotificationPermission().then(ok => {
+                    if (!ok) {
+                        ns.browser = false;
+                        _saveNotifSettings(ns);
+                        const cb = document.getElementById('notif-browser');
+                        if (cb) cb.checked = false;
+                        showAlert('Browser notification permission was denied. Check your browser settings.');
+                    }
+                });
+            }
+        }
+
+        async function _testWebhook() {
+            const urlEl = document.getElementById('notif-webhook-url');
+            const chatIdEl = document.getElementById('notif-webhook-chat-id');
+            const resultEl = document.getElementById('notif-test-result');
+            if (!urlEl || !resultEl) return;
+            const url = urlEl.value.trim();
+            if (!url) { resultEl.textContent = 'Enter a webhook URL first'; resultEl.className = 'notif-test-result fail'; return; }
+            resultEl.textContent = 'Sending...';
+            resultEl.className = 'notif-test-result';
+            try {
+                const resp = await fetch('/notifications/webhook/test', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url, chat_id: chatIdEl ? chatIdEl.value.trim() : '' }),
+                });
+                const data = await resp.json();
+                resultEl.textContent = data.message || (data.ok ? 'Success' : 'Failed');
+                resultEl.className = 'notif-test-result ' + (data.ok ? 'ok' : 'fail');
+            } catch (e) {
+                resultEl.textContent = 'Request failed: ' + e.message;
+                resultEl.className = 'notif-test-result fail';
+            }
+        }
+
+        // Notification sound — short chime as base64 WAV
+        const _notifSound = (() => {
+            // Generate a simple 200ms sine wave chime at 880Hz (A5)
+            const sampleRate = 8000;
+            const duration = 0.2;
+            const numSamples = Math.floor(sampleRate * duration);
+            const buffer = new ArrayBuffer(44 + numSamples * 2);
+            const view = new DataView(buffer);
+            // WAV header
+            const writeStr = (off, str) => { for (let i = 0; i < str.length; i++) view.setUint8(off + i, str.charCodeAt(i)); };
+            writeStr(0, 'RIFF');
+            view.setUint32(4, 36 + numSamples * 2, true);
+            writeStr(8, 'WAVE');
+            writeStr(12, 'fmt ');
+            view.setUint32(16, 16, true);
+            view.setUint16(20, 1, true);
+            view.setUint16(22, 1, true);
+            view.setUint32(24, sampleRate, true);
+            view.setUint32(28, sampleRate * 2, true);
+            view.setUint16(32, 2, true);
+            view.setUint16(34, 16, true);
+            writeStr(36, 'data');
+            view.setUint32(40, numSamples * 2, true);
+            for (let i = 0; i < numSamples; i++) {
+                const t = i / sampleRate;
+                const envelope = Math.exp(-t * 12); // fast decay
+                const sample = Math.sin(2 * Math.PI * 880 * t) * envelope * 0.5;
+                view.setInt16(44 + i * 2, Math.max(-32768, Math.min(32767, sample * 32767)), true);
+            }
+            const blob = new Blob([buffer], { type: 'audio/wav' });
+            const audio = new Audio(URL.createObjectURL(blob));
+            audio.volume = 0.5;
+            return audio;
+        })();
+
+        function _previewNotifSound() {
+            _notifSound.currentTime = 0;
+            _notifSound.play().catch(() => {});
+        }
+
+        function _playNotifSound() {
+            const ns = _getNotifSettings();
+            if (!ns.sound) return;
+            _notifSound.currentTime = 0;
+            _notifSound.play().catch(() => {});
         }
 
         function renderSettings() {
@@ -4630,13 +5088,17 @@
             const d = _settingsData;
             if (!d) return;
 
+            const local = isLocalhost() && !d._remote;
             let html = '';
 
-            // ── Tabs
+            // ── Tabs (admin tabs only on localhost)
             html += '<div class="settings-tabs">';
-            html += `<button class="settings-tab${_settingsTab === 'agents' ? ' active' : ''}" data-tab="agents" onclick="switchSettingsTab('agents')">Agents</button>`;
-            html += `<button class="settings-tab${_settingsTab === 'directories' ? ' active' : ''}" data-tab="directories" onclick="switchSettingsTab('directories')">Directories</button>`;
-            html += `<button class="settings-tab${_settingsTab === 'general' ? ' active' : ''}" data-tab="general" onclick="switchSettingsTab('general')">General</button>`;
+            if (local) {
+                html += `<button class="settings-tab${_settingsTab === 'agents' ? ' active' : ''}" data-tab="agents" onclick="switchSettingsTab('agents')">Agents</button>`;
+                html += `<button class="settings-tab${_settingsTab === 'directories' ? ' active' : ''}" data-tab="directories" onclick="switchSettingsTab('directories')">Directories</button>`;
+                html += `<button class="settings-tab${_settingsTab === 'general' ? ' active' : ''}" data-tab="general" onclick="switchSettingsTab('general')">General</button>`;
+            }
+            html += `<button class="settings-tab${_settingsTab === 'notifications' ? ' active' : ''}" data-tab="notifications" onclick="switchSettingsTab('notifications')">Notifications</button>`;
             html += '</div>';
 
             // ── Agents tab
@@ -4694,6 +5156,54 @@
                 html += '<div class="settings-hint">Set <code>CONDUCTOR_TOKEN</code> in your environment or systemd service to require authentication for API access.</div>';
             }
             html += '</div>';
+            html += '</div>';
+
+            // ── Notifications tab (visible to ALL devices)
+            const ns = _getNotifSettings();
+            html += `<div class="settings-tab-panel${_settingsTab === 'notifications' ? ' active' : ''}" data-tab="notifications">`;
+
+            html += '<div class="settings-section"><div class="settings-section-title">Browser Notifications</div>';
+            html += '<div class="settings-toggle-row">';
+            html += '<div class="settings-toggle-label">Enable browser notifications<small>Show a system notification when an agent needs your attention</small></div>';
+            html += `<label class="toggle-switch"><input type="checkbox" id="notif-browser" ${ns.browser ? 'checked' : ''} onchange="_updateNotifSetting('browser', this.checked)"><span class="toggle-slider"></span></label>`;
+            html += '</div>';
+
+            html += '<div class="settings-toggle-row">';
+            html += '<div class="settings-toggle-label">Play sound<small>Play an audio alert when a notification fires</small></div>';
+            html += '<div style="display:flex;align-items:center;gap:8px">';
+            html += `<label class="toggle-switch"><input type="checkbox" id="notif-sound" ${ns.sound ? 'checked' : ''} onchange="_updateNotifSetting('sound', this.checked)"><span class="toggle-slider"></span></label>`;
+            html += '<button style="background:none;border:none;color:#7878a0;cursor:pointer;font-size:14px" onclick="_previewNotifSound()" title="Preview sound">&#9835;</button>';
+            html += '</div>';
+            html += '</div>';
+            html += '</div>';
+
+            html += '<div class="settings-section"><div class="settings-section-title">Webhook</div>';
+            html += '<div class="settings-toggle-row">';
+            html += '<div class="settings-toggle-label">Enable webhook<small>Send notifications to Telegram, Discord, Slack, or a custom URL</small></div>';
+            html += `<label class="toggle-switch"><input type="checkbox" id="notif-webhook-enabled" ${ns.webhook_enabled ? 'checked' : ''} onchange="_updateNotifSetting('webhook_enabled', this.checked)"><span class="toggle-slider"></span></label>`;
+            html += '</div>';
+
+            html += '<div class="notif-webhook-row">';
+            html += '<label>Webhook URL</label>';
+            html += `<input class="settings-input" id="notif-webhook-url" value="${escHtml(ns.webhook_url || '')}" placeholder="https://api.telegram.org/bot.../sendMessage" onchange="_updateNotifSetting('webhook_url', this.value)">`;
+            html += '</div>';
+
+            html += '<div class="notif-webhook-row">';
+            html += '<label>Chat ID <span style="color:#7878a0">(Telegram only, optional)</span></label>';
+            html += `<input class="settings-input" id="notif-webhook-chat-id" value="${escHtml(ns.webhook_chat_id || '')}" placeholder="e.g. -1001234567890" onchange="_updateNotifSetting('webhook_chat_id', this.value)">`;
+            html += '</div>';
+
+            html += '<div class="notif-webhook-actions">';
+            html += '<button onclick="_testWebhook()">Test webhook</button>';
+            html += '<span id="notif-test-result" class="notif-test-result"></span>';
+            html += '</div>';
+            html += '</div>';
+
+            html += '<div class="settings-section"><div class="settings-section-title">Device</div>';
+            html += `<div class="settings-info-row"><span class="info-label">Device ID</span><span class="info-value" style="font-family:monospace;font-size:11px">${escHtml(_getDeviceId())}</span></div>`;
+            html += '<div class="settings-hint">This device is identified by a unique ID stored in your browser. Notification preferences are saved per device.</div>';
+            html += '</div>';
+
             html += '</div>';
 
             el.innerHTML = html;
@@ -4783,7 +5293,26 @@
         }
 
         async function saveSettings() {
-            if (!_settingsData) return;
+            // Always sync notification settings to server (webhook config)
+            const ns = _getNotifSettings();
+            try {
+                await fetch('/notifications/settings', {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Device-Id': _getDeviceId(),
+                    },
+                    body: JSON.stringify(ns),
+                });
+            } catch (e) {
+                // Non-fatal — webhook settings just won't fire server-side
+            }
+
+            // If remote device, just close the dialog — no admin settings to save
+            if (!_settingsData || _settingsData._remote) {
+                document.getElementById('settings-dialog').classList.remove('open');
+                return;
+            }
 
             // Clean up: remove empty commands and directories
             _settingsData.allowed_commands = _settingsData.allowed_commands.filter(c => c.command && c.label);
@@ -5294,20 +5823,29 @@
         }
 
         let _newSessionMode = 'new';
+        let _externalSessions = [];
+        let _selectedExternal = null;  // file_id or null
 
         function setSessionMode(mode) {
             _newSessionMode = mode;
+            _selectedExternal = null;
             const toggle = document.querySelector('.session-mode-toggle');
             toggle.children[0].classList.toggle('active', mode === 'new');
             toggle.children[1].classList.toggle('active', mode === 'resume');
             // Show/hide fields based on mode
             document.getElementById('new-session-fields').style.display = mode === 'new' ? '' : 'none';
             updateResumeFields();
+            updateExternalSessionsVisibility();
+            if (mode === 'resume') fetchExternalSessions();
             validateNewSession();
         }
 
         function onCommandChange() {
-            if (_newSessionMode === 'resume') updateResumeFields();
+            if (_newSessionMode === 'resume') {
+                updateResumeFields();
+                updateExternalSessionsVisibility();
+                fetchExternalSessions();
+            }
             validateNewSession();
         }
 
@@ -5333,6 +5871,111 @@
             }
         }
 
+        function _isClaudeCommand() {
+            const command = document.getElementById('new-command').value;
+            try { return command.split(/\s+/)[0] === 'claude'; } catch (_) { return false; }
+        }
+
+        function updateExternalSessionsVisibility() {
+            const section = document.getElementById('external-sessions-section');
+            section.style.display = (_newSessionMode === 'resume' && _isClaudeCommand()) ? '' : 'none';
+        }
+
+        async function fetchExternalSessions() {
+            if (!_isClaudeCommand()) return;
+            const listEl = document.getElementById('external-session-list');
+            listEl.innerHTML = '<div style="color:#7878a0;font-size:11px;padding:6px 0;">Loading...</div>';
+
+            try {
+                const resp = await fetch(serverUrl(_newSessionServer, '/external/sessions'));
+                if (!resp.ok) {
+                    listEl.innerHTML = '<div style="color:#ff6666;font-size:11px;padding:6px 0;">Failed to load sessions</div>';
+                    return;
+                }
+                _externalSessions = await resp.json();
+                renderExternalSessionList();
+            } catch (e) {
+                listEl.innerHTML = '<div style="color:#ff6666;font-size:11px;padding:6px 0;">Server unreachable</div>';
+            }
+        }
+
+        function renderExternalSessionList() {
+            const listEl = document.getElementById('external-session-list');
+            if (!_externalSessions.length) {
+                listEl.innerHTML = '<div style="color:#7878a0;font-size:11px;padding:6px 0;">No Claude Code sessions found</div>';
+                return;
+            }
+            listEl.innerHTML = _externalSessions.map(s => {
+                const selected = _selectedExternal === s.file_id;
+                const slug = escHtml(s.slug || s.file_id.slice(0, 12));
+                // Project path — show last 2 segments
+                const parts = (s.project_path || '').split('/').filter(Boolean);
+                const shortPath = parts.length > 2 ? parts.slice(-2).join('/') : parts.join('/');
+
+                let badge = '';
+                if (s.is_live && s.ide_name) {
+                    badge = `<span class="ext-session-live">${escHtml(s.ide_name)} (live)</span>`;
+                } else if (s.is_live) {
+                    badge = '<span class="ext-session-live">IDE (live)</span>';
+                } else {
+                    badge = `<span style="color:#7878a0;font-size:10px;">${_timeAgo(s.last_modified)}</span>`;
+                }
+
+                const branch = s.git_branch ? ` · ${escHtml(s.git_branch)}` : '';
+                return `<div class="ext-session-item${selected ? ' selected' : ''}" onclick="selectExternalSession('${escHtml(s.file_id)}')">
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                        <span>${slug}</span>
+                        ${badge}
+                    </div>
+                    <div class="ext-session-meta">${escHtml(shortPath)}${branch}</div>
+                </div>`;
+            }).join('');
+        }
+
+        function selectExternalSession(fileId) {
+            if (_selectedExternal === fileId) {
+                _selectedExternal = null;
+            } else {
+                _selectedExternal = fileId;
+                // Auto-fill session name with slug
+                const session = _externalSessions.find(s => s.file_id === fileId);
+                if (session && session.slug) {
+                    const nameInput = document.getElementById('new-name');
+                    if (!nameInput.value.trim()) {
+                        nameInput.value = session.slug;
+                    }
+                }
+            }
+            renderExternalSessionList();
+            updateRunButton();
+            validateNewSession();
+        }
+
+        function updateRunButton() {
+            const btn = document.getElementById('run-btn');
+            if (_newSessionMode === 'resume' && _selectedExternal) {
+                const session = _externalSessions.find(s => s.file_id === _selectedExternal);
+                if (session && session.is_live) {
+                    btn.textContent = 'Observe';
+                } else {
+                    btn.textContent = 'Resume';
+                }
+            } else {
+                btn.textContent = 'Run';
+            }
+        }
+
+        function _timeAgo(mtime) {
+            const seconds = Math.floor(Date.now() / 1000 - mtime);
+            if (seconds < 60) return 'just now';
+            const minutes = Math.floor(seconds / 60);
+            if (minutes < 60) return `${minutes}m ago`;
+            const hours = Math.floor(minutes / 60);
+            if (hours < 24) return `${hours}h ago`;
+            const days = Math.floor(hours / 24);
+            return `${days}d ago`;
+        }
+
         const _SAFE_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9 _.~-]{0,63}$/;
 
         function validateNewSession() {
@@ -5351,16 +5994,27 @@
             const nameOk = name && !nameTaken && !nameInvalid;
 
             if (_newSessionMode === 'resume') {
-                const command = document.getElementById('new-command').value;
-                const cmdConfig = allowedCommands.find(c => c.command === command);
-                if (cmdConfig && cmdConfig.resume_command) {
-                    // Command-based: just need name + command
-                    btn.disabled = !nameOk;
+                if (_selectedExternal) {
+                    // External session selected — observe needs no name, resume needs name
+                    const session = _externalSessions.find(s => s.file_id === _selectedExternal);
+                    if (session && session.is_live) {
+                        btn.disabled = false;  // Observe — no name needed
+                    } else {
+                        btn.disabled = !nameOk;
+                    }
                 } else {
-                    // Token-based: need name + command + token
-                    const token = document.getElementById('new-resume-token').value.trim();
-                    btn.disabled = !nameOk || !token;
+                    const command = document.getElementById('new-command').value;
+                    const cmdConfig = allowedCommands.find(c => c.command === command);
+                    if (cmdConfig && cmdConfig.resume_command) {
+                        // Command-based: just need name + command
+                        btn.disabled = !nameOk;
+                    } else {
+                        // Token-based: need name + command + token
+                        const token = document.getElementById('new-resume-token').value.trim();
+                        btn.disabled = !nameOk || !token;
+                    }
                 }
+                updateRunButton();
             } else {
                 // New mode: existing validation
                 const wtChecked = document.getElementById('new-worktree').checked;
@@ -5385,6 +6039,50 @@
         async function createSession() {
             const name = document.getElementById('new-name').value.trim();
             const command = document.getElementById('new-command').value;
+
+            // Handle external session actions (observe or resume)
+            if (_newSessionMode === 'resume' && _selectedExternal) {
+                const session = _externalSessions.find(s => s.file_id === _selectedExternal);
+                if (session && session.is_live) {
+                    // Observe — open read-only panel
+                    document.getElementById('new-session-dialog').classList.remove('open');
+                    openObservePanel(_selectedExternal, session.slug || session.file_id.slice(0, 12));
+                    _selectedExternal = null;
+                    return;
+                }
+                // Resume external session via backend
+                if (!name) return;
+                document.getElementById('new-session-dialog').classList.remove('open');
+                showBusy(`Resuming "${name}"…`);
+                try {
+                    const resp = await fetch(serverUrl(_newSessionServer, `/external/sessions/${_selectedExternal}/resume`), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name }),
+                    });
+                    if (resp.ok) {
+                        const created = await resp.json();
+                        document.getElementById('new-name').value = '';
+                        _selectedExternal = null;
+                        _suppressDrawerOpen = true;
+                        const ids = panels.map(p => p.id);
+                        ids.forEach(id => closePanel(id));
+                        _suppressDrawerOpen = false;
+                        await fetchAllSessions();
+                        const cid = compoundId(_newSessionServer, created.id);
+                        openSession(cid, created.name);
+                    } else {
+                        const err = await resp.json();
+                        showAlert(err.detail || 'Failed to resume session');
+                    }
+                } catch (e) {
+                    showAlert('Server unreachable');
+                } finally {
+                    hideBusy();
+                }
+                return;
+            }
+
             if (!name || !command) return;
 
             let body;
@@ -6003,10 +6701,10 @@
             }, 200));
         }
 
-        // --- Notifications ---
-        // Detect when a session needs attention by scanning terminal output.
-        // Two triggers: (1) permission/question prompts, (2) long idle after sustained activity.
-        let notificationsEnabled = false;
+        // --- Notifications (server-driven) ---
+        // The server detects when a session needs attention (pattern matching on
+        // terminal output after silence) and sends notification events via
+        // WebSocket. This replaces the old client-side trackActivity() approach.
 
         async function requestNotificationPermission() {
             if (!('Notification' in window)) return false;
@@ -6017,8 +6715,10 @@
         }
 
         function sendNotification(title, body) {
-            if (!notificationsEnabled) return;
+            const ns = _getNotifSettings();
+            if (!ns.browser) return;
             if (document.visibilityState === 'visible') return;
+            if (!('Notification' in window) || Notification.permission !== 'granted') return;
             try {
                 new Notification(title, {
                     body: body,
@@ -6028,63 +6728,13 @@
             } catch (e) {}
         }
 
-        // Read the last N non-empty lines from the xterm buffer
-        function getTerminalTail(panel, count) {
-            if (!panel.terminal) return '';
-            const buf = panel.terminal.buffer.active;
-            const lines = [];
-            for (let i = buf.length - 1; i >= 0 && lines.length < count; i--) {
-                const line = buf.getLine(i);
-                if (line) {
-                    const text = line.translateToString(true).trim();
-                    if (text) lines.unshift(text);
-                }
-            }
-            return lines.join('\n');
-        }
-
-        const _activityTimers = {};
-        const _outputBytes = {};     // track output volume per panel
-        const _lastNotified = {};    // prevent duplicate notifications
-        function trackActivity(panel) {
-            if (_activityTimers[panel.id]) clearTimeout(_activityTimers[panel.id]);
-
-            // Count output chunks — we only notify after sustained activity
-            _outputBytes[panel.id] = (_outputBytes[panel.id] || 0) + 1;
-
-            _activityTimers[panel.id] = setTimeout(() => {
-                // Need real output before we consider notifying
-                const volume = _outputBytes[panel.id] || 0;
-                _outputBytes[panel.id] = 0;
-                if (volume < 10) return; // ignore tiny bursts (keepalives, cursor moves)
-
-                const tail = getTerminalTail(panel, 8);
-                if (!tail) return;
-
-                let reason = null;
-                // Permission / confirmation prompts
-                if (/\(y\)es.*\(n\)o/i.test(tail) || /\[Y\/n\]/i.test(tail) || /\(y\/n\)/i.test(tail)) {
-                    reason = 'Needs confirmation';
-                } else if (/allow|deny|approve|reject/i.test(tail) && /\?/m.test(tail)) {
-                    reason = 'Asking for permission';
-                // Question being asked
-                } else if (/\?\s*$/m.test(tail)) {
-                    reason = 'Asking a question';
-                // Long idle after lots of output = task likely finished
-                } else if (volume > 100) {
-                    reason = 'Task may be complete';
-                }
-
-                if (!reason) return;
-                // Don't re-notify the same thing
-                const key = panel.id + ':' + reason;
-                if (_lastNotified[key]) return;
-                _lastNotified[key] = true;
-                // Clear after 60s so we can notify again for a new occurrence
-                setTimeout(() => { delete _lastNotified[key]; }, 60000);
-
-                sendNotification(`♭ ${panel.name}`, reason);
-            }, 5000); // 5s of silence before checking
+        function _handleServerNotification(msg, panel) {
+            const name = msg.session_name || (panel && panel.name) || 'Session';
+            const reason = msg.reason || 'Needs attention';
+            // Browser notification
+            sendNotification(`♭ ${name}`, reason);
+            // Audio alert
+            _playNotifSound();
         }
 
         // --- Init ---
@@ -6104,12 +6754,6 @@
         if (window.innerWidth <= 700 && !_hasSavedLayout) {
             document.getElementById('sidebar').classList.add('open');
         }
-
-        // Request notification permission on first user interaction
-        document.addEventListener('click', async function initNotif() {
-            notificationsEnabled = await requestNotificationPermission();
-            document.removeEventListener('click', initNotif);
-        }, { once: true });
 
         document.getElementById('new-name').addEventListener('input', validateNewSession);
 

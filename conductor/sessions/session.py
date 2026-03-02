@@ -60,7 +60,8 @@ class Session:
                  resume_flag: str | None = None,
                  resume_command: str | None = None,
                  stop_sequence: list[str] | None = None,
-                 worktree: dict | None = None):
+                 worktree: dict | None = None,
+                 notifier=None):
         self.id = session_id or name
         self.name = name
         self.command = command
@@ -86,6 +87,7 @@ class Session:
         self._on_exit = on_exit
         self._reader_thread: threading.Thread | None = None
         self._queue_overflow_warned: bool = False
+        self._notifier = notifier  # SessionNotifier instance (optional)
 
     async def start(self, rows: int = 24, cols: int = 80):
         self.pty.spawn(rows=rows, cols=cols)
@@ -149,6 +151,9 @@ class Session:
         if len(self.buffer) > cfg.BUFFER_MAX_BYTES:
             excess = len(self.buffer) - cfg.BUFFER_MAX_BYTES
             del self.buffer[:excess]
+        # Feed the notifier so it can detect when the agent needs attention.
+        if self._notifier:
+            self._notifier.on_output(data, self.buffer)
 
     def _broadcast(self, data: bytes):
         for queue in list(self.subscribers):
@@ -257,6 +262,10 @@ class Session:
                 pass
 
         self._extract_resume_id()
+
+        # Stop notification scanning.
+        if self._notifier:
+            self._notifier.cancel()
 
         # Now mark as exited — resume_id is already set (if found).
         self.status = "exited"

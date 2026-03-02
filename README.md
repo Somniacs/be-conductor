@@ -307,6 +307,19 @@ Resume tokens are persisted to disk (`~/.conductor/sessions/`), so they survive 
 
 If you don't need a resumable session, dismiss it with the **×** button — a confirmation dialog prevents accidental deletion.
 
+### Discover and observe IDE sessions
+
+Claude Code sessions started in VS Code or JetBrains IDEs run outside Conductor, but Conductor can discover and interact with them.
+
+Switch to the **Resume** tab with the Claude command selected, and Conductor scans `~/.claude/projects/` for session files. Each session shows its slug, project path, branch, and how recently it was active. Sessions running in an IDE are marked with a live badge (e.g. "Visual Studio Code (live)").
+
+- **Resume a closed IDE session** — select it from the list, give it a name, and click **Resume**. Conductor launches `claude --resume` in a PTY and the conversation continues where the IDE left off.
+- **Observe a live IDE session** — select a running session and click **Observe**. A read-only panel opens showing the conversation in real time (user messages, assistant responses, tool calls — all color-coded). Typing is disabled; the panel tails the session file and updates as the IDE session progresses.
+
+Liveness is detected via `~/.claude/ide/*.lock` files — if the IDE process is still running, the session shows as live.
+
+> **Warning:** Do not resume a session that is still active in an IDE. Claude Code session files are single-writer — resuming a session in Conductor while the IDE is still using it will cause both to write to the same file, leading to corruption. Conductor blocks resume for sessions it detects as live, but if an IDE exits between the scan and the resume click, the guard may not catch it. When in doubt, close the IDE session first.
+
 **Creating sessions on remote machines:**
 
 Click **+ New** in the sidebar. When multiple machines are connected, a **Machine** dropdown appears at the top of the form. Select the target machine, pick a command and directory (fetched from that machine's config), and click Run. The session starts on the remote machine and opens in a terminal panel.
@@ -395,6 +408,7 @@ The web dashboard provides:
 - **Keyboard input** — type directly into the terminal
 - **New session** — create sessions on any connected machine with directory picker
 - **Session resume** — exited sessions with a resume token show a play button; resume with one click
+- **IDE session discovery** — Resume tab scans `~/.claude/projects/` for external Claude Code sessions (VS Code, JetBrains); resume closed ones or observe live ones in a read-only panel
 - **Kill confirmation** — stop sessions with a confirmation dialog
 - **Color themes** — 6 presets per panel: Default, Dark, Mid, Bright, Bernstein, Green (retro CRT)
 - **Font size controls** — per-panel `+` / `−` buttons, adaptive defaults for desktop and mobile
@@ -467,6 +481,9 @@ Default port `7777`. All endpoints relative to your host. OpenAPI spec at `/open
 | `POST` | `/worktrees/{name}/merge` | Merge worktree (`{"strategy": "squash\|merge\|rebase"}`) |
 | `DELETE` | `/worktrees/{name}` | Discard worktree and branch |
 | `POST` | `/worktrees/gc` | Clean up stale/orphaned worktrees |
+| `GET` | `/external/sessions` | Discover external Claude Code sessions (optional `?project=` filter) |
+| `POST` | `/external/sessions/{file_id}/resume` | Resume a closed external session as a Conductor PTY |
+| `WS` | `/external/sessions/{file_id}/observe` | Read-only stream of an external session (tails JSONL) |
 | `GET` | `/worktrees/health` | Worktree health warnings |
 | `GET` | `/git/check?path=...` | Check if path is a git repo (for worktree toggle) |
 | `GET` | `/info` | Server identity (hostname, port, Tailscale IP/name) |

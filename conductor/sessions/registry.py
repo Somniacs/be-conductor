@@ -16,10 +16,14 @@
 import asyncio
 import json
 import logging
+import re
 import shlex
 from typing import Dict, Optional
 
-from conductor.sessions.session import Session
+from conductor.notifications.manager import (
+    NotificationManager, SessionNotifier, _DEFAULT_PATTERNS,
+)
+from conductor.sessions.session import Session, _ANSI_RE
 from conductor.utils import config as cfg
 from conductor.utils.config import SESSIONS_DIR, ensure_dirs
 
@@ -41,6 +45,7 @@ class SessionRegistry:
         self.sessions: Dict[str, Session] = {}
         self.resumable: Dict[str, dict] = {}
         self._worktree_manager = None  # Lazy-initialized
+        self.notification_manager = NotificationManager()
         ensure_dirs()
         self._load_resumable()
 
@@ -75,7 +80,8 @@ class SessionRegistry:
             if base == entry_base:
                 return {
                     k: entry[k]
-                    for k in ("resume_pattern", "resume_flag", "resume_command", "stop_sequence")
+                    for k in ("resume_pattern", "resume_flag", "resume_command",
+                              "stop_sequence", "notification_patterns")
                     if k in entry
                 }
         return {}
@@ -139,6 +145,21 @@ class SessionRegistry:
             except Exception as e:
                 raise ValueError(f"Failed to create worktree: {e}")
 
+        # Build notification patterns for this agent
+        custom_patterns = agent_cfg.get("notification_patterns")
+        if custom_patterns and isinstance(custom_patterns, list):
+            notif_patterns = [re.compile(p, re.IGNORECASE) for p in custom_patterns]
+        else:
+            notif_patterns = None  # use defaults
+
+        notifier = SessionNotifier(
+            session_id=name,
+            session_name=name,
+            manager=self.notification_manager,
+            patterns=notif_patterns,
+            ansi_re=_ANSI_RE,
+        )
+
         session = Session(
             name=name,
             command=command,
@@ -151,6 +172,7 @@ class SessionRegistry:
             resume_command=agent_cfg.get("resume_command"),
             stop_sequence=agent_cfg.get("stop_sequence"),
             worktree=worktree_info,
+            notifier=notifier,
         )
         await session.start(rows=rows or 24, cols=cols or 80)
         # Record initial size so the web client knows the PTY dimensions.
