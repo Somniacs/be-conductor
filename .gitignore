@@ -19,3 +19,7 @@ docs/planned/
 
 # Be-Conductor worktrees
 /.be-conductor-worktrees/
+
+# IDE plugin build artifacts
+.gradle/
+*.vsix
