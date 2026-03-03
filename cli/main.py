@@ -916,6 +916,13 @@ def qr():
     import qrcode
     import qrcode.image.svg
 
+    if not server_running():
+        click.echo("Server not running. Starting daemon...")
+        if not start_server_daemon():
+            click.echo("Failed to start server. Try: be-conductor serve", err=True)
+            sys.exit(1)
+        click.echo(f"Server started on {BASE_URL}")
+
     # Try to get Tailscale MagicDNS name (stable across IP changes), fall back to IP
     tailscale_host = None
     if shutil.which("tailscale"):
@@ -946,8 +953,10 @@ def qr():
     if tailscale_host:
         url = f"http://{tailscale_host}:{PORT}"
     else:
-        url = f"http://localhost:{PORT}"
+        url = f"http://127.0.0.1:{PORT}"
         click.echo("Tailscale not found. Using localhost (won't work from other devices).")
+
+    local_url = f"http://127.0.0.1:{PORT}"
 
     # Print ASCII in terminal
     click.echo(f"\n♭ be-conductor — scan to open on your phone\n")
@@ -955,7 +964,10 @@ def qr():
     qr_obj.add_data(url)
     qr_obj.make(fit=True)
     qr_obj.print_ascii(invert=True)
-    click.echo(f"\n  {url}\n")
+    click.echo(f"\n  {url}")
+    if url != local_url:
+        click.echo(f"  {local_url}")
+    click.echo()
 
     # Generate a clean SVG, wrap in HTML page, and open in browser
     img = qrcode.make(url, image_factory=qrcode.image.svg.SvgPathImage)
@@ -966,7 +978,7 @@ def qr():
 
     html_path = os.path.join(tempfile.gettempdir(), "be-conductor-qr.html")
     Path(html_path).write_text(f"""<!DOCTYPE html>
-<html><head><title>be-conductor — Link Device</title>
+<html><head><meta charset="utf-8"><title>♭ conductor — Link Device</title>
 <style>
 body {{ margin:0; min-height:100vh; display:flex; flex-direction:column;
        align-items:center; justify-content:center; background:#0a0a1a;
@@ -978,10 +990,11 @@ h1 {{ font-size:28px; color:#8080ff; margin:0 0 6px; font-weight:600; }}
 .url {{ font-size:16px; color:#a0a0d0; margin-top:24px;
         font-family:monospace; letter-spacing:0.5px; }}
 </style></head><body>
-<h1>&#9837; be-conductor</h1>
+<h1>♭ conductor</h1>
 <p class="sub">Scan to open on another device</p>
 <div class="qr">{svg_data}</div>
-<p class="url">{url}</p>
+<p class="url"><a href="{url}" style="color:#a0a0d0">{url}</a></p>
+{"" if url == local_url else f'<p class="url"><a href="{local_url}" style="color:#a0a0d0">{local_url}</a></p>'}
 </body></html>""")
 
     file_url = f"file://{html_path}"

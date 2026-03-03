@@ -1,0 +1,43 @@
+<idea-plugin>
+    <id>com.somniacs.beconductor</id>
+    <name>be-conductor</name>
+    <version>0.1.0</version>
+    <vendor url="https://github.com/somniacs/be-conductor">Somniacs</vendor>
+
+    <description><![CDATA[
+        Start AI coding agent sessions (Claude, Codex, Gemini, Aider, and more)
+        via <a href="https://github.com/somniacs/be-conductor">be-conductor</a> directly from a JetBrains IDE toolbar button.
+        Opens a new terminal tab and runs <code>be-conductor run &lt;agent&gt; &lt;name&gt;</code>.
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>org.jetbrains.plugins.terminal</depends>
+
+    <actions>
+        <group id="BeConductor.ToolbarGroup" text="be-conductor" popup="true"
+               icon="/icons/be-conductor.svg">
+            <add-to-group group-id="MainToolbarRight" anchor="last"/>
+            <add-to-group group-id="MainToolBar" anchor="last"/>
+            <add-to-group group-id="NavBarToolBar" anchor="last"/>
+        </group>
+
+        <action
+            id="BeConductor.RunSession"
+            class="com.somniacs.beconductor.RunSessionAction"
+            text="New Session"
+            description="Start a new AI agent session via be-conductor"
+            icon="/icons/be-conductor.svg">
+            <add-to-group group-id="BeConductor.ToolbarGroup" anchor="first"/>
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+        <action
+            id="BeConductor.OpenDashboard"
+            class="com.somniacs.beconductor.OpenDashboardAction"
+            text="Open Dashboard"
+            description="Open the be-conductor web dashboard in a browser"
+            icon="AllIcons.General.Web">
+            <add-to-group group-id="BeConductor.ToolbarGroup" anchor="last"/>
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+    </actions>
+</idea-plugin>

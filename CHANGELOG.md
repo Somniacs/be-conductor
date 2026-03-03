@@ -2,6 +2,26 @@
 
 All notable changes to Be-Conductor are documented here.
 
+## v0.3.12
+
+### IDE plugins
+
+- **JetBrains plugin** — toolbar button for CLion, IntelliJ IDEA, PyCharm, WebStorm, GoLand, and all other JetBrains IDEs. Opens a dialog to pick an AI agent and name the session, then runs `be-conductor run <agent> <name>` in a new terminal tab. Build: `cd tools/jetbrains/be-conductor-plugin && ./gradlew buildPlugin`. Targets JetBrains 2024.1+, Java 17+
+- **VS Code extension** — editor title icon and status bar item. Quick pick for agent selection with "Open Dashboard" at the top, input box for session name, opens an integrated terminal. No build step needed (plain JS). Install: symlink or copy to `~/.vscode/extensions/`
+
+## v0.3.11
+
+### CLI improvements
+
+- **`qr` auto-start** — `be-conductor qr` now starts the server daemon automatically if it isn't running, matching the behavior of `run` and `open`
+- **Localhost URL in QR output** — `be-conductor qr` now prints the local `http://127.0.0.1:7777` URL alongside the Tailscale URL, both in the terminal and on the QR HTML page, so you can click to open directly
+- **Clickable links on QR page** — URLs on the browser QR page are now clickable `<a>` links instead of plain text
+- **QR page charset fix** — added `<meta charset="utf-8">` so the ♭ symbol renders correctly in the browser tab title
+
+### UI
+
+- **Sidebar title** — drawer header now shows `♭ conductor` instead of `♭ be-conductor` (the flat sign already represents "be")
+
 ## v0.3.10
 
 ### Project rename: conductor → be-conductor

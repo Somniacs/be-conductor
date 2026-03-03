@@ -602,6 +602,15 @@ ws://127.0.0.1:7777/sessions/my-agent/stream?typed=true&token=my-secret-token
 
 When no token is configured, the API is open (same as before).
 
+## IDE Plugins
+
+Start be-conductor sessions directly from your IDE — pick an agent, name the session, and a terminal opens with `be-conductor run <agent> <name>`.
+
+| IDE | Plugin | Details |
+|---|---|---|
+| JetBrains (CLion, IDEA, PyCharm, …) | [tools/jetbrains/](tools/jetbrains/be-conductor-plugin/) | Toolbar button + dialog |
+| VS Code | [tools/vscode/](tools/vscode/be-conductor-vscode/) | Editor title icon + status bar button |
+
 ## Project Structure
 
 ```
@@ -618,6 +627,9 @@ be-conductor/
 │   └── utils/config.py       # Paths, ports, allowed commands
 ├── cli/main.py               # Click CLI
 ├── static/index.html          # Dashboard (single-file HTML/JS/CSS)
+├── tools/
+│   ├── jetbrains/            # JetBrains IDE plugin
+│   └── vscode/               # VS Code extension
 ├── main.py                    # Entry point
 ├── install.sh                 # One-line installer (Linux/macOS)
 ├── install.ps1                # One-line installer (Windows)

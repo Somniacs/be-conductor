@@ -1,0 +1,47 @@
+{
+  "name": "be-conductor-launcher",
+  "displayName": "be-conductor",
+  "description": "Launch AI agent sessions from VS Code via be-conductor (https://github.com/somniacs/be-conductor)",
+  "version": "0.1.0",
+  "publisher": "somniacs",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/somniacs/be-conductor"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "main": "./extension.js",
+  "activationEvents": ["onStartupFinished"],
+  "contributes": {
+    "commands": [
+      {
+        "command": "be-conductor.launch",
+        "title": "be-conductor: New Session",
+        "icon": {
+          "light": "icons/be-conductor-light.svg",
+          "dark": "icons/be-conductor-dark.svg"
+        }
+      },
+      {
+        "command": "be-conductor.openDashboard",
+        "title": "be-conductor: Open Dashboard",
+        "icon": "$(globe)"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "be-conductor.launch",
+          "group": "navigation"
+        },
+        {
+          "command": "be-conductor.openDashboard",
+          "group": "navigation"
+        }
+      ]
+    }
+  }
+}

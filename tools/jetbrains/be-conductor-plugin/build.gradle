@@ -1,0 +1,29 @@
+plugins {
+    id 'java'
+    id 'org.jetbrains.intellij' version '1.17.4'
+}
+
+group = 'com.somniacs.beconductor'
+version = pluginVersion
+
+repositories {
+    mavenCentral()
+}
+
+intellij {
+    type = platformType
+    version = platformVersion
+    plugins = ['org.jetbrains.plugins.terminal']
+    downloadSources = true
+    updateSinceUntilBuild = false
+}
+
+java {
+    sourceCompatibility = JavaVersion.toVersion(javaVersion)
+    targetCompatibility = JavaVersion.toVersion(javaVersion)
+}
+
+patchPluginXml {
+    sinceBuild = '241'
+    untilBuild = ''
+}
