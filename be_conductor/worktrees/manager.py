@@ -1,4 +1,4 @@
-# conductor — Local orchestration for terminal sessions.
+# be-conductor — Local orchestration for terminal sessions.
 #
 # Copyright (c) 2026 Max Rheiner / Somniacs AG
 #
@@ -23,15 +23,15 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Any
 
-from conductor.worktrees import state as wt_state
+from be_conductor.worktrees import state as wt_state
 
 log = logging.getLogger(__name__)
 
 # Directory name for inside-repo worktrees
-_WORKTREE_DIR_NAME = ".conductor-worktrees"
+_WORKTREE_DIR_NAME = ".be-conductor-worktrees"
 
 # Branch prefix for worktree branches
-_BRANCH_PREFIX = "conductor/"
+_BRANCH_PREFIX = "be-conductor/"
 
 
 def _git(*args: str, cwd: str | Path | None = None, check: bool = True,
@@ -139,7 +139,7 @@ class WorktreeManager:
           repo_root: str | None
           current_branch: str | None
           has_remote: bool
-          existing_worktrees: int (count of conductor-managed worktrees)
+          existing_worktrees: int (count of be-conductor-managed worktrees)
           stale_worktrees: int
         """
         result: dict[str, Any] = {
@@ -230,7 +230,7 @@ class WorktreeManager:
         except subprocess.CalledProcessError:
             pass  # Branch doesn't exist, good
 
-        # Worktree path: <repo_root>/.conductor-worktrees/<safe_name>
+        # Worktree path: <repo_root>/.be-conductor-worktrees/<safe_name>
         worktree_dir = Path(root) / _WORKTREE_DIR_NAME
         worktree_dir.mkdir(parents=True, exist_ok=True)
         worktree_path = worktree_dir / safe_name
@@ -248,7 +248,7 @@ class WorktreeManager:
         # Create the worktree with a new branch
         _git("worktree", "add", "-b", branch, str(worktree_path), "HEAD", cwd=root)
 
-        # Ensure .conductor-worktrees is in .gitignore
+        # Ensure .be-conductor-worktrees is in .gitignore
         self._ensure_gitignore(root)
 
         info = WorktreeInfo(
@@ -299,7 +299,7 @@ class WorktreeManager:
                 log.info("Auto-committing in %s:\n%s", info.name, status.strip())
                 _git("add", "-A", cwd=wt_path)
                 _git("commit", "-m",
-                     f"conductor: auto-commit on session exit ({info.name})",
+                     f"be-conductor: auto-commit on session exit ({info.name})",
                      "--allow-empty-message",
                      cwd=wt_path, check=False)
                 info.has_changes = False
@@ -545,7 +545,7 @@ class WorktreeManager:
                     log.info("Auto-committing before merge in %s", info.name)
                     _git("add", "-A", cwd=wt_path)
                     _git("commit", "-m",
-                         f"conductor: auto-commit before merge ({info.name})",
+                         f"be-conductor: auto-commit before merge ({info.name})",
                          "--allow-empty-message",
                          cwd=wt_path, check=False)
             except Exception as e:
@@ -563,11 +563,11 @@ class WorktreeManager:
             )
 
         if message is None:
-            message = f"Merge conductor session '{info.name}' ({commits_ahead} commits)"
+            message = f"Merge be-conductor session '{info.name}' ({commits_ahead} commits)"
 
         # Create a temporary worktree for the merge operation
         tmp_wt_dir = Path(repo) / _WORKTREE_DIR_NAME / f".merge-tmp-{info.name}"
-        tmp_branch = f"conductor/merge-tmp-{int(time.time())}"
+        tmp_branch = f"be-conductor/merge-tmp-{int(time.time())}"
 
         try:
             # Create temp worktree on the target branch
@@ -949,7 +949,7 @@ class WorktreeManager:
 
     @staticmethod
     def _ensure_gitignore(repo_root: str) -> None:
-        """Ensure .conductor-worktrees/ is excluded from git.
+        """Ensure .be-conductor-worktrees/ is excluded from git.
 
         Uses .git/info/exclude (local, never committed) instead of the
         repo's .gitignore to avoid polluting the tracked working tree.

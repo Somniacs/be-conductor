@@ -1,4 +1,4 @@
-# conductor — Local orchestration for terminal sessions.
+# be-conductor — Local orchestration for terminal sessions.
 #
 # Copyright (c) 2026 Max Rheiner / Somniacs AG
 #
@@ -32,15 +32,15 @@ from pydantic import BaseModel
 # Session names: alphanumeric, hyphens, underscores, spaces, dots. Max 64 chars.
 _SAFE_NAME = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9 _.~-]{0,63}$")
 
-from conductor.external.observer import SessionObserver
-from conductor.external.scanner import ExternalSessionScanner
-from conductor.notifications.manager import NotificationEvent
+from be_conductor.external.observer import SessionObserver
+from be_conductor.external.scanner import ExternalSessionScanner
+from be_conductor.notifications.manager import NotificationEvent
 from urllib.parse import quote
 
-from conductor.notifications.webhook import send_webhook, test_webhook
-from conductor.sessions.registry import SessionRegistry
-from conductor.utils import config as cfg
-from conductor.utils.config import (
+from be_conductor.notifications.webhook import send_webhook, test_webhook
+from be_conductor.sessions.registry import SessionRegistry
+from be_conductor.utils import config as cfg
+from be_conductor.utils.config import (
     CONDUCTOR_TOKEN, PORT, UPLOADS_DIR, VERSION,
 )
 
@@ -429,7 +429,7 @@ async def get_admin_settings(request: Request):
 
 @router.put("/admin/settings")
 async def put_admin_settings(request: Request):
-    """Update settings and persist to ~/.conductor/config.yaml. Localhost only."""
+    """Update settings and persist to ~/.be-conductor/config.yaml. Localhost only."""
     _require_localhost(request)
     data = await request.json()
     cfg.save_user_config(data)
@@ -694,7 +694,7 @@ async def clear_all_resumable():
 @router.get("/git/check")
 async def git_check(path: str):
     """Check if a directory is a git repo (for dashboard worktree checkbox)."""
-    from conductor.worktrees.manager import WorktreeManager
+    from be_conductor.worktrees.manager import WorktreeManager
     loop = asyncio.get_event_loop()
     result = await loop.run_in_executor(None, WorktreeManager.check_git_directory, path)
     return result
@@ -907,7 +907,7 @@ def _validate_file_id(file_id: str):
 
 
 def _conductor_resume_ids() -> set[str]:
-    """Collect file_ids already managed by Conductor (to exclude from scan).
+    """Collect file_ids already managed by Be-Conductor (to exclude from scan).
 
     Returns both bare IDs and claude:: prefixed forms for backward compat.
     """
@@ -949,7 +949,7 @@ class ExternalResumeRequest(BaseModel):
 
 @router.post("/external/sessions/{file_id}/resume")
 async def resume_external_session(file_id: str, req: ExternalResumeRequest, request: Request):
-    """Resume an external agent session in a Conductor PTY."""
+    """Resume an external agent session in a Be-Conductor PTY."""
     _validate_file_id(file_id)
     req.name = req.name.strip()
     if not _SAFE_NAME.match(req.name):
@@ -996,7 +996,7 @@ async def observe_external_session(ws: WebSocket, file_id: str):
         return
 
     # Determine agent from file_id prefix
-    from conductor.external.scanner import _parse_file_id
+    from be_conductor.external.scanner import _parse_file_id
     agent, _raw_id = _parse_file_id(file_id)
 
     # Find the JSONL file

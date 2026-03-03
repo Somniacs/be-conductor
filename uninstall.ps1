@@ -1,4 +1,4 @@
-# conductor — Local orchestration for terminal sessions.
+# be-conductor — Local orchestration for terminal sessions.
 #
 # Copyright (c) 2026 Max Rheiner / Somniacs AG
 #
@@ -11,19 +11,20 @@
 # software distributed under the License is distributed on an
 # "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND.
 
-# Uninstaller — removes conductor, autostart configs, and optionally user data.
-#   irm https://github.com/somniacs/conductor/releases/latest/download/uninstall.ps1 | iex
+# Uninstaller — removes be-conductor, autostart configs, and optionally user data.
+#   irm https://github.com/somniacs/be-conductor/releases/latest/download/uninstall.ps1 | iex
 #   powershell -ExecutionPolicy Bypass -File uninstall.ps1
 
 $ErrorActionPreference = "Stop"
 
 # ── Configuration (must match install.ps1) ────────────────────────────
-$Project   = "conductor"
+$Project   = "be-conductor"
 $DataDir   = "$env:USERPROFILE\.$Project"
-$TaskName  = "Conductor"
+$TaskName  = "Be-Conductor"
 
 # Previous name (for cleanup). Leave empty if not applicable.
-$OldProject = ""
+$OldProject  = "conductor"
+$OldTaskName = "Conductor"
 # ──────────────────────────────────────────────────────────────────────
 
 Write-Host "b $Project - uninstall" -ForegroundColor Cyan
@@ -39,7 +40,7 @@ if ($OldProject -and $OldProject -ne $Project) {
 
 # ── Remove autostart (Task Scheduler) ────────────────────────────────
 
-foreach ($name in @($TaskName, $OldProject)) {
+foreach ($name in @($TaskName, $OldProject, $OldTaskName) | Select-Object -Unique) {
     if (-not $name) { continue }
     try {
         $task = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue

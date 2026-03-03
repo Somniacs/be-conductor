@@ -6,12 +6,12 @@ Get notified in a Slack channel when an agent session needs your attention.
 
 1. Go to [api.slack.com/apps](https://api.slack.com/apps) and click **Create New App**
 2. Choose **From scratch**
-3. Name it (e.g. `Conductor`) and pick the workspace you want to post to
+3. Name it (e.g. `Be-Conductor`) and pick the workspace you want to post to
 4. Click **Create App**
 
 ## 2. Create a Channel (Optional)
 
-Create a dedicated channel for notifications (e.g. `#conductor`) or use an existing one. You can also send notifications to a DM — see [DM Notifications](#dm-notifications-alternative) below.
+Create a dedicated channel for notifications (e.g. `#be-conductor`) or use an existing one. You can also send notifications to a DM — see [DM Notifications](#dm-notifications-alternative) below.
 
 ## 3. Enable Incoming Webhooks
 
@@ -25,9 +25,9 @@ Create a dedicated channel for notifications (e.g. `#conductor`) or use an exist
    https://hooks.slack.com/services/T.../B.../...
    ```
 
-## 4. Configure in Conductor
+## 4. Configure in Be-Conductor
 
-1. Open the Conductor dashboard
+1. Open the Be-Conductor dashboard
 2. Tap the gear icon to open **Settings**
 3. Go to the **Notifications** tab
 4. Under **Webhook**:
@@ -39,7 +39,7 @@ Create a dedicated channel for notifications (e.g. `#conductor`) or use an exist
 
 ## How It Works
 
-When an agent session is idle and waiting for input (e.g. asking a question, waiting for confirmation), Conductor posts a message to your Slack channel. Messages include the session name, what the agent is waiting for, and a snippet of the terminal output.
+When an agent session is idle and waiting for input (e.g. asking a question, waiting for confirmation), Be-Conductor posts a message to your Slack channel. Messages include the session name, what the agent is waiting for, and a snippet of the terminal output.
 
 Example message:
 
@@ -69,4 +69,4 @@ To receive Slack notifications as a direct message instead of in a channel:
 
 ## Multiple Channels
 
-Conductor supports one global webhook. If you need notifications in multiple channels, use a Slack Workflow that forwards the message, or set up a custom webhook endpoint that relays to multiple Slack webhooks.
+Be-Conductor supports one global webhook. If you need notifications in multiple channels, use a Slack Workflow that forwards the message, or set up a custom webhook endpoint that relays to multiple Slack webhooks.

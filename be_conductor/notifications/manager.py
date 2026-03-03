@@ -1,4 +1,4 @@
-# conductor — Local orchestration for terminal sessions.
+# be-conductor — Local orchestration for terminal sessions.
 #
 # Copyright (c) 2026 Max Rheiner / Somniacs AG
 #
@@ -23,7 +23,7 @@ from typing import Callable
 
 import pyte
 
-from conductor.utils.config import CONDUCTOR_DIR
+from be_conductor.utils.config import CONDUCTOR_DIR
 
 log = logging.getLogger("uvicorn.error")
 

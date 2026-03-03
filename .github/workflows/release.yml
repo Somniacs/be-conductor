@@ -14,15 +14,15 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Create tarball
-        run: git archive --format=tar.gz --prefix=conductor/ -o conductor.tar.gz HEAD
+        run: git archive --format=tar.gz --prefix=be-conductor/ -o be-conductor.tar.gz HEAD
 
       - name: Create zip
-        run: git archive --format=zip --prefix=conductor/ -o conductor.zip HEAD
+        run: git archive --format=zip --prefix=be-conductor/ -o be-conductor.zip HEAD
 
       - name: Upload to release
         run: |
           gh release upload "${{ github.event.release.tag_name }}" \
-            conductor.tar.gz conductor.zip \
+            be-conductor.tar.gz be-conductor.zip \
             install.sh uninstall.sh \
             install.ps1 uninstall.ps1 --clobber
         env:

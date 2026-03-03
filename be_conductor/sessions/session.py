@@ -1,4 +1,4 @@
-# conductor — Local orchestration for terminal sessions.
+# be-conductor — Local orchestration for terminal sessions.
 #
 # Copyright (c) 2026 Max Rheiner / Somniacs AG
 #
@@ -42,9 +42,9 @@ _DEFAULT_RESUME_RE = re.compile(r'--resume\s+(\S+)')
 
 import shutil
 
-from conductor.proxy.pty_wrapper import PTYProcess
-from conductor.utils import config as cfg
-from conductor.utils.config import UPLOADS_DIR
+from be_conductor.proxy.pty_wrapper import PTYProcess
+from be_conductor.utils import config as cfg
+from be_conductor.utils.config import UPLOADS_DIR
 
 logger = logging.getLogger(__name__)
 

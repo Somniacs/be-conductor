@@ -1,4 +1,4 @@
-# conductor — Local orchestration for terminal sessions.
+# be-conductor — Local orchestration for terminal sessions.
 #
 # Copyright (c) 2026 Max Rheiner / Somniacs AG
 #
@@ -20,12 +20,12 @@ import re
 import shlex
 from typing import Dict, Optional
 
-from conductor.notifications.manager import (
+from be_conductor.notifications.manager import (
     NotificationManager, SessionNotifier, _DEFAULT_PATTERNS,
 )
-from conductor.sessions.session import Session, _ANSI_RE
-from conductor.utils import config as cfg
-from conductor.utils.config import SESSIONS_DIR, ensure_dirs
+from be_conductor.sessions.session import Session, _ANSI_RE
+from be_conductor.utils import config as cfg
+from be_conductor.utils.config import SESSIONS_DIR, ensure_dirs
 
 log = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ class SessionRegistry:
     def worktree_manager(self):
         """Lazy-initialize the WorktreeManager with current active session IDs."""
         if self._worktree_manager is None:
-            from conductor.worktrees.manager import WorktreeManager
+            from be_conductor.worktrees.manager import WorktreeManager
             self._worktree_manager = WorktreeManager(
                 active_sessions=set(self.sessions.keys())
             )
@@ -261,7 +261,7 @@ class SessionRegistry:
         if worktree_data:
             session.worktree = worktree_data
             self._save_metadata(session)
-            from conductor.worktrees import state as wt_state
+            from be_conductor.worktrees import state as wt_state
             wt_state.update_worktree(
                 worktree_data["repo_path"], meta["name"], worktree_data
             )
@@ -278,7 +278,7 @@ class SessionRegistry:
         for meta in self.resumable.values():
             if meta.get("worktree") and self.worktree_manager:
                 try:
-                    from conductor.worktrees.manager import WorktreeInfo
+                    from be_conductor.worktrees.manager import WorktreeInfo
                     info = WorktreeInfo.from_dict(meta["worktree"])
                     ahead = self.worktree_manager._count_commits_ahead(info)
                     if ahead != meta["worktree"].get("commits_ahead", 0):

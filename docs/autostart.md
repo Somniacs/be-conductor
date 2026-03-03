@@ -1,6 +1,6 @@
 # Auto-Start on Boot
 
-Set up Conductor to start automatically when your machine boots, so the dashboard is always reachable.
+Set up Be-Conductor to start automatically when your machine boots, so the dashboard is always reachable.
 
 > **Tip:** The installer (`install.sh` / `install.ps1`) offers to configure autostart for you during installation. The manual steps below are only needed if you skipped that prompt or want to customize the configuration.
 
@@ -11,13 +11,13 @@ Create a user service:
 ```bash
 mkdir -p ~/.config/systemd/user
 
-cat > ~/.config/systemd/user/conductor.service << 'EOF'
+cat > ~/.config/systemd/user/be-conductor.service << 'EOF'
 [Unit]
-Description=Conductor Server
+Description=Be-Conductor Server
 After=network.target
 
 [Service]
-ExecStart=%h/.local/bin/conductor serve
+ExecStart=%h/.local/bin/be-conductor serve
 Restart=on-failure
 RestartSec=5
 
@@ -30,8 +30,8 @@ Enable and start:
 
 ```bash
 systemctl --user daemon-reload
-systemctl --user enable conductor
-systemctl --user start conductor
+systemctl --user enable be-conductor
+systemctl --user start be-conductor
 ```
 
 To survive logouts (run once):
@@ -43,16 +43,16 @@ loginctl enable-linger $USER
 Check status:
 
 ```bash
-systemctl --user status conductor
+systemctl --user status be-conductor
 ```
 
 View logs:
 
 ```bash
-journalctl --user -u conductor -f
+journalctl --user -u be-conductor -f
 ```
 
-> **Note:** If you installed Conductor to a different path, adjust the `ExecStart` line. Find it with `which conductor`.
+> **Note:** If you installed Be-Conductor to a different path, adjust the `ExecStart` line. Find it with `which be-conductor`.
 
 ## Linux (cron @reboot)
 
@@ -65,15 +65,15 @@ crontab -e
 Add this line:
 
 ```
-@reboot /home/YOUR_USER/.local/bin/conductor serve >> /tmp/conductor.log 2>&1
+@reboot /home/YOUR_USER/.local/bin/be-conductor serve >> /tmp/be-conductor.log 2>&1
 ```
 
-Replace `/home/YOUR_USER/.local/bin/conductor` with the output of `which conductor`.
+Replace `/home/YOUR_USER/.local/bin/be-conductor` with the output of `which be-conductor`.
 
 To remove:
 
 ```bash
-crontab -l | grep -v 'conductor serve' | crontab -
+crontab -l | grep -v 'be-conductor serve' | crontab -
 ```
 
 > **Note:** cron `@reboot` does not restart the server if it crashes. For automatic restart, use systemd or a process supervisor.
@@ -83,35 +83,35 @@ crontab -l | grep -v 'conductor serve' | crontab -
 For Gentoo, Alpine, or Artix with OpenRC. Requires root.
 
 ```bash
-sudo tee /etc/init.d/conductor << 'EOF'
+sudo tee /etc/init.d/be-conductor << 'EOF'
 #!/sbin/openrc-run
 
-name="Conductor Server"
-description="Conductor terminal session orchestrator"
-command="/home/YOUR_USER/.local/bin/conductor"
+name="Be-Conductor Server"
+description="Be-Conductor terminal session orchestrator"
+command="/home/YOUR_USER/.local/bin/be-conductor"
 command_args="serve"
 command_user="YOUR_USER"
 command_background=true
-pidfile="/run/conductor.pid"
-output_log="/var/log/conductor.log"
-error_log="/var/log/conductor.err"
+pidfile="/run/be-conductor.pid"
+output_log="/var/log/be-conductor.log"
+error_log="/var/log/be-conductor.err"
 
 depend() {
     need net
 }
 EOF
 
-sudo chmod +x /etc/init.d/conductor
-sudo rc-update add conductor default
-sudo rc-service conductor start
+sudo chmod +x /etc/init.d/be-conductor
+sudo rc-update add be-conductor default
+sudo rc-service be-conductor start
 ```
 
 Replace `YOUR_USER` with your username. To remove:
 
 ```bash
-sudo rc-service conductor stop
-sudo rc-update del conductor default
-sudo rm /etc/init.d/conductor
+sudo rc-service be-conductor stop
+sudo rc-update del be-conductor default
+sudo rm /etc/init.d/be-conductor
 ```
 
 ## Linux (runit)
@@ -119,21 +119,21 @@ sudo rm /etc/init.d/conductor
 For Void Linux or other runit-based systems. Requires root.
 
 ```bash
-sudo mkdir -p /etc/sv/conductor
-sudo tee /etc/sv/conductor/run << 'EOF'
+sudo mkdir -p /etc/sv/be-conductor
+sudo tee /etc/sv/be-conductor/run << 'EOF'
 #!/bin/sh
-exec chpst -u YOUR_USER /home/YOUR_USER/.local/bin/conductor serve
+exec chpst -u YOUR_USER /home/YOUR_USER/.local/bin/be-conductor serve
 EOF
 
-sudo chmod +x /etc/sv/conductor/run
-sudo ln -s /etc/sv/conductor /var/service/
+sudo chmod +x /etc/sv/be-conductor/run
+sudo ln -s /etc/sv/be-conductor /var/service/
 ```
 
 Replace `YOUR_USER` with your username. To remove:
 
 ```bash
-sudo rm /var/service/conductor
-sudo rm -rf /etc/sv/conductor
+sudo rm /var/service/be-conductor
+sudo rm -rf /etc/sv/be-conductor
 ```
 
 ## macOS (launchd)
@@ -141,17 +141,17 @@ sudo rm -rf /etc/sv/conductor
 Create a LaunchAgent:
 
 ```bash
-cat > ~/Library/LaunchAgents/com.conductor.server.plist << EOF
+cat > ~/Library/LaunchAgents/com.be-conductor.server.plist << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.conductor.server</string>
+    <string>com.be-conductor.server</string>
     <key>ProgramArguments</key>
     <array>
-        <string>$(which conductor)</string>
+        <string>$(which be-conductor)</string>
         <string>serve</string>
     </array>
     <key>RunAtLoad</key>
@@ -159,26 +159,26 @@ cat > ~/Library/LaunchAgents/com.conductor.server.plist << EOF
     <key>KeepAlive</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>/tmp/conductor.log</string>
+    <string>/tmp/be-conductor.log</string>
     <key>StandardErrorPath</key>
-    <string>/tmp/conductor.err</string>
+    <string>/tmp/be-conductor.err</string>
 </dict>
 </plist>
 EOF
 ```
 
-> **Important:** Replace `$(which conductor)` with the actual path — run `which conductor` and paste the full path into the plist.
+> **Important:** Replace `$(which be-conductor)` with the actual path — run `which be-conductor` and paste the full path into the plist.
 
 Load it:
 
 ```bash
-launchctl load ~/Library/LaunchAgents/com.conductor.server.plist
+launchctl load ~/Library/LaunchAgents/com.be-conductor.server.plist
 ```
 
 To stop and unload:
 
 ```bash
-launchctl unload ~/Library/LaunchAgents/com.conductor.server.plist
+launchctl unload ~/Library/LaunchAgents/com.be-conductor.server.plist
 ```
 
 ## Windows (Task Scheduler)
@@ -186,33 +186,33 @@ launchctl unload ~/Library/LaunchAgents/com.conductor.server.plist
 Open PowerShell as your user:
 
 ```powershell
-$conductorPath = (Get-Command conductor).Source
+$conductorPath = (Get-Command be-conductor).Source
 
 $action = New-ScheduledTaskAction -Execute $conductorPath -Argument "serve"
 $trigger = New-ScheduledTaskTrigger -AtLogOn
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
 
-Register-ScheduledTask -TaskName "Conductor" -Action $action -Trigger $trigger -Settings $settings -Description "Conductor Server"
+Register-ScheduledTask -TaskName "Be-Conductor" -Action $action -Trigger $trigger -Settings $settings -Description "Be-Conductor Server"
 ```
 
 To remove:
 
 ```powershell
-Unregister-ScheduledTask -TaskName "Conductor" -Confirm:$false
+Unregister-ScheduledTask -TaskName "Be-Conductor" -Confirm:$false
 ```
 
-Alternatively, place a shortcut to `conductor serve` in your Startup folder:
+Alternatively, place a shortcut to `be-conductor serve` in your Startup folder:
 
 ```
-Win+R → shell:startup → create shortcut → conductor serve
+Win+R → shell:startup → create shortcut → be-conductor serve
 ```
 
 ## Verify
 
-After reboot, check that Conductor is running:
+After reboot, check that Be-Conductor is running:
 
 ```bash
-conductor status
+be-conductor status
 ```
 
 Or open the dashboard in your browser at `http://127.0.0.1:7777`.

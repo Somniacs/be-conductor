@@ -1,5 +1,5 @@
 <!--
-  conductor — Local orchestration for terminal sessions.
+  be-conductor — Local orchestration for terminal sessions.
 
   Copyright (c) 2026 Max Rheiner / Somniacs AG
 
@@ -20,7 +20,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">
-    <title>conductor</title>
+    <title>be-conductor</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='80' font-size='80'>♭</text></svg>">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
     <style>
@@ -2045,7 +2045,7 @@
         <aside class="sidebar" id="sidebar">
             <button class="drawer-toggle" id="drawer-toggle" onclick="toggleDrawer()">&#x2039;</button>
             <div class="sidebar-header">
-                <h1><a href="https://github.com/somniacs/conductor" target="_blank" style="color:inherit;text-decoration:none"><span style="font-size:1.8em;line-height:0;vertical-align:middle">♭</span> conductor</a> <span id="sidebar-version" style="font-size:9px;font-weight:400;color:#505070"></span></h1>
+                <h1><a href="https://github.com/somniacs/be-conductor" target="_blank" style="color:inherit;text-decoration:none"><span style="font-size:1.8em;line-height:0;vertical-align:middle">♭</span> be-conductor</a> <span id="sidebar-version" style="font-size:9px;font-weight:400;color:#505070"></span></h1>
                 <div class="menu-wrapper">
                     <button class="menu-btn" onclick="toggleMenu()" title="Menu">&#9776;</button>
                     <div class="menu-dropdown" id="hamburger-menu">
@@ -2054,7 +2054,7 @@
                         <div class="menu-sep"></div>
                         <a onclick="toggleMenu();toggleQR()">Link Device</a>
                         <div class="menu-sep"></div>
-                        <a href="https://github.com/somniacs/conductor/blob/master/README.md" target="_blank" onclick="toggleMenu()">Help</a>
+                        <a href="https://github.com/somniacs/be-conductor/blob/master/README.md" target="_blank" onclick="toggleMenu()">Help</a>
                         <div class="menu-sep"></div>
                         <a onclick="toggleMenu();toggleAbout()">About</a>
                     </div>
@@ -2173,7 +2173,7 @@
     <div class="about-overlay" id="about-dialog" onclick="if(event.target===this)toggleAbout()">
         <div class="about-box">
             <button class="about-close" onclick="toggleAbout()">&times;</button>
-            <h2><span style="font-size:1.4em;vertical-align:middle">♭</span> conductor</h2>
+            <h2><span style="font-size:1.4em;vertical-align:middle">♭</span> be-conductor</h2>
             <div class="about-version">v...</div>
             <p>Local orchestration layer for interactive terminal processes. Run sessions on your workstation, interact from anywhere.</p>
             <div class="about-section">Built with</div>
@@ -2191,9 +2191,9 @@
             <div class="about-section">Author</div>
             <p>Max Rheiner / <a href="https://www.birdly.com" target="_blank">Somniacs AG</a></p>
             <div class="about-section">License</div>
-            <p><a href="https://github.com/somniacs/conductor/blob/master/LICENSE" target="_blank">MIT License</a></p>
+            <p><a href="https://github.com/somniacs/be-conductor/blob/master/LICENSE" target="_blank">MIT License</a></p>
             <div class="about-section">Source</div>
-            <p style="margin-bottom:0"><a href="https://github.com/somniacs/conductor" target="_blank">github.com/somniacs/conductor</a></p>
+            <p style="margin-bottom:0"><a href="https://github.com/somniacs/be-conductor" target="_blank">github.com/somniacs/be-conductor</a></p>
         </div>
     </div>
 
@@ -2342,7 +2342,7 @@
     <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js" async></script>
     <script>
         // --- Auth ---
-        const _conductorToken = (document.querySelector('meta[name="conductor-token"]') || {}).content || null;
+        const _conductorToken = (document.querySelector('meta[name="be-conductor-token"]') || {}).content || null;
         if (_conductorToken) {
             const _origFetch = window.fetch;
             window.fetch = function(input, init) {
@@ -2366,7 +2366,7 @@
                     focused: focusedPanelId,
                     panels: panels.map(p => ({ id: p.id, name: p.name })),
                 };
-                localStorage.setItem('conductor_layout', JSON.stringify(state));
+                localStorage.setItem('be-conductor_layout', JSON.stringify(state));
             } catch (e) {}
         }
 
@@ -2374,7 +2374,7 @@
             if (_layoutRestored) return;
             _layoutRestored = true;
             try {
-                const raw = localStorage.getItem('conductor_layout');
+                const raw = localStorage.getItem('be-conductor_layout');
                 if (!raw) return;
                 const state = JSON.parse(raw);
                 if (!state.panels || !state.panels.length) return;
@@ -2413,7 +2413,7 @@
 
         function loadServers() {
             try {
-                const stored = localStorage.getItem('conductor-servers');
+                const stored = localStorage.getItem('be-conductor-servers');
                 if (stored) {
                     servers = JSON.parse(stored);
                     // Ensure local server always exists
@@ -2441,7 +2441,7 @@
         }
 
         function saveServers() {
-            localStorage.setItem('conductor-servers', JSON.stringify(servers));
+            localStorage.setItem('be-conductor-servers', JSON.stringify(servers));
         }
 
         function addServer(url, label) {
@@ -2989,7 +2989,7 @@
             let subtitle = escHtml(appLabel);
             if (s.worktree) {
                 const branch = s.worktree.branch || '';
-                const shortBranch = branch.replace('conductor/', '');
+                const shortBranch = branch.replace('be-conductor/', '');
                 const ahead = s.worktree.commits_ahead || 0;
                 const aheadText = ahead > 0 ? ` +${ahead}` : '';
                 const wtTooltipParts = [`Branch: ${branch}`];
@@ -5002,13 +5002,13 @@
             dialog.classList.toggle('open');
             if (!wasOpen) {
                 // Opening — snapshot so Cancel can revert
-                _notifSettingsSnapshot = localStorage.getItem('conductor-notifications') || '{}';
+                _notifSettingsSnapshot = localStorage.getItem('be-conductor-notifications') || '{}';
                 await loadSettings();
                 _webhookSettingsSnapshot = JSON.stringify(_webhookSettings);
             } else {
                 // Closing via Cancel/X/overlay — restore snapshot
                 if (_notifSettingsSnapshot !== null) {
-                    localStorage.setItem('conductor-notifications', _notifSettingsSnapshot);
+                    localStorage.setItem('be-conductor-notifications', _notifSettingsSnapshot);
                     _notifSettingsSnapshot = null;
                 }
                 if (_webhookSettingsSnapshot !== null) {
@@ -5065,22 +5065,22 @@
         let _webhookSettings = {};
 
         function _getDeviceId() {
-            let id = localStorage.getItem('conductor-device-id');
+            let id = localStorage.getItem('be-conductor-device-id');
             if (!id) {
                 id = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36);
-                localStorage.setItem('conductor-device-id', id);
+                localStorage.setItem('be-conductor-device-id', id);
             }
             return id;
         }
 
         function _getNotifSettings() {
             try {
-                return JSON.parse(localStorage.getItem('conductor-notifications') || '{}');
+                return JSON.parse(localStorage.getItem('be-conductor-notifications') || '{}');
             } catch { return {}; }
         }
 
         function _saveNotifSettings(ns) {
-            localStorage.setItem('conductor-notifications', JSON.stringify(ns));
+            localStorage.setItem('be-conductor-notifications', JSON.stringify(ns));
         }
 
         function _updateNotifSetting(key, value) {
@@ -5128,7 +5128,7 @@
             try {
                 const result = await Notification.requestPermission();
                 if (result === 'granted') {
-                    localStorage.setItem('conductor_notif_verified', '1');
+                    localStorage.setItem('be-conductor_notif_verified', '1');
                     _hideNotifDeniedBanner();
                     const ns = _getNotifSettings();
                     ns.browser = true;
@@ -5142,8 +5142,8 @@
             if ('serviceWorker' in navigator) {
                 try {
                     const reg = await navigator.serviceWorker.ready;
-                    await reg.showNotification('Conductor', { body: 'Notifications enabled', tag: 'conductor-verify' });
-                    localStorage.setItem('conductor_notif_verified', '1');
+                    await reg.showNotification('Be-Conductor', { body: 'Notifications enabled', tag: 'be-conductor-verify' });
+                    localStorage.setItem('be-conductor_notif_verified', '1');
                     _hideNotifDeniedBanner();
                     const ns = _getNotifSettings();
                     ns.browser = true;
@@ -5208,11 +5208,11 @@
                         navigator.serviceWorker.ready,
                         new Promise((_, rej) => setTimeout(() => rej('timeout'), 3000))
                     ]);
-                    await swReg.showNotification('Conductor', {
+                    await swReg.showNotification('Be-Conductor', {
                         body: 'Test notification — it works!',
-                        tag: 'conductor-test',
+                        tag: 'be-conductor-test',
                     });
-                    localStorage.setItem('conductor_notif_verified', '1');
+                    localStorage.setItem('be-conductor_notif_verified', '1');
                     _hideNotifDeniedBanner();
                     res.textContent = 'Sent! Switch to another app to see it.';
                     res.style.color = '#60e060';
@@ -5230,8 +5230,8 @@
                 }
                 if (perm === 'granted') {
                     try {
-                        new Notification('Conductor', { body: 'Test notification — it works!', tag: 'conductor-test' });
-                        localStorage.setItem('conductor_notif_verified', '1');
+                        new Notification('Be-Conductor', { body: 'Test notification — it works!', tag: 'be-conductor-test' });
+                        localStorage.setItem('be-conductor_notif_verified', '1');
                         _hideNotifDeniedBanner();
                         res.textContent = 'Sent!';
                         res.style.color = '#60e060';
@@ -5508,7 +5508,7 @@
             html += `<div class="settings-info-row"><span class="info-label">Host</span><span class="info-value">${escHtml(d.host || '')}:${d.port || ''}</span></div>`;
             html += `<div class="settings-info-row"><span class="info-label">Auth token</span><span class="info-value">${d.auth_enabled ? 'Enabled' : 'Not set'}</span></div>`;
             if (!d.auth_enabled) {
-                html += '<div class="settings-hint">Set <code>CONDUCTOR_TOKEN</code> in your environment or systemd service to require authentication for API access.</div>';
+                html += '<div class="settings-hint">Set <code>BE_CONDUCTOR_TOKEN</code> in your environment or systemd service to require authentication for API access.</div>';
             }
             html += '</div>';
             html += '</div>';
@@ -5580,7 +5580,7 @@
             el.innerHTML = html;
             // Show denied banner on load if permission is blocked AND not verified working via SW
             if (typeof Notification !== 'undefined' && Notification.permission === 'denied'
-                && !localStorage.getItem('conductor_notif_verified')) {
+                && !localStorage.getItem('be-conductor_notif_verified')) {
                 _showNotifDeniedBanner();
             }
         }
@@ -6102,7 +6102,7 @@
                     <div class="qr-scanner-actions">
                         <button class="stop-btn" onclick="stopQRScanner()">Stop Scanner</button>
                     </div>
-                    <div class="qr-scanner-status" id="qr-scan-status">Point camera at a Conductor QR code...</div>`;
+                    <div class="qr-scanner-status" id="qr-scan-status">Point camera at a Be-Conductor QR code...</div>`;
 
                 const video = document.getElementById('qr-video');
                 video.srcObject = stream;
@@ -6134,7 +6134,7 @@
 
                 if (code && code.data) {
                     const url = code.data.trim();
-                    // Validate it looks like a Conductor URL
+                    // Validate it looks like a Be-Conductor URL
                     if (/^https?:\/\/.+:\d+/.test(url) || /^https?:\/\/[^/]+$/.test(url)) {
                         const status = document.getElementById('qr-scan-status');
                         if (status) status.textContent = 'Found: ' + url;
@@ -6843,7 +6843,7 @@
             const name = document.getElementById('new-name').value.trim();
             if (name) {
                 const safeName = name.replace(/[^a-zA-Z0-9_.-]/g, '-').replace(/^-+|-+$/g, '');
-                previewEl.textContent = `Branch: conductor/${safeName}`;
+                previewEl.textContent = `Branch: be-conductor/${safeName}`;
                 previewEl.classList.add('visible');
             } else {
                 previewEl.classList.remove('visible');
@@ -7331,7 +7331,7 @@
             const opts = {
                 body: body,
                 icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="80" font-size="80">\u266D</text></svg>',
-                tag: tag || 'conductor-' + title,
+                tag: tag || 'be-conductor-' + title,
             };
             // Try service worker first (required on mobile)
             if ('serviceWorker' in navigator) {
@@ -7380,7 +7380,7 @@
 
         const _hasSavedLayout = (() => {
             try {
-                const raw = localStorage.getItem('conductor_layout');
+                const raw = localStorage.getItem('be-conductor_layout');
                 if (!raw) return false;
                 const state = JSON.parse(raw);
                 return state.panels && state.panels.length > 0;
@@ -7445,7 +7445,7 @@
                 return;
             }
 
-            fetch('https://api.github.com/repos/somniacs/conductor/releases/latest')
+            fetch('https://api.github.com/repos/somniacs/be-conductor/releases/latest')
                 .then(r => r.ok ? r.json() : null)
                 .then(data => {
                     if (!data || !data.tag_name) return;

@@ -1,4 +1,4 @@
-# conductor — Local orchestration for terminal sessions.
+# be-conductor — Local orchestration for terminal sessions.
 #
 # Copyright (c) 2026 Max Rheiner / Somniacs AG
 #
@@ -11,14 +11,14 @@
 # software distributed under the License is distributed on an
 # "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND.
 
-"""Persistent state for worktree metadata, stored in ~/.conductor/worktrees.json."""
+"""Persistent state for worktree metadata, stored in ~/.be-conductor/worktrees.json."""
 
 import json
 import tempfile
 from pathlib import Path
 from typing import Any
 
-from conductor.utils.config import WORKTREES_FILE
+from be_conductor.utils.config import WORKTREES_FILE
 
 
 def load() -> dict[str, Any]:

@@ -1,4 +1,4 @@
-# conductor — Local orchestration for terminal sessions.
+# be-conductor — Local orchestration for terminal sessions.
 #
 # Copyright (c) 2026 Max Rheiner / Somniacs AG
 #
@@ -140,7 +140,7 @@ async def test_webhook(url: str, chat_id: str | None = None) -> tuple[bool, str]
     ok = await send_webhook(
         url=url,
         session_name="Test",
-        reason="This is a test notification from Conductor",
+        reason="This is a test notification from Be-Conductor",
         snippet="If you see this, webhook notifications are working.",
         chat_id=chat_id,
     )

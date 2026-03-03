@@ -1,4 +1,4 @@
-# conductor — Local orchestration for terminal sessions.
+# be-conductor — Local orchestration for terminal sessions.
 #
 # Copyright (c) 2026 Max Rheiner / Somniacs AG
 #
@@ -26,7 +26,7 @@ from pathlib import Path
 import click
 import httpx
 
-from conductor.utils.config import BASE_URL, CONDUCTOR_TOKEN, HOST, PORT, PID_FILE, VERSION, ensure_dirs
+from be_conductor.utils.config import BASE_URL, CONDUCTOR_TOKEN, HOST, PORT, PID_FILE, VERSION, ensure_dirs
 
 
 def _auth_headers() -> dict[str, str]:
@@ -46,7 +46,7 @@ def server_running() -> bool:
 
 def start_server_daemon() -> bool:
     ensure_dirs()
-    log_path = Path.home() / ".conductor" / "logs" / "server.log"
+    log_path = Path.home() / ".be-conductor" / "logs" / "server.log"
 
     project_root = Path(__file__).parent.parent.resolve()
     env = os.environ.copy()
@@ -70,7 +70,7 @@ def start_server_daemon() -> bool:
     else:
         popen_kwargs["start_new_session"] = True
 
-    cmd = [sys.executable, "-m", "conductor.server.app"]
+    cmd = [sys.executable, "-m", "be_conductor.server.app"]
     click.echo(f"  [debug] cmd: {cmd}")
     proc = subprocess.Popen(cmd, **popen_kwargs)
     click.echo(f"  [debug] daemon pid: {proc.pid}")
@@ -107,19 +107,19 @@ def start_server_daemon() -> bool:
 
 
 @click.group()
-@click.version_option(VERSION, prog_name="conductor")
+@click.version_option(VERSION, prog_name="be-conductor")
 def cli():
-    """Conductor - Local orchestration for interactive terminal processes."""
+    """Be-Conductor — Local orchestration for interactive terminal processes."""
 
 
 @cli.command()
 @click.option("--host", default=HOST, help="Host to bind to")
 @click.option("--port", default=PORT, type=int, help="Port to bind to")
 def serve(host, port):
-    """Start the Conductor server."""
-    from conductor.server.app import run_server
+    """Start the Be-Conductor server."""
+    from be_conductor.server.app import run_server
 
-    click.echo(f"Conductor server on {host}:{port}")
+    click.echo(f"Be-Conductor server on {host}:{port}")
     click.echo(f"  Dashboard: http://{host}:{port}")
     run_server(host=host, port=port)
 
@@ -131,19 +131,19 @@ def serve(host, port):
 @click.option("-w", "--worktree", is_flag=True, help="Create an isolated git worktree for this session")
 @click.option("--json", "use_json", is_flag=True, help="Output JSON (implies --detach)")
 def run(command, name, detach, worktree, use_json):
-    """Run a command in a new Conductor session.
+    """Run a command in a new Be-Conductor session.
 
     By default, attaches to the session so you see output in your terminal.
     Use -d/--detach to run in the background.
     Use -w/--worktree to create an isolated git worktree for the session.
 
-    Usage: conductor run COMMAND [NAME]
+    Usage: be-conductor run COMMAND [NAME]
 
     Examples:
-        conductor run claude research
-        conductor run -d claude coding
-        conductor run -w claude feature-auth
-        conductor run "python train.py" training
+        be-conductor run claude research
+        be-conductor run -d claude coding
+        be-conductor run -w claude feature-auth
+        be-conductor run "python train.py" training
     """
     if use_json:
         detach = True
@@ -171,7 +171,7 @@ def run(command, name, detach, worktree, use_json):
             if use_json:
                 click.echo(json.dumps({"error": "Failed to start server"}))
             else:
-                click.echo("Failed to start server. Try: conductor serve", err=True)
+                click.echo("Failed to start server. Try: be-conductor serve", err=True)
             sys.exit(1)
         if not use_json:
             click.echo(f"Server started on {BASE_URL}")
@@ -452,17 +452,17 @@ def resume(name, detach, token, cmd):
     Restarts a session that exited with a resume token (e.g. Claude Code's
     --resume <id>). Attaches to the new session by default.
 
-    Use --token to resume an external session inside Conductor:
+    Use --token to resume an external session inside Be-Conductor:
 
-        conductor resume my-session --token <UUID>
-        conductor resume my-session --token <UUID> --command aider
+        be-conductor resume my-session --token <UUID>
+        be-conductor resume my-session --token <UUID> --command aider
 
     Press Ctrl+] to detach without stopping the session.
     """
     if not server_running():
         click.echo("Server not running. Starting daemon...")
         if not start_server_daemon():
-            click.echo("Failed to start server. Try: conductor serve", err=True)
+            click.echo("Failed to start server. Try: be-conductor serve", err=True)
             sys.exit(1)
         click.echo(f"Server started on {BASE_URL}")
 
@@ -585,7 +585,7 @@ def status(use_json):
     except Exception:
         pass
 
-    click.echo(f"Conductor v{version}")
+    click.echo(f"Be-Conductor v{version}")
     click.echo(f"  URL:  {BASE_URL}")
     click.echo(f"  Host: {socket.gethostname()}")
     if pid:
@@ -594,12 +594,12 @@ def status(use_json):
 
 
 def _find_server_pid() -> int | None:
-    """Find the conductor server PID, trying PID file first, then process list."""
+    """Find the be-conductor server PID, trying PID file first, then process list."""
     # 1. Try PID file
     if PID_FILE.exists():
         try:
             pid = int(PID_FILE.read_text().strip())
-            # Verify it's actually the conductor server
+            # Verify it's actually the be-conductor server
             os.kill(pid, 0)
             return pid
         except (ProcessLookupError, ValueError, OSError):
@@ -610,7 +610,7 @@ def _find_server_pid() -> int | None:
         return None
     try:
         result = subprocess.run(
-            ["pgrep", "-f", "conductor.server.app"],
+            ["pgrep", "-f", "be_conductor.server.app"],
             capture_output=True, text=True, timeout=5,
         )
         if result.returncode == 0:
@@ -672,7 +672,7 @@ def stop_server() -> bool:
 @cli.command()
 @click.option("--force", "-f", is_flag=True, help="Skip active-session warning")
 def shutdown(force):
-    """Stop the Conductor server and all sessions."""
+    """Stop the Be-Conductor server and all sessions."""
     if not server_running():
         click.echo("Server not running.")
         return
@@ -695,7 +695,7 @@ def shutdown(force):
 @cli.command()
 @click.option("--force", "-f", is_flag=True, help="Skip active-session warning")
 def restart(force):
-    """Restart the Conductor server (kills all sessions)."""
+    """Restart the Be-Conductor server (kills all sessions)."""
     if not server_running():
         click.echo("Server not running. Starting...")
     else:
@@ -713,19 +713,19 @@ def restart(force):
     if start_server_daemon():
         click.echo(f"Server restarted on {BASE_URL}")
     else:
-        click.echo("Failed to start server. Try: conductor serve", err=True)
+        click.echo("Failed to start server. Try: be-conductor serve", err=True)
         sys.exit(1)
 
 
 @cli.command()
 def open():
-    """Open the Conductor dashboard in the default browser."""
+    """Open the Be-Conductor dashboard in the default browser."""
     import webbrowser
 
     if not server_running():
         click.echo("Server not running. Starting daemon...")
         if not start_server_daemon():
-            click.echo("Failed to start server. Try: conductor serve", err=True)
+            click.echo("Failed to start server. Try: be-conductor serve", err=True)
             sys.exit(1)
         click.echo(f"Server started on {BASE_URL}")
 
@@ -950,7 +950,7 @@ def qr():
         click.echo("Tailscale not found. Using localhost (won't work from other devices).")
 
     # Print ASCII in terminal
-    click.echo(f"\n♭ conductor — scan to open on your phone\n")
+    click.echo(f"\n♭ be-conductor — scan to open on your phone\n")
     qr_obj = qrcode.QRCode(border=2)
     qr_obj.add_data(url)
     qr_obj.make(fit=True)
@@ -959,14 +959,14 @@ def qr():
 
     # Generate a clean SVG, wrap in HTML page, and open in browser
     img = qrcode.make(url, image_factory=qrcode.image.svg.SvgPathImage)
-    svg_path = os.path.join(tempfile.gettempdir(), "conductor-qr.svg")
+    svg_path = os.path.join(tempfile.gettempdir(), "be-conductor-qr.svg")
     img.save(svg_path)
 
     svg_data = Path(svg_path).read_text()
 
-    html_path = os.path.join(tempfile.gettempdir(), "conductor-qr.html")
+    html_path = os.path.join(tempfile.gettempdir(), "be-conductor-qr.html")
     Path(html_path).write_text(f"""<!DOCTYPE html>
-<html><head><title>conductor — Link Device</title>
+<html><head><title>be-conductor — Link Device</title>
 <style>
 body {{ margin:0; min-height:100vh; display:flex; flex-direction:column;
        align-items:center; justify-content:center; background:#0a0a1a;
@@ -978,7 +978,7 @@ h1 {{ font-size:28px; color:#8080ff; margin:0 0 6px; font-weight:600; }}
 .url {{ font-size:16px; color:#a0a0d0; margin-top:24px;
         font-family:monospace; letter-spacing:0.5px; }}
 </style></head><body>
-<h1>&#9837; conductor</h1>
+<h1>&#9837; be-conductor</h1>
 <p class="sub">Scan to open on another device</p>
 <div class="qr">{svg_data}</div>
 <p class="url">{url}</p>

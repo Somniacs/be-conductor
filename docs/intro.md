@@ -12,12 +12,12 @@ Tailscale is a free app that creates a private network between your devices. Ins
 
 That's it. Your devices can now find each other.
 
-## 2. Install Conductor
+## 2. Install Be-Conductor
 
 **Linux / macOS:**
 
 ```bash
-curl -fsSL https://github.com/somniacs/conductor/releases/latest/download/install.sh | bash
+curl -fsSL https://github.com/somniacs/be-conductor/releases/latest/download/install.sh | bash
 ```
 
 The installer checks for Python 3.10+, installs pipx if needed, downloads the latest release, and offers to set up autostart (systemd on Linux, launchd on macOS).
@@ -25,24 +25,24 @@ The installer checks for Python 3.10+, installs pipx if needed, downloads the la
 **Windows** (PowerShell):
 
 ```powershell
-irm https://github.com/somniacs/conductor/releases/latest/download/install.ps1 | iex
+irm https://github.com/somniacs/be-conductor/releases/latest/download/install.ps1 | iex
 ```
 
 If the installer says Python is missing, grab it from [python.org](https://python.org) and run it again.
 
-Restart your terminal after install if the `conductor` command is not found.
+Restart your terminal after install if the `be-conductor` command is not found.
 
 ## 3. Run an agent
 
 ```bash
-conductor run claude research
+be-conductor run claude research
 ```
 
 Done. The agent is running. Start more if you want:
 
 ```bash
-conductor run aider backend
-conductor run codex feature
+be-conductor run aider backend
+be-conductor run codex feature
 ```
 
 ### Isolated worktree sessions
@@ -50,20 +50,20 @@ conductor run codex feature
 Run agents in their own git branch so they don't conflict with each other or your work:
 
 ```bash
-conductor run -w claude refactor-auth
-conductor run -w claude add-tests
+be-conductor run -w claude refactor-auth
+be-conductor run -w claude add-tests
 ```
 
 Each gets its own branch and working copy. When done, merge from the dashboard or CLI:
 
 ```bash
-conductor worktree merge refactor-auth --strategy squash
+be-conductor worktree merge refactor-auth --strategy squash
 ```
 
 ## 4. Open on your phone
 
 ```bash
-conductor qr
+be-conductor qr
 ```
 
 Scan the QR code with your phone. The dashboard opens — all your sessions, live terminal, full control.
@@ -78,23 +78,23 @@ Run `tailscale status` to see the name. No IP to remember.
 
 ## 5. Keep it running
 
-The Conductor server starts automatically when you run your first agent and stays running in the background. If you accepted autostart during install, the dashboard is already reachable after a reboot. Otherwise, see [Auto-Start on Boot](autostart.md) for manual systemd (Linux), launchd (macOS), and Task Scheduler (Windows) setup.
+The Be-Conductor server starts automatically when you run your first agent and stays running in the background. If you accepted autostart during install, the dashboard is already reachable after a reboot. Otherwise, see [Auto-Start on Boot](autostart.md) for manual systemd (Linux), launchd (macOS), and Task Scheduler (Windows) setup.
 
 ## Quick reference
 
 | Do this | Command |
 |---|---|
-| Start an agent | `conductor run claude research` |
-| Start in a worktree | `conductor run -w claude research` |
-| Start in background | `conductor run -d claude research` |
-| Resume a session | `conductor resume research` |
-| List sessions | `conductor list` |
-| Attach to a session | `conductor attach research` |
+| Start an agent | `be-conductor run claude research` |
+| Start in a worktree | `be-conductor run -w claude research` |
+| Start in background | `be-conductor run -d claude research` |
+| Resume a session | `be-conductor resume research` |
+| List sessions | `be-conductor list` |
+| Attach to a session | `be-conductor attach research` |
 | Detach without stopping | `Ctrl+]` |
-| Open dashboard | `conductor open` |
-| QR code for phone | `conductor qr` |
-| Stop a session | `conductor stop research` |
-| List worktrees | `conductor worktree list` |
-| Merge a worktree | `conductor worktree merge research` |
-| Discard a worktree | `conductor worktree discard research` |
-| Shut everything down | `conductor shutdown` |
+| Open dashboard | `be-conductor open` |
+| QR code for phone | `be-conductor qr` |
+| Stop a session | `be-conductor stop research` |
+| List worktrees | `be-conductor worktree list` |
+| Merge a worktree | `be-conductor worktree merge research` |
+| Discard a worktree | `be-conductor worktree discard research` |
+| Shut everything down | `be-conductor shutdown` |

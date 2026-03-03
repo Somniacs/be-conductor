@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# conductor — Local orchestration for terminal sessions.
+# be-conductor — Local orchestration for terminal sessions.
 #
 # Copyright (c) 2026 Max Rheiner / Somniacs AG
 #
@@ -12,19 +12,19 @@
 # software distributed under the License is distributed on an
 # "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND.
 
-# Uninstaller — removes conductor, autostart configs, and optionally user data.
-#   curl -fsSL https://github.com/somniacs/conductor/releases/latest/download/uninstall.sh | bash
+# Uninstaller — removes be-conductor, autostart configs, and optionally user data.
+#   curl -fsSL https://github.com/somniacs/be-conductor/releases/latest/download/uninstall.sh | bash
 #   ./uninstall.sh
 set -e
 
 # ── Configuration (must match install.sh) ─────────────────────────────
-PROJECT="conductor"
+PROJECT="be-conductor"
 DATA_DIR="$HOME/.$PROJECT"
 SERVICE_NAME="$PROJECT"
 PLIST_LABEL="com.$PROJECT.server"
 
 # Previous name (for cleanup). Leave empty if not applicable.
-OLD_PROJECT=""
+OLD_PROJECT="conductor"
 # ──────────────────────────────────────────────────────────────────────
 
 echo "♭ $PROJECT — uninstall"

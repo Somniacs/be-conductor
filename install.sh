@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# conductor — Local orchestration for terminal sessions.
+# be-conductor — Local orchestration for terminal sessions.
 #
 # Copyright (c) 2026 Max Rheiner / Somniacs AG
 #
@@ -13,20 +13,20 @@
 # "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND.
 
 # Smart installer — works as curl-piped bootstrap AND local install.
-#   curl -fsSL https://github.com/somniacs/conductor/releases/latest/download/install.sh | bash
+#   curl -fsSL https://github.com/somniacs/be-conductor/releases/latest/download/install.sh | bash
 #   ./install.sh          (from cloned repo or extracted tarball)
 set -e
 
 # ── Configuration (change these if the project is renamed) ────────────
-PROJECT="conductor"
-REPO="somniacs/conductor"
+PROJECT="be-conductor"
+REPO="somniacs/be-conductor"
 RELEASE_URL="https://github.com/$REPO/releases/latest/download"
 DATA_DIR="$HOME/.$PROJECT"
 SERVICE_NAME="$PROJECT"
 PLIST_LABEL="com.$PROJECT.server"
 
 # Previous name (for migration). Leave empty if not applicable.
-OLD_PROJECT=""
+OLD_PROJECT="conductor"
 # ──────────────────────────────────────────────────────────────────────
 
 echo "♭ $PROJECT — install"

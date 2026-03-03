@@ -1,4 +1,4 @@
-# conductor — Local orchestration for terminal sessions.
+# be-conductor — Local orchestration for terminal sessions.
 #
 # Copyright (c) 2026 Max Rheiner / Somniacs AG
 #
@@ -12,20 +12,21 @@
 # "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND.
 
 # Smart installer — works as one-liner AND local install.
-#   irm https://github.com/somniacs/conductor/releases/latest/download/install.ps1 | iex
+#   irm https://github.com/somniacs/be-conductor/releases/latest/download/install.ps1 | iex
 #   powershell -ExecutionPolicy Bypass -File install.ps1
 
 $ErrorActionPreference = "Stop"
 
 # ── Configuration (change these if the project is renamed) ────────────
-$Project     = "conductor"
-$Repo        = "somniacs/conductor"
+$Project     = "be-conductor"
+$Repo        = "somniacs/be-conductor"
 $ReleaseUrl  = "https://github.com/$Repo/releases/latest/download"
 $DataDir     = "$env:USERPROFILE\.$Project"
-$TaskName    = "Conductor"
+$TaskName    = "Be-Conductor"
 
 # Previous name (for migration). Leave empty if not applicable.
-$OldProject  = ""
+$OldProject  = "conductor"
+$OldTaskName = "Conductor"
 # ──────────────────────────────────────────────────────────────────────
 
 Write-Host "b $Project - install" -ForegroundColor Cyan
@@ -85,14 +86,18 @@ if ($OldProject -and $OldProject -ne $Project) {
     try { & $OldProject shutdown 2>&1 | Out-Null } catch {}
 
     # Remove old scheduled task
-    try {
-        $oldTask = Get-ScheduledTask -TaskName $OldProject -ErrorAction SilentlyContinue
-        if ($oldTask) {
-            Unregister-ScheduledTask -TaskName $OldProject -Confirm:$false
-            Write-Host "  Removed old scheduled task ($OldProject)" -NoNewline
-            Write-Host " OK" -ForegroundColor Green
-        }
-    } catch {}
+    $oldTaskNames = @($OldProject)
+    if ($OldTaskName) { $oldTaskNames += $OldTaskName }
+    foreach ($otn in ($oldTaskNames | Select-Object -Unique)) {
+        try {
+            $oldTask = Get-ScheduledTask -TaskName $otn -ErrorAction SilentlyContinue
+            if ($oldTask) {
+                Unregister-ScheduledTask -TaskName $otn -Confirm:$false
+                Write-Host "  Removed old scheduled task ($otn)" -NoNewline
+                Write-Host " OK" -ForegroundColor Green
+            }
+        } catch {}
+    }
 
     # Uninstall old package
     try { & pipx uninstall $OldProject 2>&1 | Out-Null } catch {}
@@ -178,7 +183,7 @@ if ($installed) {
 
             Register-ScheduledTask -TaskName $TaskName -Action $action `
                 -Trigger $trigger -Settings $settings `
-                -Description "Conductor Server" -Force | Out-Null
+                -Description "Be-Conductor Server" -Force | Out-Null
 
             Write-Host "  Scheduled task registered" -NoNewline
             Write-Host " OK" -ForegroundColor Green

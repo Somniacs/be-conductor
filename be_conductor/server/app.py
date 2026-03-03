@@ -1,4 +1,4 @@
-# conductor — Local orchestration for terminal sessions.
+# be-conductor — Local orchestration for terminal sessions.
 #
 # Copyright (c) 2026 Max Rheiner / Somniacs AG
 #
@@ -23,8 +23,8 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from conductor.api.routes import router, registry
-from conductor.utils.config import CONDUCTOR_TOKEN, HOST, PORT, PID_FILE, VERSION, ensure_dirs
+from be_conductor.api.routes import router, registry
+from be_conductor.utils.config import CONDUCTOR_TOKEN, HOST, PORT, PID_FILE, VERSION, ensure_dirs
 
 
 # ---------------------------------------------------------------------------
@@ -80,7 +80,7 @@ async def lifespan(app: FastAPI):
         )
         if any(result.values()):
             import logging
-            log = logging.getLogger("conductor.worktrees")
+            log = logging.getLogger("be_conductor.worktrees")
             log.info("Worktree reconcile: %s", result)
     except Exception:
         pass
@@ -91,9 +91,9 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Conductor", version=VERSION, lifespan=lifespan)
+    app = FastAPI(title="Be-Conductor", version=VERSION, lifespan=lifespan)
 
-    # CORS: Allow any Conductor dashboard to connect cross-origin.
+    # CORS: Allow any Be-Conductor dashboard to connect cross-origin.
     # Safe on private Tailscale networks where the network is the trust boundary.
     app.add_middleware(
         CORSMiddleware,
@@ -119,7 +119,7 @@ def create_app() -> FastAPI:
                 html = (static_dir / "index.html").read_text()
                 html = html.replace(
                     "<head>",
-                    f'<head>\n    <meta name="conductor-token" content="{CONDUCTOR_TOKEN}">',
+                    f'<head>\n    <meta name="be-conductor-token" content="{CONDUCTOR_TOKEN}">',
                     1,
                 )
                 return HTMLResponse(html)

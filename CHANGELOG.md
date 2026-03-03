@@ -1,6 +1,15 @@
 # Changelog
 
-All notable changes to Conductor are documented here.
+All notable changes to Be-Conductor are documented here.
+
+## v0.3.10
+
+### Project rename: conductor → be-conductor
+
+- **New name** — the project is now **be-conductor** everywhere: CLI command, package name, data directory (`~/.be-conductor/`), environment variable (`BE_CONDUCTOR_TOKEN`), GitHub repo ([somniacs/be-conductor](https://github.com/somniacs/be-conductor))
+- **Automatic migration** — on first run, `~/.conductor/` is moved to `~/.be-conductor/` automatically. The old `CONDUCTOR_TOKEN` env var still works (with a deprecation warning)
+- **Installer migration** — `install.sh` / `install.ps1` detect old `conductor` installations: stop the old server, remove old autostart services, uninstall the old package, and migrate the data directory
+- **New repo** — code now lives at [github.com/somniacs/be-conductor](https://github.com/somniacs/be-conductor). The old `somniacs/conductor` repo points here
 
 ## v0.3.9
 
@@ -20,7 +29,7 @@ All notable changes to Conductor are documented here.
 - **Agent-specific resume** — each agent uses its own resume command (e.g. `claude --resume`, `codex resume`, `copilot --resume`). The resume endpoint reads the command from the scanner instead of hardcoding
 - **Discover IDE sessions** — scans `~/.claude/projects/` for Claude Code, `~/.codex/state_5.sqlite` for Codex, `~/.copilot/session-state/` for Copilot, with defensive stubs for Gemini (`~/.gemini/tmp/`) and Goose (`~/.local/share/goose/`). Sessions running in VS Code or JetBrains IDEs are detected via lock files and shown with a live badge
 - **Observe live sessions** — select a running session to open a read-only observation panel. The JSONL file is tailed in real-time with ANSI-colored formatting. Sessions without a JSONL file (Gemini, Goose) hide the Observe button
-- **Session scanner** — `conductor.external` package handles discovery across all agents (10s cache, excludes subagent files, filters out sessions already in Conductor) and observation (history limited to last 200 records, auto-cleanup on disconnect)
+- **Session scanner** — `conductor.external` package handles discovery across all agents (10s cache, excludes subagent files, filters out sessions already in Be-Conductor) and observation (history limited to last 200 records, auto-cleanup on disconnect)
 - **Security** — file IDs use an `agent::id` namespace format. Bare UUIDs are accepted for backward compatibility (mapped to Claude). IDs are validated against a strict allowlist of agent prefixes
 
 ### Notification system
@@ -51,7 +60,7 @@ All notable changes to Conductor are documented here.
 - **Forge** — open-source pair-programming agent (`forge`)
 - **Goose resume** — Goose (Block) sessions are now resumable via `goose session --resume`
 
-The default command list now includes 12 agents. All agents support git worktree isolation out of the box. Users with a saved `~/.conductor/config.yaml` keep their own list — reset via Settings → "Reset to defaults" to pick up the new agents.
+The default command list now includes 12 agents. All agents support git worktree isolation out of the box. Users with a saved `~/.be-conductor/config.yaml` keep their own list — reset via Settings → "Reset to defaults" to pick up the new agents.
 
 ### Settings tabs
 
@@ -62,8 +71,8 @@ The default command list now includes 12 agents. All agents support git worktree
 
 ### Resume support
 
-- **Resume from dashboard** — New/Resume toggle in the new-session dialog; in resume mode, paste an external resume token (e.g. from Claude's `--resume` output) to pick up the conversation inside Conductor. Command-based agents (Codex, Copilot) show their resume command automatically — no token needed
-- **Multi-agent resume** — `conductor resume --token` and dashboard resume now work with any agent via the `--command` flag (defaults to claude); reads `resume_flag` from server config per agent
+- **Resume from dashboard** — New/Resume toggle in the new-session dialog; in resume mode, paste an external resume token (e.g. from Claude's `--resume` output) to pick up the conversation inside Be-Conductor. Command-based agents (Codex, Copilot) show their resume command automatically — no token needed
+- **Multi-agent resume** — `be-conductor resume --token` and dashboard resume now work with any agent via the `--command` flag (defaults to claude); reads `resume_flag` from server config per agent
 - **Command-first dialog** — new-session dialog now shows the command picker before the session name, matching the CLI argument order
 
 ### File uploads
@@ -110,7 +119,7 @@ The default command list now includes 12 agents. All agents support git worktree
 ### Git worktree isolation
 
 - **Worktree sessions** — run any agent (Claude Code, Aider, Codex, Goose, Copilot, etc.) in an isolated git worktree so each session gets its own branch and working copy — no conflicts between parallel agents or your own work. Auto-commits on exit, merge back with squash/merge/rebase strategies
-- **Worktree CLI** — `conductor run -w` to start a worktree session; `conductor worktree list|merge|discard|gc` to manage them
+- **Worktree CLI** — `be-conductor run -w` to start a worktree session; `be-conductor worktree list|merge|discard|gc` to manage them
 - **Worktree dashboard** — worktree toggle in new-session dialog, color-coded badge pill (green = active, blue = finalized, red = orphaned, orange = stale) with branch name and commit count. Finalized sessions persist in the sidebar until merged or discarded
 - **Worktree diff view** — "diff" button on active and finalized worktrees opens a syntax-highlighted unified diff dialog (additions in green, deletions in red, file headers in amber, hunks in blue)
 - **Worktree finalize button** — "finalize" button on active worktree sessions gracefully stops the agent, auto-commits changes, and keeps the session in the sidebar for merge/discard
@@ -130,10 +139,10 @@ The default command list now includes 12 agents. All agents support git worktree
 
 ### CLI
 
-- **CLI resume** — `conductor resume <name>` resumes an exited session from the terminal, attaching automatically (use `-d` to resume in background)
-- **Restart/shutdown safety** — `conductor restart` and `conductor shutdown` now warn about active sessions before killing them; pass `-f` to skip
-- **Resume auto-start** — `conductor resume` now auto-starts the server daemon if it isn't running, matching `conductor run` and `conductor open`
-- **External resume** — `conductor resume <name> --token <UUID>` brings an external Claude session into Conductor; start Claude in any terminal, exit, copy the UUID from its `--resume` output, then resume it inside Conductor
+- **CLI resume** — `be-conductor resume <name>` resumes an exited session from the terminal, attaching automatically (use `-d` to resume in background)
+- **Restart/shutdown safety** — `be-conductor restart` and `be-conductor shutdown` now warn about active sessions before killing them; pass `-f` to skip
+- **Resume auto-start** — `be-conductor resume` now auto-starts the server daemon if it isn't running, matching `be-conductor run` and `be-conductor open`
+- **External resume** — `be-conductor resume <name> --token <UUID>` brings an external Claude session into Be-Conductor; start Claude in any terminal, exit, copy the UUID from its `--resume` output, then resume it inside Be-Conductor
 
 ### Fixes
 
@@ -188,7 +197,7 @@ The default command list now includes 12 agents. All agents support git worktree
 
 ### Fixes
 
-- `conductor run` now sends the caller's working directory to the server, so sessions start in the correct directory instead of the server's cwd
+- `be-conductor run` now sends the caller's working directory to the server, so sessions start in the correct directory instead of the server's cwd
 - Mobile sidebar drawer now closes when creating or resuming a session (previously only closed when opening an existing one)
 - Extra-keys drawer toggle now works reliably on mobile after collapsing
 - Custom scrollbar drag now works on mobile (was mouse-only; added touch event support)
@@ -213,9 +222,9 @@ The default command list now includes 12 agents. All agents support git worktree
 
 ## v0.3.1
 
-- **Admin settings panel** — localhost-only Settings dialog in the web dashboard for managing allowed commands, default directories, buffer size, upload limits, and stop timeout. Changes persist to `~/.conductor/config.yaml` and propagate to all connected clients automatically
+- **Admin settings panel** — localhost-only Settings dialog in the web dashboard for managing allowed commands, default directories, buffer size, upload limits, and stop timeout. Changes persist to `~/.be-conductor/config.yaml` and propagate to all connected clients automatically
 - **Admin API** — `GET /admin/settings` and `PUT /admin/settings` endpoints (localhost-only, returns 403 for remote clients)
-- **Config file** — settings now stored in `~/.conductor/config.yaml`, loaded at startup, merged over built-in defaults
+- **Config file** — settings now stored in `~/.be-conductor/config.yaml`, loaded at startup, merged over built-in defaults
 - **Live config updates** — config version tracking via `X-Config-Version` header; all dashboard clients auto-refresh when settings change
 - **Terminal resize fix** — split-view panels now resize without cursor drift or spurious scrollbars; rows always match the visible area while columns match the PTY for correct line wrapping
 - **Cursor position fix** — eliminated resize oscillation by reading cell dimensions directly from the xterm renderer instead of calling `fit()`, so a single resize per layout change keeps the cursor in place
@@ -225,11 +234,11 @@ The default command list now includes 12 agents. All agents support git worktree
 - **Extra-keys overlay** — collapsed mobile keys handle overlays the terminal at reduced opacity instead of reserving vertical space
 - **Extra-keys positioning** — bar now tracks the visual viewport on mobile so it stays above the keyboard in split-view lower panels instead of jumping to the top of the screen
 - **UI contrast** — bumped muted text colors across the dashboard for better readability in sunlight
-- **Auth token hint** — Settings dialog shows setup instructions when `CONDUCTOR_TOKEN` is not set
-- **Stable Tailscale URLs** — all server connections (Tailscale picker, manual input, QR scanner, QR code dialog, CLI `conductor qr`) now use MagicDNS names instead of bare IPs, so saved servers survive IP changes
+- **Auth token hint** — Settings dialog shows setup instructions when `BE_CONDUCTOR_TOKEN` is not set
+- **Stable Tailscale URLs** — all server connections (Tailscale picker, manual input, QR scanner, QR code dialog, CLI `be-conductor qr`) now use MagicDNS names instead of bare IPs, so saved servers survive IP changes
 - **Tailscale peer names** — devices that report "localhost" as hostname (e.g. Android) now show the MagicDNS device name in the picker instead
-- **Robust server shutdown** — `conductor shutdown` now finds the server process via `pgrep` when the PID file is missing
-- **CLI `--version` flag** — `conductor --version` prints the current version
+- **Robust server shutdown** — `be-conductor shutdown` now finds the server process via `pgrep` when the PID file is missing
+- **CLI `--version` flag** — `be-conductor --version` prints the current version
 - **Auto-start docs** — setup guide for systemd (Linux), launchd (macOS), and Task Scheduler (Windows)
 - **CHANGELOG.md** — added changelog with history from v0.1.0
 - **README** — table of contents, refined intro and cloud-independence positioning, autostart reference
@@ -241,7 +250,7 @@ First public release.
 - **Web terminal rendering** — custom scrollbar, correct PTY dimensions on buffer replay, full-height terminal panels
 - **Graceful stop & resume** — stop sequence support, resume token capture from terminal output, persistent resume across reboots
 - **Session creation from dashboard** — pick agent, directory, and target machine; start sessions without a terminal
-- **Multi-machine dashboard** — connect to multiple Conductor servers, sessions grouped by machine with status indicators
+- **Multi-machine dashboard** — connect to multiple Be-Conductor servers, sessions grouped by machine with status indicators
 - **Tailscale device picker** — discover and add machines from your Tailscale network
 - **File upload** — paste, drag-and-drop, or attachment button; upload dialog with progress; auto-cleanup on session end
 - **Mobile extra keys** — on-screen toolbar (ESC, TAB, arrows, CTRL, ALT, etc.) above the virtual keyboard, with collapsible drawer
