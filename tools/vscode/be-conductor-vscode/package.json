@@ -24,21 +24,12 @@
           "light": "icons/be-conductor-light.svg",
           "dark": "icons/be-conductor-dark.svg"
         }
-      },
-      {
-        "command": "be-conductor.openDashboard",
-        "title": "be-conductor: Open Dashboard",
-        "icon": "$(globe)"
       }
     ],
     "menus": {
       "editor/title": [
         {
           "command": "be-conductor.launch",
-          "group": "navigation"
-        },
-        {
-          "command": "be-conductor.openDashboard",
           "group": "navigation"
         }
       ]

@@ -14,7 +14,7 @@ const AGENTS = [
     { label: 'cursor',   description: 'Cursor Agent' },
 ];
 
-const NAME_PATTERN = /^[A-Za-z0-9_-]+$/;
+const NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9 _.~-]{0,63}$/;
 
 function activate(context) {
     const disposable = vscode.commands.registerCommand('be-conductor.launch', async () => {
@@ -36,7 +36,7 @@ function activate(context) {
             title: 'be-conductor: Session Name',
             validateInput(value) {
                 if (!value || !value.trim()) return 'Session name cannot be empty';
-                if (!NAME_PATTERN.test(value.trim())) return 'Only letters, digits, hyphens, and underscores';
+                if (!NAME_PATTERN.test(value.trim())) return 'Must start with a letter or digit, max 64 chars (letters, digits, spaces, hyphens, underscores, dots, tildes)';
                 return null;
             },
         });
@@ -56,24 +56,12 @@ function activate(context) {
 
     context.subscriptions.push(disposable);
 
-    const dashboardCmd = vscode.commands.registerCommand('be-conductor.openDashboard', () => {
-        vscode.env.openExternal(vscode.Uri.parse('http://127.0.0.1:7777'));
-    });
-    context.subscriptions.push(dashboardCmd);
-
     const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
     statusBar.text = '$(terminal) be-conductor';
     statusBar.command = 'be-conductor.launch';
     statusBar.tooltip = 'Launch be-conductor agent session';
     statusBar.show();
     context.subscriptions.push(statusBar);
-
-    const dashboardStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99);
-    dashboardStatusBar.text = '$(globe) Dashboard';
-    dashboardStatusBar.command = 'be-conductor.openDashboard';
-    dashboardStatusBar.tooltip = 'Open be-conductor dashboard in browser';
-    dashboardStatusBar.show();
-    context.subscriptions.push(dashboardStatusBar);
 }
 
 function deactivate() {}

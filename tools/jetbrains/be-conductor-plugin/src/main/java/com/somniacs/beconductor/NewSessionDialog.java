@@ -75,9 +75,9 @@ public class NewSessionDialog extends DialogWrapper {
         if (name.isEmpty()) {
             return new ValidationInfo("Session name must not be empty.", nameField);
         }
-        if (!name.matches("[A-Za-z0-9_-]+")) {
+        if (!name.matches("[a-zA-Z0-9][a-zA-Z0-9 _.~-]{0,63}")) {
             return new ValidationInfo(
-                "Only letters, digits, hyphens, and underscores are allowed.", nameField);
+                "Must start with a letter or digit, max 64 chars (letters, digits, spaces, hyphens, underscores, dots, tildes).", nameField);
         }
         return null;
     }
