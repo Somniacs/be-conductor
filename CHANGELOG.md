@@ -2,14 +2,14 @@
 
 All notable changes to Be-Conductor are documented here.
 
-## v0.3.12
+## v0.3.11
 
 ### IDE plugins
 
 - **JetBrains plugin** — toolbar button for CLion, IntelliJ IDEA, PyCharm, WebStorm, GoLand, and all other JetBrains IDEs. Opens a dialog to pick an AI agent and name the session, then runs `be-conductor run <agent> <name>` in a new terminal tab. Build: `cd tools/jetbrains/be-conductor-plugin && ./gradlew buildPlugin`. Targets JetBrains 2024.1+, Java 17+
-- **VS Code extension** — editor title icon and status bar item. Quick pick for agent selection with "Open Dashboard" at the top, input box for session name, opens an integrated terminal. No build step needed (plain JS). Install: symlink or copy to `~/.vscode/extensions/`
-
-## v0.3.11
+- **VS Code extension** — quick pick for agent selection with "Open Dashboard" at the top, input box for session name, opens an integrated terminal. No build step needed (plain JS). Install: symlink or copy to `~/.vscode/extensions/`
+- **Session name validation** — both plugins now validate session names against the backend regex (must start alphanumeric, max 64 chars, allows spaces/dots/tildes)
+- **Release artifacts** — the release workflow now builds and attaches the VS Code extension (`.vsix`) and JetBrains plugin (`.zip`) alongside the existing archives
 
 ### CLI improvements
 
@@ -21,6 +21,7 @@ All notable changes to Be-Conductor are documented here.
 ### UI
 
 - **Sidebar title** — drawer header now shows `♭ conductor` instead of `♭ be-conductor` (the flat sign already represents "be")
+- **About dialog title** — fixed to match the sidebar title ("♭ conductor")
 
 ## v0.3.10
 
