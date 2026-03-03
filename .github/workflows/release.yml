@@ -19,10 +19,34 @@ jobs:
       - name: Create zip
         run: git archive --format=zip --prefix=be-conductor/ -o be-conductor.zip HEAD
 
+      # ── VS Code extension ──────────────────────────────────
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build VS Code extension
+        working-directory: tools/vscode/be-conductor-vscode
+        run: |
+          npx @vscode/vsce package -o ../../../be-conductor.vsix
+
+      # ── JetBrains plugin ───────────────────────────────────
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Build JetBrains plugin
+        working-directory: tools/jetbrains/be-conductor-plugin
+        run: |
+          ./gradlew buildPlugin
+          cp build/distributions/*.zip ../../../be-conductor-jetbrains.zip
+
+      # ── Upload everything ──────────────────────────────────
       - name: Upload to release
         run: |
           gh release upload "${{ github.event.release.tag_name }}" \
             be-conductor.tar.gz be-conductor.zip \
+            be-conductor.vsix be-conductor-jetbrains.zip \
             install.sh uninstall.sh \
             install.ps1 uninstall.ps1 --clobber
         env:
