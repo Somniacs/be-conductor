@@ -40,18 +40,12 @@ class SessionItem extends vscode.TreeItem {
             this.contextValue = 'session-exited';
         }
 
-        // Click to focus/attach terminal (running) or resume (resumable)
+        // Click to focus/attach terminal (running sessions only)
         if (session.status === 'running') {
             this.command = {
                 command: 'be-conductor.focusSession',
                 title: 'Focus Session',
                 arguments: [session],
-            };
-        } else if (resumable) {
-            this.command = {
-                command: 'be-conductor.resumeSession',
-                title: 'Resume Session',
-                arguments: [this],
             };
         }
     }
@@ -201,6 +195,33 @@ function registerSessionCommands(context, provider) {
                 setTimeout(() => provider.refresh(), 500);
             } catch (e) {
                 vscode.window.showErrorMessage(`Failed to kill session: ${e.message}`);
+            }
+        }),
+
+        vscode.commands.registerCommand('be-conductor.forgetSession', async (item) => {
+            if (!(item instanceof SessionItem)) return;
+            const session = item.session;
+            try {
+                await api.stopSession(session.id, 'forget');
+                vscode.window.showInformationMessage(`Forgetting "${session.name}"...`);
+                // Poll until session disappears (up to 15s)
+                let attempts = 0;
+                const pollInterval = setInterval(async () => {
+                    attempts++;
+                    provider.refresh();
+                    try {
+                        const sessions = await api.listSessions();
+                        const current = sessions.find(s => s.id === session.id);
+                        if (!current || attempts >= 15) {
+                            clearInterval(pollInterval);
+                            provider.refresh();
+                        }
+                    } catch {
+                        clearInterval(pollInterval);
+                    }
+                }, 1000);
+            } catch (e) {
+                vscode.window.showErrorMessage(`Failed to forget session: ${e.message}`);
             }
         }),
 

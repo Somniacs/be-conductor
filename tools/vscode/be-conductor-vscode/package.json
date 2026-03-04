@@ -60,6 +60,11 @@
         "icon": "$(close)"
       },
       {
+        "command": "be-conductor.forgetSession",
+        "title": "Forget Session",
+        "icon": "$(trash)"
+      },
+      {
         "command": "be-conductor.dismissSession",
         "title": "Dismiss Session",
         "icon": "$(trash)"
@@ -95,7 +100,7 @@
         {
           "id": "be-conductor",
           "title": "be-conductor",
-          "icon": "icons/be-conductor-dark.svg"
+          "icon": "icons/be-conductor.svg"
         }
       ]
     },
@@ -155,6 +160,11 @@
           "command": "be-conductor.killSession",
           "when": "viewItem =~ /^session-(running|running-attached|stopping)$/",
           "group": "session@1"
+        },
+        {
+          "command": "be-conductor.forgetSession",
+          "when": "viewItem =~ /^session-(running|running-attached|stopping)$/",
+          "group": "session@2"
         },
         {
           "command": "be-conductor.resumeSession",

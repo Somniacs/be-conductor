@@ -145,34 +145,19 @@ async function createSessionFlow(callbacks) {
         // Server unreachable or git check failed — skip worktree option
     }
 
-    // Step 5: Execute — try API-based creation first, fall back to terminal-only
-    try {
-        const session = await api.createSession({
-            name: trimmed,
-            command: agent.command,
-            cwd: selectedCwd,
-            worktree: useWorktree,
-            rows: 50,
-            cols: 100,
-        });
+    // Step 5: Run session in terminal (handles server startup, creation, and attach)
+    const cmd = useWorktree
+        ? `be-conductor run -w "${agent.command}" "${trimmed}"`
+        : `be-conductor run "${agent.command}" "${trimmed}"`;
 
-        // Session created via API — open terminal to attach
-        attachSession(session.name, selectedCwd);
-    } catch {
-        // API unavailable — fall back to terminal-based creation
-        const cmd = useWorktree
-            ? `be-conductor run -w ${agent.command} ${trimmed}`
-            : `be-conductor run ${agent.command} ${trimmed}`;
-
-        const terminal = vscode.window.createTerminal({
-            name: `${trimmed} (${agent.label})`,
-            cwd: selectedCwd,
-            isTransient: true,
-        });
-        terminal.show();
-        terminal.sendText(cmd);
-        terminalMap.set(trimmed, terminal);
-    }
+    const terminal = vscode.window.createTerminal({
+        name: `${trimmed} (${agent.label})`,
+        cwd: selectedCwd,
+        isTransient: true,
+    });
+    terminal.show();
+    terminal.sendText(cmd);
+    terminalMap.set(trimmed, terminal);
 
     if (callbacks && callbacks.onSessionCreated) {
         setTimeout(() => callbacks.onSessionCreated(), 1500);
@@ -202,7 +187,7 @@ function attachSession(name, cwd) {
         isTransient: true,
     });
     terminal.show();
-    terminal.sendText(`be-conductor attach ${name} ; exit`);
+    terminal.sendText(`be-conductor attach "${name}" ; exit`);
     terminalMap.set(name, terminal);
 }
 
