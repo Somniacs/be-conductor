@@ -39,6 +39,7 @@ public class RunSessionAction extends AnAction {
         // Run session in terminal (handles server startup, creation, and attach)
         runInTerminal(project, command, name, finalWorkingDir, worktree);
         SessionListPanel.markAttached(name);
+        SessionListPanel.trackSession(project, name);
         BeConductorToolWindowFactory.refreshAll(project);
     }
 

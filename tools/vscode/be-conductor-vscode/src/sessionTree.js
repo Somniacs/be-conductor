@@ -1,7 +1,7 @@
 'use strict';
 const vscode = require('vscode');
 const api = require('./api');
-const { terminalMap, attachSession, focusTerminal } = require('./createSession');
+const { terminalMap, attachSession, focusTerminal, untrackSession } = require('./createSession');
 
 class SessionItem extends vscode.TreeItem {
     constructor(session) {
@@ -191,6 +191,7 @@ function registerSessionCommands(context, provider) {
             if (!(item instanceof SessionItem)) return;
             try {
                 await api.stopSession(item.session.id, 'kill');
+                untrackSession(item.session.name);
                 vscode.window.showInformationMessage(`Killed "${item.session.name}".`);
                 setTimeout(() => provider.refresh(), 500);
             } catch (e) {
@@ -203,6 +204,7 @@ function registerSessionCommands(context, provider) {
             const session = item.session;
             try {
                 await api.stopSession(session.id, 'forget');
+                untrackSession(session.name);
                 vscode.window.showInformationMessage(`Forgetting "${session.name}"...`);
                 // Poll until session disappears (up to 15s)
                 let attempts = 0;
@@ -229,6 +231,7 @@ function registerSessionCommands(context, provider) {
             if (!(item instanceof SessionItem)) return;
             try {
                 await api.deleteSession(item.session.id);
+                untrackSession(item.session.name);
                 provider.refresh();
             } catch (e) {
                 vscode.window.showErrorMessage(`Failed to dismiss session: ${e.message}`);

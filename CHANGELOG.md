@@ -4,6 +4,12 @@ All notable changes to Be-Conductor are documented here.
 
 ## v0.3.13
 
+### Session persistence across IDE restarts
+
+- **Auto-resume on IDE open** — sessions that were running when you closed the IDE are gracefully stopped (preserving resume tokens), then automatically resumed and re-attached when the IDE reopens. Works in both VS Code and JetBrains
+- **Graceful shutdown on IDE close** — tracked sessions receive a graceful stop signal when the project closes, giving agents time to print their resume tokens
+- **Session tracking** — sessions created or attached in the IDE are tracked per-workspace/project. Manually killed, forgotten, or dismissed sessions are untracked so they don't auto-resume
+
 ### Terminal output fix
 
 - **Fixed garbled TUI output** — rapid terminal updates (e.g. Claude Code's agent progress tree, spinners) could garble the display when proxied through be-conductor. The subscriber queue was silently dropping data when full, breaking ANSI escape sequences mid-stream. The queue now coalesces pending items instead of dropping, and the WebSocket writer batches rapid bursts into atomic sends

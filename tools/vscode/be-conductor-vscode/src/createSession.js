@@ -13,6 +13,39 @@ vscode.window.onDidCloseTerminal((t) => {
     }
 });
 
+// ── Session persistence (survives IDE restart) ──────────────────────────
+const TRACKED_KEY = 'be-conductor.trackedSessions';
+/** @type {vscode.Memento | null} */
+let _workspaceState = null;
+
+function setWorkspaceState(state) { _workspaceState = state; }
+
+/** @returns {string[]} tracked session names */
+function getTrackedSessions() {
+    if (!_workspaceState) return [];
+    return _workspaceState.get(TRACKED_KEY, []);
+}
+
+function trackSession(name) {
+    if (!_workspaceState) return;
+    const tracked = getTrackedSessions();
+    if (!tracked.includes(name)) {
+        tracked.push(name);
+        _workspaceState.update(TRACKED_KEY, tracked);
+    }
+}
+
+function untrackSession(name) {
+    if (!_workspaceState) return;
+    const tracked = getTrackedSessions().filter(n => n !== name);
+    _workspaceState.update(TRACKED_KEY, tracked);
+}
+
+function clearTrackedSessions() {
+    if (!_workspaceState) return;
+    _workspaceState.update(TRACKED_KEY, []);
+}
+
 /**
  * Fetch the agent list from the server, falling back to the hardcoded list.
  * @returns {Promise<Array<{label: string, description: string, command: string}>>}
@@ -158,6 +191,7 @@ async function createSessionFlow(callbacks) {
     terminal.show();
     terminal.sendText(cmd);
     terminalMap.set(trimmed, terminal);
+    trackSession(trimmed);
 
     if (callbacks && callbacks.onSessionCreated) {
         setTimeout(() => callbacks.onSessionCreated(), 1500);
@@ -189,6 +223,7 @@ function attachSession(name, cwd) {
     terminal.show();
     terminal.sendText(`be-conductor attach "${name}" ; exit`);
     terminalMap.set(name, terminal);
+    trackSession(name);
 }
 
 /**
@@ -205,4 +240,7 @@ function focusTerminal(name) {
     return false;
 }
 
-module.exports = { createSessionFlow, attachSession, focusTerminal, terminalMap };
+module.exports = {
+    createSessionFlow, attachSession, focusTerminal, terminalMap,
+    setWorkspaceState, getTrackedSessions, trackSession, untrackSession, clearTrackedSessions,
+};

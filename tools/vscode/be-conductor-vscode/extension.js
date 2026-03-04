@@ -2,11 +2,14 @@
 const vscode = require('vscode');
 const api = require('./src/api');
 const { getServerUrl, getPollInterval } = require('./src/config');
-const { createSessionFlow } = require('./src/createSession');
+const { createSessionFlow, attachSession, setWorkspaceState, getTrackedSessions, untrackSession, clearTrackedSessions } = require('./src/createSession');
 const { SessionTreeProvider, registerSessionCommands } = require('./src/sessionTree');
 const { WorktreeTreeProvider, DiffContentProvider, registerWorktreeCommands } = require('./src/worktreeTree');
 
 function activate(context) {
+    // ── Session persistence ──────────────────────────────────────────────
+    setWorkspaceState(context.workspaceState);
+
     // ── Tree data providers ──────────────────────────────────────────────
     const sessionProvider = new SessionTreeProvider();
     const worktreeProvider = new WorktreeTreeProvider();
@@ -95,8 +98,75 @@ function activate(context) {
         worktreeView,
         { dispose: () => { stopPolling(); clearInterval(healthTimer); } },
     );
+
+    // ── Auto-resume tracked sessions from previous IDE session ──────────
+    setTimeout(async () => {
+        const tracked = getTrackedSessions();
+        if (tracked.length === 0) return;
+        try {
+            const sessions = await api.listSessions();
+            const byName = new Map(sessions.map(s => [s.name, s]));
+            const resumed = [];
+            const reattached = [];
+
+            for (const name of tracked) {
+                const s = byName.get(name);
+                if (!s) {
+                    // Session gone — drop from tracking
+                    untrackSession(name);
+                    continue;
+                }
+                if (s.status === 'running') {
+                    // Still running — just re-attach
+                    attachSession(s.name);
+                    reattached.push(name);
+                } else if (s.status === 'exited' && (s.resume_id || s.worktree)) {
+                    // Resumable — resume and attach
+                    try {
+                        await api.resumeSession(s.id);
+                        attachSession(s.name);
+                        resumed.push(name);
+                    } catch {
+                        untrackSession(name);
+                    }
+                } else {
+                    // Completed without resume — drop
+                    untrackSession(name);
+                }
+            }
+
+            if (resumed.length > 0 || reattached.length > 0) {
+                const parts = [];
+                if (resumed.length > 0) parts.push(`resumed ${resumed.join(', ')}`);
+                if (reattached.length > 0) parts.push(`re-attached ${reattached.join(', ')}`);
+                vscode.window.showInformationMessage(`be-conductor: ${parts.join('; ')}`);
+                refreshAll();
+            }
+        } catch {
+            // Server not reachable — skip silently
+        }
+    }, 3000);
 }
 
-function deactivate() {}
+async function deactivate() {
+    const tracked = getTrackedSessions();
+    if (tracked.length === 0) return;
+
+    // Gracefully stop running sessions so they can print resume tokens.
+    try {
+        const sessions = await api.listSessions();
+        const running = sessions.filter(s => tracked.includes(s.name) && s.status === 'running');
+        if (running.length === 0) return;
+
+        await Promise.all(running.map(s =>
+            api.stopSession(s.id, 'graceful').catch(() => {})
+        ));
+
+        // Wait briefly for resume tokens to be captured.
+        await new Promise(resolve => setTimeout(resolve, 2000));
+    } catch {
+        // Server unreachable — nothing to do
+    }
+}
 
 module.exports = { activate, deactivate };

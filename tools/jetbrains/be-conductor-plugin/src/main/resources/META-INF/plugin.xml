@@ -28,6 +28,11 @@
         <notificationGroup id="be-conductor" displayType="BALLOON"/>
     </extensions>
 
+    <projectListeners>
+        <listener class="com.somniacs.beconductor.SessionPersistenceListener"
+                  topic="com.intellij.openapi.project.ProjectManagerListener"/>
+    </projectListeners>
+
     <actions>
         <!-- Toolbar group -->
         <group id="BeConductor.ToolbarGroup" text="be-conductor" popup="true"

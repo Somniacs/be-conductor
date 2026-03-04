@@ -1,6 +1,7 @@
 package com.somniacs.beconductor.toolwindow;
 
 import com.intellij.icons.AllIcons;
+import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.notification.Notification;
 import com.intellij.notification.NotificationType;
 import com.intellij.notification.Notifications;
@@ -36,9 +37,48 @@ public class SessionListPanel extends JPanel {
 
     private static final Logger LOG = Logger.getInstance(SessionListPanel.class);
     private static final int REFRESH_INTERVAL_MS = 5000;
+    private static final String TRACKED_KEY = "be-conductor.trackedSessions";
 
     /** Sessions that already have an attached terminal in this IDE. */
     private static final Set<String> attachedSessions = new HashSet<>();
+
+    // ── Session persistence (survives IDE restart) ──────────────────────
+
+    public static void trackSession(Project project, String name) {
+        PropertiesComponent props = PropertiesComponent.getInstance(project);
+        List<String> tracked = new java.util.ArrayList<>(getTrackedSessions(project));
+        if (!tracked.contains(name)) {
+            tracked.add(name);
+            props.setValue(TRACKED_KEY, String.join(",", tracked));
+        }
+    }
+
+    public static void untrackSession(Project project, String name) {
+        PropertiesComponent props = PropertiesComponent.getInstance(project);
+        List<String> tracked = new java.util.ArrayList<>(getTrackedSessions(project));
+        tracked.remove(name);
+        if (tracked.isEmpty()) {
+            props.unsetValue(TRACKED_KEY);
+        } else {
+            props.setValue(TRACKED_KEY, String.join(",", tracked));
+        }
+    }
+
+    public static List<String> getTrackedSessions(Project project) {
+        PropertiesComponent props = PropertiesComponent.getInstance(project);
+        String val = props.getValue(TRACKED_KEY);
+        if (val == null || val.isEmpty()) return java.util.Collections.emptyList();
+        return java.util.Arrays.asList(val.split(","));
+    }
+
+    public static void saveTrackedSessions(Project project, List<String> names) {
+        PropertiesComponent props = PropertiesComponent.getInstance(project);
+        if (names.isEmpty()) {
+            props.unsetValue(TRACKED_KEY);
+        } else {
+            props.setValue(TRACKED_KEY, String.join(",", names));
+        }
+    }
 
     private final Project project;
     private final DefaultListModel<ApiModels.SessionResponse> listModel;
@@ -224,6 +264,10 @@ public class SessionListPanel extends JPanel {
         refreshAlarm = new Alarm(Alarm.ThreadToUse.POOLED_THREAD, project);
         scheduleRefresh();
         refresh();
+
+        // Auto-resume tracked sessions from previous IDE session (3s delay)
+        Alarm resumeAlarm = new Alarm(Alarm.ThreadToUse.POOLED_THREAD, project);
+        resumeAlarm.addRequest(() -> autoResumeTrackedSessions(), 3000);
     }
 
     private JButton createToolbarButton(String text, Icon icon, String tooltip) {
@@ -368,6 +412,7 @@ public class SessionListPanel extends JPanel {
     private void attachSession(String name) {
         if (attachedSessions.contains(name)) return;
         attachedSessions.add(name);
+        trackSession(project, name);
 
         String workingDir = project.getBasePath();
         if (workingDir == null) workingDir = System.getProperty("user.home");
@@ -446,6 +491,14 @@ public class SessionListPanel extends JPanel {
     private void dismissSession(String id) {
         ApplicationManager.getApplication().executeOnPooledThread(() -> {
             try {
+                // Find session name for untracking before deleting
+                List<ApiModels.SessionResponse> sessions = BeConductorClient.getInstance().listSessions();
+                for (ApiModels.SessionResponse s : sessions) {
+                    if (s.id.equals(id)) {
+                        untrackSession(project, s.name);
+                        break;
+                    }
+                }
                 BeConductorClient.getInstance().deleteSession(id);
                 refresh();
             } catch (Exception e) {
@@ -597,6 +650,71 @@ public class SessionListPanel extends JPanel {
                 );
             }
         });
+    }
+
+    // === Auto-resume tracked sessions from previous IDE session ===
+
+    private void autoResumeTrackedSessions() {
+        List<String> tracked = new java.util.ArrayList<>(getTrackedSessions(project));
+        if (tracked.isEmpty()) return;
+
+        try {
+            BeConductorClient client = BeConductorClient.getInstance();
+            if (!client.isServerRunning()) return;
+
+            List<ApiModels.SessionResponse> sessions = client.listSessions();
+            java.util.Map<String, ApiModels.SessionResponse> byName = new java.util.HashMap<>();
+            for (ApiModels.SessionResponse s : sessions) byName.put(s.name, s);
+
+            List<String> resumed = new java.util.ArrayList<>();
+            List<String> reattached = new java.util.ArrayList<>();
+
+            for (String name : tracked) {
+                ApiModels.SessionResponse s = byName.get(name);
+                if (s == null) {
+                    // Session gone — drop from tracking
+                    untrackSession(project, name);
+                    continue;
+                }
+                if ("running".equals(s.status)) {
+                    // Still running — just re-attach
+                    SwingUtilities.invokeLater(() -> attachSession(s.name));
+                    reattached.add(name);
+                } else if ("exited".equals(s.status) && (s.resume_id != null || s.worktree != null)) {
+                    // Resumable — resume and attach
+                    try {
+                        client.resumeSession(s.id);
+                        SwingUtilities.invokeLater(() -> attachSession(s.name));
+                        resumed.add(name);
+                    } catch (Exception e) {
+                        untrackSession(project, name);
+                    }
+                } else {
+                    // Completed without resume — drop
+                    untrackSession(project, name);
+                }
+            }
+
+            if (!resumed.isEmpty() || !reattached.isEmpty()) {
+                StringBuilder msg = new StringBuilder();
+                if (!resumed.isEmpty()) msg.append("Resumed ").append(String.join(", ", resumed));
+                if (!reattached.isEmpty()) {
+                    if (msg.length() > 0) msg.append("; ");
+                    msg.append("Re-attached ").append(String.join(", ", reattached));
+                }
+                String text = msg.toString();
+                SwingUtilities.invokeLater(() -> {
+                    Notifications.Bus.notify(new Notification(
+                            "be-conductor", "Sessions Restored", text,
+                            NotificationType.INFORMATION
+                    ));
+                    refresh();
+                });
+            }
+        } catch (Exception e) {
+            // Server not reachable — skip silently
+            LOG.info("be-conductor: auto-resume skipped (server unreachable)");
+        }
     }
 
     // === Cell renderer ===
