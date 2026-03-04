@@ -1,19 +1,35 @@
 <idea-plugin>
     <id>com.somniacs.beconductor</id>
     <name>be-conductor</name>
-    <version>0.1.0</version>
+    <version>0.2.0</version>
     <vendor url="https://github.com/somniacs/be-conductor">Somniacs</vendor>
 
     <description><![CDATA[
-        Start AI coding agent sessions (Claude, Codex, Gemini, Aider, and more)
-        via <a href="https://github.com/somniacs/be-conductor">be-conductor</a> directly from a JetBrains IDE toolbar button.
-        Opens a new terminal tab and runs <code>be-conductor run &lt;agent&gt; &lt;name&gt;</code>.
+        Orchestrate AI coding agent sessions (Claude, Codex, Gemini, Aider, and more)
+        via <a href="https://github.com/somniacs/be-conductor">be-conductor</a>.
+        Create sessions with git worktree isolation, manage running sessions,
+        view diffs, merge changes — all from within the IDE.
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>
     <depends>org.jetbrains.plugins.terminal</depends>
 
+    <extensions defaultExtensionNs="com.intellij">
+        <!-- Tool window (right sidebar) -->
+        <toolWindow id="be-conductor" anchor="right"
+                    icon="/icons/be-conductor.svg"
+                    factoryClass="com.somniacs.beconductor.toolwindow.BeConductorToolWindowFactory"/>
+
+        <!-- API client singleton -->
+        <applicationService
+            serviceImplementation="com.somniacs.beconductor.api.BeConductorClient"/>
+
+        <!-- Notification group -->
+        <notificationGroup id="be-conductor" displayType="BALLOON"/>
+    </extensions>
+
     <actions>
+        <!-- Toolbar group -->
         <group id="BeConductor.ToolbarGroup" text="be-conductor" popup="true"
                icon="/icons/be-conductor.svg">
             <add-to-group group-id="MainToolbarRight" anchor="last"/>

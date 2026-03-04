@@ -1,67 +1,100 @@
 'use strict';
 const vscode = require('vscode');
-
-const AGENTS = [
-    { label: 'claude',   description: 'Claude Code' },
-    { label: 'codex',    description: 'OpenAI Codex CLI' },
-    { label: 'aider',    description: 'Aider' },
-    { label: 'gemini',   description: 'Gemini CLI' },
-    { label: 'copilot',  description: 'GitHub Copilot CLI' },
-    { label: 'opencode', description: 'OpenCode' },
-    { label: 'amp',      description: 'Amp (Sourcegraph)' },
-    { label: 'goose',    description: 'Goose (Block)' },
-    { label: 'forge',    description: 'Forge' },
-    { label: 'cursor',   description: 'Cursor Agent' },
-];
-
-const NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9 _.~-]{0,63}$/;
+const api = require('./src/api');
+const { getServerUrl, getPollInterval } = require('./src/config');
+const { createSessionFlow } = require('./src/createSession');
+const { SessionTreeProvider, registerSessionCommands } = require('./src/sessionTree');
+const { WorktreeTreeProvider, DiffContentProvider, registerWorktreeCommands } = require('./src/worktreeTree');
 
 function activate(context) {
-    const disposable = vscode.commands.registerCommand('be-conductor.launch', async () => {
-        const dashboardItem = { label: '$(globe) Open Dashboard', description: 'Open be-conductor dashboard in browser', _dashboard: true };
-        const items = [dashboardItem, { kind: vscode.QuickPickItemKind.Separator, label: 'Agents' }, ...AGENTS];
-        const agent = await vscode.window.showQuickPick(items, {
-            placeHolder: 'Select an AI agent or open the dashboard',
-            title: 'be-conductor',
-        });
-        if (!agent) return;
-        if (agent._dashboard) {
-            vscode.env.openExternal(vscode.Uri.parse('http://127.0.0.1:7777'));
-            return;
-        }
+    // ── Tree data providers ──────────────────────────────────────────────
+    const sessionProvider = new SessionTreeProvider();
+    const worktreeProvider = new WorktreeTreeProvider();
+    const diffProvider = new DiffContentProvider();
 
-        const name = await vscode.window.showInputBox({
-            prompt: 'Session name',
-            placeHolder: 'e.g. feature-auth',
-            title: 'be-conductor: Session Name',
-            validateInput(value) {
-                if (!value || !value.trim()) return 'Session name cannot be empty';
-                if (!NAME_PATTERN.test(value.trim())) return 'Must start with a letter or digit, max 64 chars (letters, digits, spaces, hyphens, underscores, dots, tildes)';
-                return null;
-            },
-        });
-        if (name === undefined) return;
-
-        const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-        const trimmed = name.trim();
-
-        const terminal = vscode.window.createTerminal({
-            name: `${trimmed} (${agent.label})`,
-            cwd,
-            isTransient: true,
-        });
-        terminal.show();
-        terminal.sendText(`be-conductor run ${agent.label} ${trimmed}`);
+    const sessionView = vscode.window.createTreeView('be-conductor.sessions', {
+        treeDataProvider: sessionProvider,
+    });
+    const worktreeView = vscode.window.createTreeView('be-conductor.worktrees', {
+        treeDataProvider: worktreeProvider,
     });
 
-    context.subscriptions.push(disposable);
+    // ── Diff content provider ────────────────────────────────────────────
+    context.subscriptions.push(
+        vscode.workspace.registerTextDocumentContentProvider('be-conductor-diff', diffProvider),
+    );
 
+    // ── Refresh helper ───────────────────────────────────────────────────
+    function refreshAll() {
+        sessionProvider.refresh();
+        worktreeProvider.refresh();
+    }
+
+    // ── Polling (only while sidebar is visible) ──────────────────────────
+    let pollTimer = null;
+    function startPolling() {
+        if (pollTimer) return;
+        refreshAll();
+        pollTimer = setInterval(refreshAll, getPollInterval());
+    }
+    function stopPolling() {
+        if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    }
+
+    // Start polling when either view becomes visible, stop when both hidden
+    sessionView.onDidChangeVisibility(() => {
+        if (sessionView.visible || worktreeView.visible) startPolling();
+        else stopPolling();
+    });
+    worktreeView.onDidChangeVisibility(() => {
+        if (sessionView.visible || worktreeView.visible) startPolling();
+        else stopPolling();
+    });
+
+    // Initial refresh if views are visible on activation
+    if (sessionView.visible || worktreeView.visible) startPolling();
+
+    // ── Commands ─────────────────────────────────────────────────────────
+    context.subscriptions.push(
+        vscode.commands.registerCommand('be-conductor.launch', () =>
+            createSessionFlow({ onSessionCreated: refreshAll })
+        ),
+        vscode.commands.registerCommand('be-conductor.openDashboard', () =>
+            vscode.env.openExternal(vscode.Uri.parse(getServerUrl()))
+        ),
+        vscode.commands.registerCommand('be-conductor.refresh', refreshAll),
+    );
+
+    registerSessionCommands(context, sessionProvider);
+    registerWorktreeCommands(context, worktreeProvider, diffProvider, refreshAll);
+
+    // ── Status bar ───────────────────────────────────────────────────────
     const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-    statusBar.text = '$(terminal) be-conductor';
     statusBar.command = 'be-conductor.launch';
-    statusBar.tooltip = 'Launch be-conductor agent session';
     statusBar.show();
     context.subscriptions.push(statusBar);
+
+    async function updateStatusBar() {
+        try {
+            const info = await api.getHealth();
+            statusBar.text = '$(terminal) be-conductor';
+            statusBar.tooltip = `be-conductor v${info.version} — Click to create session`;
+            statusBar.backgroundColor = undefined;
+        } catch {
+            statusBar.text = '$(warning) be-conductor';
+            statusBar.tooltip = 'be-conductor server not running';
+            statusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+        }
+    }
+    updateStatusBar();
+    const healthTimer = setInterval(updateStatusBar, 15000);
+
+    // ── Cleanup ──────────────────────────────────────────────────────────
+    context.subscriptions.push(
+        sessionView,
+        worktreeView,
+        { dispose: () => { stopPolling(); clearInterval(healthTimer); } },
+    );
 }
 
 function deactivate() {}

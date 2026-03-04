@@ -2,7 +2,7 @@
   "name": "be-conductor-launcher",
   "displayName": "be-conductor",
   "description": "Launch AI agent sessions from VS Code via be-conductor (https://github.com/somniacs/be-conductor)",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "somniacs",
   "license": "MIT",
   "repository": {
@@ -12,9 +12,13 @@
   "engines": {
     "vscode": "^1.85.0"
   },
-  "categories": ["Other"],
+  "categories": [
+    "Other"
+  ],
   "main": "./extension.js",
-  "activationEvents": ["onStartupFinished"],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "contributes": {
     "commands": [
       {
@@ -24,15 +28,185 @@
           "light": "icons/be-conductor-light.svg",
           "dark": "icons/be-conductor-dark.svg"
         }
+      },
+      {
+        "command": "be-conductor.openDashboard",
+        "title": "be-conductor: Open Dashboard",
+        "icon": "$(globe)"
+      },
+      {
+        "command": "be-conductor.refresh",
+        "title": "be-conductor: Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "be-conductor.attachSession",
+        "title": "Attach Terminal",
+        "icon": "$(terminal)"
+      },
+      {
+        "command": "be-conductor.resumeSession",
+        "title": "Resume Session",
+        "icon": "$(debug-start)"
+      },
+      {
+        "command": "be-conductor.stopSession",
+        "title": "Stop Session",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "be-conductor.killSession",
+        "title": "Kill Session",
+        "icon": "$(close)"
+      },
+      {
+        "command": "be-conductor.dismissSession",
+        "title": "Dismiss Session",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "be-conductor.finalizeWorktree",
+        "title": "Finalize Worktree",
+        "icon": "$(check)"
+      },
+      {
+        "command": "be-conductor.viewDiff",
+        "title": "View Worktree Diff",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "be-conductor.mergeWorktree",
+        "title": "Merge Worktree",
+        "icon": "$(git-merge)"
+      },
+      {
+        "command": "be-conductor.deleteWorktree",
+        "title": "Delete Worktree",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "be-conductor.gcWorktrees",
+        "title": "Garbage Collect Stale Worktrees",
+        "icon": "$(clear-all)"
       }
     ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "be-conductor",
+          "title": "be-conductor",
+          "icon": "icons/be-conductor-dark.svg"
+        }
+      ]
+    },
+    "views": {
+      "be-conductor": [
+        {
+          "id": "be-conductor.sessions",
+          "name": "Sessions"
+        },
+        {
+          "id": "be-conductor.worktrees",
+          "name": "Worktrees"
+        }
+      ]
+    },
     "menus": {
       "editor/title": [
         {
           "command": "be-conductor.launch",
           "group": "navigation"
         }
+      ],
+      "view/title": [
+        {
+          "command": "be-conductor.launch",
+          "when": "view == be-conductor.sessions",
+          "group": "navigation@1"
+        },
+        {
+          "command": "be-conductor.openDashboard",
+          "when": "view == be-conductor.sessions",
+          "group": "navigation@2"
+        },
+        {
+          "command": "be-conductor.refresh",
+          "when": "view == be-conductor.sessions || view == be-conductor.worktrees",
+          "group": "navigation@3"
+        },
+        {
+          "command": "be-conductor.gcWorktrees",
+          "when": "view == be-conductor.worktrees",
+          "group": "navigation@4"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "be-conductor.attachSession",
+          "when": "viewItem == session-running",
+          "group": "inline@1"
+        },
+        {
+          "command": "be-conductor.stopSession",
+          "when": "viewItem =~ /^session-(running|running-attached|stopping)$/",
+          "group": "inline@2"
+        },
+        {
+          "command": "be-conductor.killSession",
+          "when": "viewItem =~ /^session-(running|running-attached|stopping)$/",
+          "group": "session@1"
+        },
+        {
+          "command": "be-conductor.resumeSession",
+          "when": "viewItem == session-resumable",
+          "group": "inline@1"
+        },
+        {
+          "command": "be-conductor.dismissSession",
+          "when": "viewItem =~ /^session-(exited|resumable)$/",
+          "group": "inline@2"
+        },
+        {
+          "command": "be-conductor.finalizeWorktree",
+          "when": "viewItem == worktree-active",
+          "group": "inline@1"
+        },
+        {
+          "command": "be-conductor.viewDiff",
+          "when": "viewItem =~ /^worktree-/",
+          "group": "worktree@1"
+        },
+        {
+          "command": "be-conductor.mergeWorktree",
+          "when": "viewItem =~ /^worktree-(active|finalized)$/",
+          "group": "worktree@2"
+        },
+        {
+          "command": "be-conductor.deleteWorktree",
+          "when": "viewItem =~ /^worktree-/",
+          "group": "worktree@3"
+        }
       ]
+    },
+    "configuration": {
+      "title": "be-conductor",
+      "properties": {
+        "be-conductor.serverUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:7777",
+          "description": "URL of the be-conductor server"
+        },
+        "be-conductor.pollInterval": {
+          "type": "number",
+          "default": 5000,
+          "minimum": 1000,
+          "maximum": 60000,
+          "description": "Polling interval for session/worktree refresh in milliseconds"
+        }
+      }
     }
+  },
+  "devDependencies": {
+    "@vscode/vsce": "^2.19.0"
   }
 }

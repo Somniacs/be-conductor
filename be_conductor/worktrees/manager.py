@@ -789,6 +789,121 @@ class WorktreeManager:
             except Exception:
                 return ""
 
+    # -- Rich diff (per-file base/head content) --------------------------------
+
+    def get_rich_diff(self, info: WorktreeInfo) -> list[dict]:
+        """Get per-file base/head content for a worktree branch vs its base.
+
+        Returns a list of dicts, each with:
+            path:         relative file path
+            status:       "added" | "modified" | "deleted" | "renamed"
+            base_content: content at base commit (empty for added files)
+            head_content: content at head/worktree (empty for deleted files)
+        """
+        repo = info.repo_path
+        base = info.base_commit
+        branch = info.branch
+        active = (info.status == "active"
+                  and info.worktree_path
+                  and Path(info.worktree_path).is_dir())
+
+        result: list[dict] = []
+        status_map = {"M": "modified", "A": "added", "D": "deleted",
+                      "R": "renamed", "C": "copied", "T": "modified"}
+
+        try:
+            # Detect binary files so we can skip them
+            if active:
+                numstat = _git_output("diff", "--numstat", base,
+                                      cwd=info.worktree_path)
+            else:
+                numstat = _git_output("diff", "--numstat",
+                                      f"{base}...{branch}", cwd=repo)
+            binary_paths: set[str] = set()
+            for line in numstat.strip().split("\n"):
+                if not line.strip():
+                    continue
+                parts = line.split("\t")
+                if len(parts) == 3 and parts[0] == "-":
+                    binary_paths.add(parts[2])
+
+            # Get list of changed files with status
+            if active:
+                raw = _git_output("diff", "--name-status", base,
+                                  cwd=info.worktree_path)
+            else:
+                raw = _git_output("diff", "--name-status",
+                                  f"{base}...{branch}", cwd=repo)
+
+            for line in raw.strip().split("\n"):
+                if not line.strip():
+                    continue
+                parts = line.split("\t")
+                status_code = parts[0][0]
+                file_path = parts[-1]
+                status = status_map.get(status_code, "modified")
+
+                if file_path in binary_paths:
+                    continue
+
+                # Base content
+                base_content = ""
+                if status not in ("added", "copied"):
+                    old_path = parts[1] if status_code.startswith("R") else file_path
+                    try:
+                        base_content = _git_output("show",
+                                                   f"{base}:{old_path}",
+                                                   cwd=repo)
+                    except Exception:
+                        base_content = ""
+
+                # Head content
+                head_content = ""
+                if status != "deleted":
+                    try:
+                        if active:
+                            fpath = Path(info.worktree_path) / file_path
+                            head_content = fpath.read_text(errors="replace")
+                        else:
+                            head_content = _git_output("show",
+                                                       f"{branch}:{file_path}",
+                                                       cwd=repo)
+                    except Exception:
+                        head_content = ""
+
+                result.append({
+                    "path": file_path,
+                    "status": status,
+                    "base_content": base_content,
+                    "head_content": head_content,
+                })
+
+            # For active worktrees, include untracked (new) files
+            if active:
+                untracked = _git_output("ls-files", "--others",
+                                        "--exclude-standard",
+                                        cwd=info.worktree_path)
+                for f in untracked.split("\n"):
+                    f = f.strip()
+                    if not f:
+                        continue
+                    fpath = Path(info.worktree_path) / f
+                    try:
+                        content = fpath.read_text(errors="replace")
+                    except Exception:
+                        continue
+                    result.append({
+                        "path": f,
+                        "status": "added",
+                        "base_content": "",
+                        "head_content": content,
+                    })
+
+        except Exception:
+            log.exception("get_rich_diff failed for worktree %s", info.name)
+
+        return result
+
     # -- Reconcile (crash recovery) ------------------------------------------
 
     def reconcile(self) -> dict[str, list[str]]:

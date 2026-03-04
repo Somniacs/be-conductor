@@ -289,18 +289,15 @@ class Session:
         """
         self.status = "stopping"
         if self._stop_sequence:
-            asyncio.ensure_future(self._send_stop_sequence())
+            task = asyncio.ensure_future(self._send_stop_sequence())
+            task.add_done_callback(self._log_task_exception)
         elif _IS_WIN:
             self.pty.write(b'\x03')
         else:
-            import signal as _signal
-            try:
-                pgid = os.getpgid(self.pty.process.pid)
-                os.killpg(pgid, _signal.SIGINT)
-            except (ProcessLookupError, OSError):
-                pass
+            self.pty.interrupt_pg()
         # Escalate to SIGTERM if the process doesn't exit in time.
-        asyncio.ensure_future(self._escalate_kill(timeout))
+        task = asyncio.ensure_future(self._escalate_kill(timeout))
+        task.add_done_callback(self._log_task_exception)
 
     async def _send_stop_sequence(self):
         """Write each item in the stop sequence to the PTY with delays.
@@ -321,19 +318,34 @@ class Session:
                 # Shorter pause between subsequent items.
                 await asyncio.sleep(1.0 if i == 0 else 0.2)
 
+    @staticmethod
+    def _log_task_exception(task: asyncio.Task):
+        """Done-callback for fire-and-forget tasks — log instead of crash."""
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc:
+            logger.error("Background task failed: %s", exc, exc_info=exc)
+
     async def _escalate_kill(self, timeout: float):
         """Wait for *timeout* seconds, then SIGTERM if still running."""
-        await asyncio.sleep(timeout)
-        if self.status == "stopping" and self.pty.poll() is None:
-            self.pty.kill()
+        try:
+            await asyncio.sleep(timeout)
+            if self.status == "stopping" and self.pty.poll() is None:
+                self.pty.kill()
+        except Exception:
+            logger.exception("Error in _escalate_kill")
 
     async def kill(self):
-        self.pty.kill()
+        # Run the blocking pty.kill() in a thread to avoid blocking the
+        # event loop (it may wait briefly for process exit).
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, self.pty.kill)
         self.status = "killed"
 
         if not _IS_WIN:
             try:
-                asyncio.get_event_loop().remove_reader(self.pty.master_fd)
+                loop.remove_reader(self.pty.master_fd)
             except Exception:
                 pass
 

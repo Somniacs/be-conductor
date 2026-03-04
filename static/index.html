@@ -1290,6 +1290,12 @@
                 pointer-events: none;
             }
             .terminal-wrapper .xterm .xterm-viewport { touch-action: pan-y; }
+            /* Prevent browser auto-scrolling .panel-terminal to reveal textarea at cursor col 0 */
+            .panel-terminal .xterm-helper-textarea {
+                position: fixed !important;
+                top: 0px !important;
+                left: 0px !important;
+            }
         }
 
 
@@ -2357,6 +2363,7 @@
         let sessions = [];
         let panels = [];
         let layoutRoot = null;   // binary tree: { type:'leaf', panelId } | { type:'split', direction, children:[a,b], ratio }
+
         let _layoutRestored = false;
 
         function _saveLayout() {
@@ -2596,46 +2603,10 @@
             };
         }
 
-        // DEBUG overlay — live terminal metrics on touch devices
-        // let _dbgEl = null;
-        // function _dbg(msg) {
-        //     if (!('ontouchstart' in window)) return;
-        //     if (!_dbgEl) {
-        //         _dbgEl = document.createElement('div');
-        //         _dbgEl.style.cssText = 'position:fixed;top:40px;left:4px;z-index:9999;background:rgba(0,0,0,0.85);color:#0f0;font:11px monospace;padding:4px 8px;pointer-events:none;white-space:pre;max-width:95vw;';
-        //         document.body.appendChild(_dbgEl);
-        //     }
-        //     _dbgEl.textContent = msg;
-        // }
-        // Poll focused panel metrics every 500ms
-        // if ('ontouchstart' in window) {
-        //     let _dbgBackend = '?×?';
-        //     setInterval(async () => {
-        //         const fp = panels.find(p => p.id === focusedPanelId);
-        //         if (!fp || !fp.terminal) { _dbg('no panel'); return; }
-        //         const b = fp.terminal.buffer?.active;
-        //         if (!b) return;
-        //         try {
-        //             const r = await fetch(serverUrl(fp.server, `/sessions/${fp.sessionId}`));
-        //             const info = await r.json();
-        //             _dbgBackend = `${info.rows}×${info.cols}`;
-        //         } catch(e){}
-        //         _dbg(
-        //             `[${fp.name}] term=${fp.terminal.rows}×${fp.terminal.cols}\n` +
-        //             `backend=${_dbgBackend}\n` +
-        //             `cursor y=${b.cursorY} baseY=${b.baseY} bufLen=${b.length}`
-        //         );
-        //     }, 500);
-        // }
-
         // Core fit logic — can be called directly (synchronous) or via debounce.
         function _fitPanelCore(p) {
             if (!p.fitAddon || !p._termOpened) return;
             const target = p._termWrapper || p._termEl;
-            // const scrollContainer = target.parentElement; // .panel-terminal
-            // const outerContainer = target.closest('.panel-terminal-outer');
-            // const availH = outerContainer ? outerContainer.clientHeight : scrollContainer.clientHeight;
-            // const kbOpen = document.getElementById('panels')?.classList.contains('keyboard-focused');
 
             // Use PTY dimensions if known (host terminal is the authority),
             // otherwise fall back to fit addon for browser-only sessions.
@@ -2683,13 +2654,6 @@
                 // Guard: if rows would overflow by even 1 sub-pixel, drop a row
                 if (visibleRows * cellHeight > wrapH + 0.5) visibleRows = Math.max(1, visibleRows - 1);
 
-                // DEBUG — show fit dimensions on mobile
-                // if ('ontouchstart' in window) {
-                //     _dbg(`[fit ${p.name}] wrapH=${wrapH} availH=${availH} visRows=${visibleRows}\n` +
-                //         `cellH: css=${_cssCellH.toFixed(2)} dev=${_devCellH.toFixed(1)}/${_dpr.toFixed(1)}\n` +
-                //         `kbOpen=${kbOpen} panels=${panels.length}`);
-                // }
-
                 // 4. Resize terminal.  Single call, no oscillation.
                 if (p.terminal.cols !== p._ptyCols || p.terminal.rows !== visibleRows) {
                     p.terminal.resize(p._ptyCols, visibleRows);
@@ -2735,14 +2699,6 @@
                     p.terminal.resize(visibleCols, visibleRows);
                 }
 
-                // DEBUG — show fit dimensions on mobile
-                // if ('ontouchstart' in window) {
-                //     _dbg(`[fit ${p.name}] wrapH=${wrapH} wrapW=${wrapW}\n` +
-                //         `rows=${visibleRows} cols=${visibleCols}\n` +
-                //         `cellH=${cellHeight.toFixed(2)} cellW=${cellWidth.toFixed(2)}\n` +
-                //         `kbOpen=${kbOpen} panels=${panels.length}`);
-                // }
-
                 syncResizeToPTY(p);
             }
 
@@ -2752,6 +2708,26 @@
                 p._scrollProxy.style.height = outerEl.clientHeight + 'px';
             }
             if (p._syncHScroll) requestAnimationFrame(p._syncHScroll);
+        }
+
+        function scrollToCursor(panel) {
+            const col = panel._cursorCol;
+            if (!col || !panel._termEl) return;
+            // Only auto-scroll if user was recently typing
+            if (Date.now() - (panel._lastInputTime || 0) > 2000) return;
+            const dims = panel.terminal._core._renderService.dimensions;
+            if (!dims) return;
+            const cellWidth = dims.css.cell.width;
+            const cursorPx = col * cellWidth;
+            const sc = panel._termEl; // .panel-terminal, overflow-x: auto
+            const margin = cellWidth * 2;
+            if (cursorPx < sc.scrollLeft + margin) {
+                sc.scrollLeft = Math.max(0, cursorPx - margin);
+                if (panel._syncHScroll) panel._syncHScroll();
+            } else if (cursorPx > sc.scrollLeft + sc.clientWidth - margin) {
+                sc.scrollLeft = cursorPx - sc.clientWidth + margin;
+                if (panel._syncHScroll) panel._syncHScroll();
+            }
         }
 
         // Debounced fit + resize per panel.
@@ -3478,7 +3454,12 @@
                         }
                         panel.ws.send(data);
                     }
+                    // Track non-Enter input for horizontal scroll mode
+                    if (data !== '\r' && data !== '\n' && data !== '\r\n') {
+                        panel._lastInputTime = Date.now();
+                    }
                 });
+
             }
 
             // Drag-and-drop image upload
@@ -3540,6 +3521,8 @@
             const target = panel._termWrapper || panel._termEl;
             panel.terminal.open(target);
             panel._termOpened = true;
+
+
 
             // Mobile: prevent .panel-terminal from being scrolled vertically.
             // Native compositor scroll (touch-action: pan-y) can bubble up
@@ -4648,7 +4631,20 @@
                 let off = 0;
                 for (const c of writeBuf) { merged.set(c, off); off += c.length; }
                 writeBuf = [];
-                panel.terminal.write(merged);
+                // Parse cursor column from CUF (Cursor Forward) escape sequence.
+                // Shells like zsh redraw the line using \r\e[NC to position the cursor,
+                // then park the real cursor at col 0 after drawing. The CUF value is
+                // the actual editing column.
+                const _text = new TextDecoder().decode(merged);
+                const _cuf = /\x1b\[(\d+)C/.exec(_text);
+                if (_cuf) {
+                    panel._cursorCol = parseInt(_cuf[1], 10);
+                }
+                panel.terminal.write(merged, () => {
+                    if (!panel._bufferReplay) {
+                        requestAnimationFrame(() => scrollToCursor(panel));
+                    }
+                });
             }
 
             ws.onmessage = (event) => {
@@ -4874,7 +4870,9 @@
                 let off = 0;
                 for (const c of writeBuf) { merged.set(c, off); off += c.length; }
                 writeBuf = [];
-                panel.terminal.write(merged);
+                panel.terminal.write(merged, () => {
+                    requestAnimationFrame(() => scrollToCursor(panel));
+                });
             }
 
             ws.onmessage = (event) => {

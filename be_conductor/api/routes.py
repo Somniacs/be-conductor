@@ -730,8 +730,14 @@ async def get_worktree(name: str):
 
 
 @router.get("/worktrees/{name}/diff")
-async def get_worktree_diff(name: str, files: bool = False):
-    """Get the diff for a worktree vs its base commit."""
+async def get_worktree_diff(name: str, files: bool = False, format: str = "unified"):
+    """Get the diff for a worktree vs its base commit.
+
+    Query params:
+        files:  If true, return file list with additions/deletions counts.
+        format: "unified" (default) returns raw unified diff text.
+                "rich" returns per-file base/head content pairs for IDE diff viewers.
+    """
     manager = registry.worktree_manager
     worktrees = manager.list_worktrees()
     info = None
@@ -743,6 +749,11 @@ async def get_worktree_diff(name: str, files: bool = False):
         raise HTTPException(status_code=404, detail=f"Worktree '{name}' not found")
 
     loop = asyncio.get_event_loop()
+
+    if format == "rich":
+        result = await loop.run_in_executor(None, manager.get_rich_diff, info)
+        return {"files": result}
+
     result = await loop.run_in_executor(None, manager.get_diff, info, files)
     if files:
         return {"files": result}

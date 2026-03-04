@@ -123,20 +123,20 @@ if not _IS_WIN:
                 fcntl.ioctl(self.master_fd, termios.TIOCSWINSZ, winsize)
 
         def kill(self) -> None:
+            """Send SIGTERM to the process group (non-blocking)."""
             if self.process and self.process.poll() is None:
                 try:
                     pgid = os.getpgid(self.process.pid)
-                    # Try SIGINT first — some runtimes (e.g. Node/Codex)
-                    # crash on SIGTERM during teardown.
-                    os.killpg(pgid, signal.SIGINT)
-                except ProcessLookupError:
-                    return
-                # Give the process a moment to exit cleanly, then SIGTERM.
-                import time
-                time.sleep(0.3)
+                    os.killpg(pgid, signal.SIGTERM)
+                except (ProcessLookupError, OSError):
+                    pass
+
+        def interrupt_pg(self) -> None:
+            """Send SIGINT to the process group (non-blocking)."""
+            if self.process and self.process.poll() is None:
                 try:
-                    if self.process.poll() is None:
-                        os.killpg(os.getpgid(self.process.pid), signal.SIGTERM)
+                    pgid = os.getpgid(self.process.pid)
+                    os.killpg(pgid, signal.SIGINT)
                 except (ProcessLookupError, OSError):
                     pass
 

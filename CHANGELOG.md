@@ -2,6 +2,31 @@
 
 All notable changes to Be-Conductor are documented here.
 
+## v0.3.12
+
+### IDE plugins (v0.2.0) — session & worktree management
+
+Both JetBrains and VS Code plugins grew from simple "launch a session" buttons into full session management panels:
+
+- **Sidebar panels** — live-updating session list and worktree list right in the IDE. See which sessions are running, stopped, or resumable at a glance. Attach, stop, resume, or dismiss sessions with one click
+- **Worktree management** — view, finalize, merge, diff, and delete worktrees without leaving the editor
+- **Native diff viewer** — review worktree changes in IntelliJ's or VS Code's built-in side-by-side diff editor
+- **Smarter session creation** — the dialog now pulls available commands from the server (no more hardcoded agent list), lets you pick a working directory, and optionally isolate the session in a git worktree with branch name preview
+- **Auto-refresh** — session and worktree lists poll the server automatically (VS Code only polls while the sidebar is visible)
+
+### Bug fixes
+
+- **Fixed mobile terminal scroll jumping on every keystroke** — on narrow screens, typing would snap the viewport back to the left after each keypress. The browser was fighting the horizontal scroll position by trying to reveal a hidden input element. Now fixed — typing scrolls smoothly with the cursor
+
+### Mobile terminal
+
+- **Horizontal auto-scroll to cursor** — on narrow screens where the terminal is wider than the viewport, the view now follows the cursor as you type. Scrolls left and right to keep the cursor visible, but stays put during passive output so log streams don't cause jarring jumps
+
+### Backend
+
+- **Rich diff API** — new endpoint for IDE plugins to fetch per-file before/after content for native diff viewers
+- **Cleaner session shutdown** — stop and kill signals are now more reliable, with proper error logging for background tasks and non-blocking cleanup
+
 ## v0.3.11
 
 ### IDE plugins

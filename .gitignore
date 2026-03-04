@@ -23,3 +23,5 @@ docs/planned/
 # IDE plugin build artifacts
 .gradle/
 *.vsix
+**/node_modules/
+tools/jetbrains/be-conductor-plugin/bin/
