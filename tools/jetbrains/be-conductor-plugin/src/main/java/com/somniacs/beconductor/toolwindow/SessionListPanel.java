@@ -378,7 +378,7 @@ public class SessionListPanel extends JPanel {
                 manager.createLocalShellWidget(workingDir, name);
 
         try {
-            widget.executeCommand("be-conductor attach " + name + " ; exit");
+            widget.executeCommand("be-conductor attach \"" + name + "\" ; exit");
         } catch (java.io.IOException ex) {
             LOG.warn("be-conductor: failed to attach in terminal", ex);
         }

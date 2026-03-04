@@ -160,9 +160,17 @@ class Session:
             try:
                 queue.put_nowait(data)
             except asyncio.QueueFull:
-                if not self._queue_overflow_warned:
-                    logger.warning("Subscriber queue full for session %s — dropping output", self.name)
-                    self._queue_overflow_warned = True
+                # Never drop data — coalesce pending items to make room.
+                # Dropping bytes breaks ANSI escape sequences and garbles
+                # TUI output (e.g. Claude Code's agent progress tree).
+                merged = bytearray()
+                try:
+                    while not queue.empty():
+                        merged.extend(queue.get_nowait())
+                except asyncio.QueueEmpty:
+                    pass
+                merged.extend(data)
+                queue.put_nowait(bytes(merged))
 
     def _broadcast_close(self):
         """Send None sentinel to all subscribers to signal session end."""

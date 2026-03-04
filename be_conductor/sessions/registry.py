@@ -102,6 +102,11 @@ class SessionRegistry:
         if not session:
             return
 
+        # "Forget" mode: delete everything without saving resume data.
+        if getattr(session, '_forget', False):
+            self._delete_metadata(session_id)
+            return
+
         # Worktree stays active on exit — user must explicitly finalize.
         # No auto-commit here; the worktree is just a working directory.
 
@@ -312,6 +317,18 @@ class SessionRegistry:
         """
         session = self.sessions.get(session_id)
         if session and session.status in ("running", "starting"):
+            session.interrupt(timeout=cfg.GRACEFUL_STOP_TIMEOUT)
+
+    def forget(self, session_id: str):
+        """Gracefully stop a session and discard it without saving resume data.
+
+        Like ``graceful_stop``, this sends SIGINT so the agent can clean up,
+        but marks the session so that ``_on_session_exit`` deletes all
+        metadata instead of saving it as resumable.
+        """
+        session = self.sessions.get(session_id)
+        if session and session.status in ("running", "starting"):
+            session._forget = True
             session.interrupt(timeout=cfg.GRACEFUL_STOP_TIMEOUT)
 
     def dismiss_resumable(self, session_id: str):

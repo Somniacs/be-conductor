@@ -2,6 +2,15 @@
 
 All notable changes to Be-Conductor are documented here.
 
+## v0.3.13
+
+### Terminal output fix
+
+- **Fixed garbled TUI output** — rapid terminal updates (e.g. Claude Code's agent progress tree, spinners) could garble the display when proxied through be-conductor. The subscriber queue was silently dropping data when full, breaking ANSI escape sequences mid-stream. The queue now coalesces pending items instead of dropping, and the WebSocket writer batches rapid bursts into atomic sends
+- **VSCode plugin: theme-aware icon** — the activity bar icon now uses `currentColor` so it adapts to light and dark themes instead of being hardcoded
+- **VSCode plugin: no auto-resume on click** — clicking a resumable session no longer auto-resumes it; use the play button instead
+- **VSCode plugin: forgetSession** — added "Forget Session" context menu action for running sessions
+
 ## v0.3.12
 
 ### IDE plugins (v0.2.0) — session & worktree management

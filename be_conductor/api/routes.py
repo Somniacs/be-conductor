@@ -193,7 +193,7 @@ class InputRequest(BaseModel):
 
 
 class StopRequest(BaseModel):
-    mode: str = "kill"  # "kill" = hard stop, "graceful" = SIGINT (allows resume)
+    mode: str = "kill"  # "kill" = hard stop, "graceful" = SIGINT (allows resume), "forget" = SIGINT + discard
 
 
 class ResizeRequest(BaseModel):
@@ -647,6 +647,7 @@ async def stop_session(session_id: str, req: StopRequest | None = None):
     Body (optional JSON):
       mode: "kill"     — hard stop, session is removed (default)
       mode: "graceful" — send SIGINT so the agent can print a resume token
+      mode: "forget"   — send SIGINT but discard session without saving resume data
     """
     mode = (req.mode if req else None) or "kill"
 
@@ -654,6 +655,9 @@ async def stop_session(session_id: str, req: StopRequest | None = None):
     if session:
         if mode == "graceful":
             registry.graceful_stop(session_id)
+            return {"status": "stopping"}
+        if mode == "forget":
+            registry.forget(session_id)
             return {"status": "stopping"}
         await registry.remove(session_id)
         return {"status": "stopped"}
@@ -1129,7 +1133,18 @@ async def _stream_raw(ws: WebSocket, session: Any):
                         # Session ended — close WebSocket
                         await ws.close()
                         break
-                    await ws.send_bytes(data)
+                    # Coalesce: drain any additional pending chunks so
+                    # rapid TUI updates (spinners, cursor moves) arrive
+                    # as one atomic write instead of many tiny ones.
+                    chunks = [data]
+                    while not queue.empty():
+                        more = queue.get_nowait()
+                        if more is None:
+                            await ws.send_bytes(b"".join(chunks))
+                            await ws.close()
+                            return
+                        chunks.append(more)
+                    await ws.send_bytes(b"".join(chunks) if len(chunks) > 1 else data)
                 except asyncio.TimeoutError:
                     # Keepalive
                     try:
@@ -1193,16 +1208,33 @@ async def _stream_typed(ws: WebSocket, session: Any):
                 try:
                     data = await asyncio.wait_for(queue.get(), timeout=30)
                     if data is None:
-                        # Session ended
                         await ws.send_json({
                             "type": "exit",
                             "exit_code": session.exit_code,
                         })
                         await ws.close()
                         break
+                    # Coalesce pending chunks for atomic delivery
+                    chunks = [data]
+                    while not queue.empty():
+                        more = queue.get_nowait()
+                        if more is None:
+                            merged = b"".join(chunks)
+                            await ws.send_json({
+                                "type": "stdout",
+                                "data": merged.decode("utf-8", errors="replace"),
+                            })
+                            await ws.send_json({
+                                "type": "exit",
+                                "exit_code": session.exit_code,
+                            })
+                            await ws.close()
+                            return
+                        chunks.append(more)
+                    merged = b"".join(chunks) if len(chunks) > 1 else data
                     await ws.send_json({
                         "type": "stdout",
-                        "data": data.decode("utf-8", errors="replace"),
+                        "data": merged.decode("utf-8", errors="replace"),
                     })
                 except asyncio.TimeoutError:
                     try:
