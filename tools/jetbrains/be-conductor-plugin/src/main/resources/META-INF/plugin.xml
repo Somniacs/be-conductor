@@ -28,6 +28,11 @@
         <notificationGroup id="be-conductor" displayType="BALLOON"/>
     </extensions>
 
+    <applicationListeners>
+        <listener class="com.somniacs.beconductor.AppShutdownListener"
+                  topic="com.intellij.ide.AppLifecycleListener"/>
+    </applicationListeners>
+
     <projectListeners>
         <listener class="com.somniacs.beconductor.SessionPersistenceListener"
                   topic="com.intellij.openapi.project.ProjectManagerListener"/>

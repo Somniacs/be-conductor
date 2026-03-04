@@ -1,14 +1,15 @@
 # be-conductor VS Code Extension
 
-Status bar button and editor toolbar icon for Visual Studio Code. Pick an AI agent, name the session, and `be-conductor run <agent> <name>` opens in a new integrated terminal.
+Session management for Visual Studio Code. Create, attach, stop, resume, and manage worktree sessions — all from the sidebar.
 
 ## Features
 
-- **Editor title button** — ♭ icon in the top-right of every editor tab (like Claude Code's button)
-- **Status bar item** — `$(terminal) be-conductor` in the bottom status bar
-- **Agent quick pick** — all supported agents (Claude, Codex, Aider, Gemini, Copilot, OpenCode, Amp, Goose, Forge, Cursor)
-- **Session name input** — validated to letters, digits, hyphens, and underscores
-- **Integrated terminal** — opens in VS Code's built-in terminal with session name as tab title
+- **New Session** — pick an agent from the server's command list (fetched live), enter a session name, choose a working directory, and optionally enable git worktree isolation. Runs in a new integrated terminal
+- **Session tree** — live-updating sidebar showing all sessions with status icons. Attach, stop, resume, dismiss, or forget sessions via inline buttons and context menu
+- **Worktree tree** — sidebar panel listing worktrees with branch name and commit count. View diffs in VS Code's native diff editor, merge (squash/merge/rebase), finalize, or delete worktrees
+- **Session persistence** — sessions are tracked per workspace. On IDE close, tracked sessions are gracefully stopped (preserving resume tokens). On reopen, they're automatically resumed and re-attached to terminal tabs
+- **Status bar** — shows server connection status; click to create a new session
+- **Theme-aware icon** — activity bar icon adapts to light and dark themes
 
 ## Requirements
 
@@ -39,7 +40,7 @@ Restart VS Code.
 
 1. Open `tools/vscode/be-conductor-vscode/` in VS Code
 2. Press **F5** to launch an Extension Development Host
-3. The status bar button and editor title icon appear immediately
+3. The status bar button and sidebar panels appear immediately
 
 ## Usage
 
@@ -48,12 +49,20 @@ Restart VS Code.
 3. Enter a session name
 4. A new terminal opens and runs the session
 
+The **be-conductor** sidebar (activity bar icon) shows two panels: **Sessions** and **Worktrees**, both with live-updating status and inline action buttons.
+
 ## Project structure
 
 ```
 be-conductor-vscode/
-├── package.json       # Extension manifest
-├── extension.js       # Plain JS (no build step)
+├── package.json             # Extension manifest
+├── extension.js             # Main lifecycle (activate/deactivate)
+├── src/
+│   ├── api.js               # HTTP client for the REST API
+│   ├── config.js            # Server URL and settings
+│   ├── createSession.js     # New session flow + session tracking
+│   ├── sessionTree.js       # Session tree data provider + commands
+│   └── worktreeTree.js      # Worktree tree data provider + commands
 ├── icons/
 │   └── be-conductor.svg
 └── README.md

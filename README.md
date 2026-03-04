@@ -604,12 +604,38 @@ When no token is configured, the API is open (same as before).
 
 ## IDE Plugins
 
-Start be-conductor sessions directly from your IDE — pick an agent, name the session, and a terminal opens with `be-conductor run <agent> <name>`.
+Manage be-conductor sessions without leaving your editor. Both plugins provide session creation, live session lists, worktree management, and session persistence across IDE restarts.
 
-| IDE | Plugin | Details |
+| IDE | Plugin | Install |
 |---|---|---|
-| JetBrains (CLion, IDEA, PyCharm, …) | [tools/jetbrains/](tools/jetbrains/be-conductor-plugin/) | Toolbar button + dialog |
-| VS Code | [tools/vscode/](tools/vscode/be-conductor-vscode/) | Editor title icon + status bar button |
+| **JetBrains** (CLion, IDEA, PyCharm, WebStorm, GoLand, Rider, …) | [tools/jetbrains/](tools/jetbrains/be-conductor-plugin/) | Settings → Plugins → gear → Install from Disk → select `.zip` |
+| **VS Code** | [tools/vscode/](tools/vscode/be-conductor-vscode/) | `code --install-extension be-conductor-launcher-0.1.0.vsix` or copy to `~/.vscode/extensions/` |
+
+### What the plugins do
+
+- **New Session dialog** — pick an agent from the server's command list (fetched live), enter a session name, choose a working directory, and optionally enable git worktree isolation. Runs `be-conductor run <agent> <name>` in a new terminal tab
+- **Session list** — live-updating sidebar panel showing all sessions with status (running, stopping, resumable, exited). Attach, stop, resume, or dismiss sessions with toolbar buttons or right-click context menu
+- **Worktree management** — view diffs in the IDE's native diff viewer, merge worktrees (squash/merge/rebase), and finalize running worktree sessions — all from the sidebar
+- **Session persistence** — sessions created in the IDE are tracked per workspace/project. When you close the IDE, tracked sessions are gracefully stopped (preserving resume tokens). When you reopen, they're automatically resumed and re-attached to terminal tabs
+- **Terminal integration** — sessions open in the IDE's built-in terminal. The tab stays open on errors so you can see what went wrong
+
+### Build from source
+
+**JetBrains** (requires Java 17+):
+
+```bash
+cd tools/jetbrains/be-conductor-plugin
+./gradlew buildPlugin
+# → build/distributions/be-conductor-plugin-0.2.0.zip
+```
+
+**VS Code**:
+
+```bash
+cd tools/vscode/be-conductor-vscode
+npx @vscode/vsce package
+# → be-conductor-launcher-0.1.0.vsix
+```
 
 ## Project Structure
 

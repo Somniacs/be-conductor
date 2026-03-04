@@ -1,40 +1,41 @@
 package com.somniacs.beconductor;
 
-import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.ide.AppLifecycleListener;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.project.ProjectManagerListener;
+import com.intellij.openapi.project.ProjectManager;
 import com.somniacs.beconductor.api.ApiModels;
 import com.somniacs.beconductor.api.BeConductorClient;
 import com.somniacs.beconductor.toolwindow.SessionListPanel;
-import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Gracefully stops tracked be-conductor sessions when an individual project closes.
+ * Gracefully stops tracked be-conductor sessions when the IDE shuts down.
  * <p>
- * During IDE shutdown, {@link AppShutdownListener} handles this via
- * {@code appClosing()} which fires before any disposal. This listener
- * covers the case where a single project is closed while the IDE stays open.
- * If sessions were already stopped by AppShutdownListener, this is a no-op
- * (the running-session filter finds nothing).
+ * This uses {@link AppLifecycleListener#appClosing()} which fires early in the
+ * shutdown sequence — before any project or service disposal — ensuring all
+ * services are still available. The companion {@link SessionPersistenceListener}
+ * handles individual project close (without IDE shutdown).
  */
-public class SessionPersistenceListener implements ProjectManagerListener {
+public class AppShutdownListener implements AppLifecycleListener {
 
-    private static final Logger LOG = Logger.getInstance(SessionPersistenceListener.class);
+    private static final Logger LOG = Logger.getInstance(AppShutdownListener.class);
 
     @Override
-    public void projectClosing(@NotNull Project project) {
-        // During IDE shutdown, AppShutdownListener.appClosing() already handled this.
-        // Skip to avoid redundant work and potential service-disposal issues.
-        if (ApplicationManager.getApplication().isDisposed()) return;
+    public void appClosing() {
+        // Collect tracked sessions from all open projects
+        Set<String> allTracked = new LinkedHashSet<>();
+        for (Project project : ProjectManager.getInstance().getOpenProjects()) {
+            allTracked.addAll(SessionListPanel.getTrackedSessions(project));
+        }
 
-        List<String> tracked = new ArrayList<>(SessionListPanel.getTrackedSessions(project));
-        if (tracked.isEmpty()) return;
+        if (allTracked.isEmpty()) return;
 
         try {
             BeConductorClient client = BeConductorClient.getInstance();
@@ -43,7 +44,7 @@ public class SessionPersistenceListener implements ProjectManagerListener {
             List<ApiModels.SessionResponse> sessions = client.listSessions();
             List<ApiModels.SessionResponse> running = new ArrayList<>();
             for (ApiModels.SessionResponse s : sessions) {
-                if (tracked.contains(s.name) && "running".equals(s.status)) {
+                if (allTracked.contains(s.name) && "running".equals(s.status)) {
                     running.add(s);
                 }
             }
@@ -66,9 +67,9 @@ public class SessionPersistenceListener implements ProjectManagerListener {
 
             // Wait up to 3s for graceful stops to fire (resume tokens need time)
             latch.await(3, TimeUnit.SECONDS);
-            LOG.info("be-conductor: gracefully stopped " + running.size() + " session(s) on project close");
+            LOG.info("be-conductor: gracefully stopped " + running.size() + " session(s) on IDE shutdown");
         } catch (Exception e) {
-            LOG.info("be-conductor: session persistence on close skipped: " + e.getMessage());
+            LOG.info("be-conductor: session persistence on shutdown skipped: " + e.getMessage());
         }
     }
 }

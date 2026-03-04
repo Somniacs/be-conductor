@@ -10,6 +10,11 @@ All notable changes to Be-Conductor are documented here.
 - **Graceful shutdown on IDE close** — tracked sessions receive a graceful stop signal when the project closes, giving agents time to print their resume tokens
 - **Session tracking** — sessions created or attached in the IDE are tracked per-workspace/project. Manually killed, forgotten, or dismissed sessions are untracked so they don't auto-resume
 
+### IDE plugin fixes
+
+- **JetBrains: fixed session persistence on IDE shutdown** — the `ProjectManagerListener` used for graceful session stops could fail during IDE shutdown because application services were already being disposed. Added an `AppLifecycleListener` that fires early in the shutdown sequence (before any disposal), ensuring sessions are always gracefully stopped and resume tokens are captured
+- **JetBrains: terminal stays open on error** — terminal tabs now use `&& exit` instead of `; exit`, so the terminal remains open when a command fails (e.g. server not running, attach error). Previously the tab would close immediately, hiding the error message
+
 ### Terminal output fix
 
 - **Fixed garbled TUI output** — rapid terminal updates (e.g. Claude Code's agent progress tree, spinners) could garble the display when proxied through be-conductor. The subscriber queue was silently dropping data when full, breaking ANSI escape sequences mid-stream. The queue now coalesces pending items instead of dropping, and the WebSocket writer batches rapid bursts into atomic sends
