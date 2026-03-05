@@ -146,7 +146,7 @@ public class SessionListPanel extends JPanel {
                 "Open terminal attached to this session");
         attachBtn.addActionListener(e -> {
             ApiModels.SessionResponse s = sessionList.getSelectedValue();
-            if (s != null) attachSession(s.name);
+            if (s != null) attachSession(s.name, s.cwd);
         });
         sessionActions.add(attachBtn);
 
@@ -154,7 +154,7 @@ public class SessionListPanel extends JPanel {
                 "Resume this session (double-click also works)");
         resumeBtn.addActionListener(e -> {
             ApiModels.SessionResponse s = sessionList.getSelectedValue();
-            if (s != null) resumeSession(s.id, s.name);
+            if (s != null) resumeSession(s.id, s.name, s.cwd);
         });
         sessionActions.add(resumeBtn);
 
@@ -235,9 +235,9 @@ public class SessionListPanel extends JPanel {
                     ApiModels.SessionResponse s = sessionList.getSelectedValue();
                     if (s == null) return;
                     if ("running".equals(s.status)) {
-                        attachSession(s.name);
+                        attachSession(s.name, s.cwd);
                     } else if (isResumable(s)) {
-                        resumeSession(s.id, s.name);
+                        resumeSession(s.id, s.name, s.cwd);
                     }
                 }
             }
@@ -358,7 +358,7 @@ public class SessionListPanel extends JPanel {
         if (alive) {
             if ("running".equals(session.status)) {
                 JMenuItem attachItem = new JMenuItem("Attach");
-                attachItem.addActionListener(e -> attachSession(session.name));
+                attachItem.addActionListener(e -> attachSession(session.name, session.cwd));
                 menu.add(attachItem);
                 menu.addSeparator();
 
@@ -373,7 +373,7 @@ public class SessionListPanel extends JPanel {
         } else {
             if (isResumable(session)) {
                 JMenuItem resumeItem = new JMenuItem("Resume");
-                resumeItem.addActionListener(e -> resumeSession(session.id, session.name));
+                resumeItem.addActionListener(e -> resumeSession(session.id, session.name, session.cwd));
                 menu.add(resumeItem);
                 menu.addSeparator();
             }
@@ -410,11 +410,18 @@ public class SessionListPanel extends JPanel {
     // === Session actions ===
 
     private void attachSession(String name) {
+        attachSession(name, null);
+    }
+
+    private void attachSession(String name, String cwd) {
         if (attachedSessions.contains(name)) return;
         attachedSessions.add(name);
         trackSession(project, name);
 
-        String workingDir = project.getBasePath();
+        String workingDir = cwd;
+        if (workingDir == null || workingDir.isEmpty()) {
+            workingDir = project.getBasePath();
+        }
         if (workingDir == null) workingDir = System.getProperty("user.home");
 
         TerminalToolWindowManager manager =
@@ -469,12 +476,12 @@ public class SessionListPanel extends JPanel {
         });
     }
 
-    private void resumeSession(String id, String name) {
+    private void resumeSession(String id, String name, String cwd) {
         ApplicationManager.getApplication().executeOnPooledThread(() -> {
             try {
                 BeConductorClient.getInstance().resumeSession(id);
                 SwingUtilities.invokeLater(() -> {
-                    attachSession(name);
+                    attachSession(name, cwd);
                     refresh();
                 });
             } catch (Exception e) {
@@ -678,13 +685,14 @@ public class SessionListPanel extends JPanel {
                 }
                 if ("running".equals(s.status)) {
                     // Still running — just re-attach
-                    SwingUtilities.invokeLater(() -> attachSession(s.name));
+                    SwingUtilities.invokeLater(() -> attachSession(s.name, s.cwd));
                     reattached.add(name);
                 } else if ("exited".equals(s.status) && (s.resume_id != null || s.worktree != null)) {
                     // Resumable — resume and attach
                     try {
-                        client.resumeSession(s.id);
-                        SwingUtilities.invokeLater(() -> attachSession(s.name));
+                        ApiModels.SessionResponse resumed_s = client.resumeSession(s.id);
+                        String resumedCwd = resumed_s != null ? resumed_s.cwd : s.cwd;
+                        SwingUtilities.invokeLater(() -> attachSession(s.name, resumedCwd));
                         resumed.add(name);
                     } catch (Exception e) {
                         untrackSession(project, name);

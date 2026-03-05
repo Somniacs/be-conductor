@@ -2,6 +2,16 @@
 
 All notable changes to Be-Conductor are documented here.
 
+## v0.3.14
+
+### Web dashboard
+
+- **Resume with working directory** — manual resume mode now shows the directory picker, letting you choose a working directory for resumed sessions instead of defaulting to the server's directory
+
+### JetBrains plugin
+
+- **Resume preserves working directory** — attach and resume now open the terminal tab in the session's original working directory instead of always using the project base path
+
 ## v0.3.13
 
 ### Session persistence across IDE restarts

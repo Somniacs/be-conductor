@@ -6240,7 +6240,9 @@
             toggle.children[1].classList.toggle('active', mode === 'resume');
             // Show/hide sub-toggle and sections
             document.getElementById('resume-sub-toggle').style.display = mode === 'resume' ? '' : 'none';
-            document.getElementById('new-session-fields').style.display = mode === 'new' ? '' : 'none';
+            document.getElementById('new-session-fields').style.display = '';
+            document.getElementById('worktree-row').style.display = mode === 'new' ? '' : 'none';
+            document.getElementById('worktree-branch-preview').style.display = mode === 'new' ? '' : 'none';
             _applyResumeSubMode();
             if (mode === 'new') {
                 document.getElementById('resume-manual-section').style.display = '';
@@ -6268,6 +6270,10 @@
             const isBrowse = isResume && _resumeSubMode === 'browse';
             document.getElementById('resume-manual-section').style.display = isBrowse ? 'none' : '';
             document.getElementById('resume-browse-section').style.display = isBrowse ? '' : 'none';
+            // Hide directory picker in browse mode (session cwd comes from the selected external session)
+            if (isResume) {
+                document.getElementById('new-session-fields').style.display = isBrowse ? 'none' : '';
+            }
             document.getElementById('external-live-warning').style.display = 'none';
             const selInfo = document.getElementById('ext-selected-info');
             if (selInfo) selInfo.style.display = 'none';
@@ -6707,7 +6713,8 @@
                     const flag = (cmdConfig && cmdConfig.resume_flag) || '--resume';
                     finalCommand = `${command} ${flag} ${token}`;
                 }
-                body = { name, command: finalCommand };
+                const cwd = selectedCwd || null;
+                body = { name, command: finalCommand, cwd };
             } else {
                 const cwd = selectedCwd || null;
                 const useWorktree = document.getElementById('new-worktree').checked;
