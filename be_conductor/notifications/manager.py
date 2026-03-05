@@ -239,12 +239,14 @@ class SessionNotifier:
             if not reason:
                 return
 
-            # Cooldown check
+            # Cooldown check — keyed on reason + snippet so a *new* prompt
+            # with the same reason category still fires immediately.
+            cooldown_key = reason + ":" + matched_line.strip()[:80]
             now = time.time()
-            last = self._cooldowns.get(reason, 0)
+            last = self._cooldowns.get(cooldown_key, 0)
             if now - last < _COOLDOWN_SECONDS:
                 return
-            self._cooldowns[reason] = now
+            self._cooldowns[cooldown_key] = now
 
             # Reset output counter so the same output doesn't re-trigger
             self._output_bytes = 0

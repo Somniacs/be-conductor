@@ -2,6 +2,19 @@
 
 All notable changes to Be-Conductor are documented here.
 
+## v0.3.15
+
+### In-browser notification list
+
+- **Per-session notification bell** — running sessions show a small bell icon when there are unread notifications (agent prompts, status changes). Click the bell to see the list, click a notification to jump to that terminal position
+- **Notification popup** — per-session popup with dismiss (×) and "Clear all" controls. Clicking a notification opens the session panel and scrolls to the saved buffer line, then removes it from the list
+- **Smarter cooldown** — notification cooldown is now keyed on reason + content, so a new prompt fires immediately even if the previous prompt had the same category (e.g. two consecutive "Needs confirmation" prompts)
+
+### Graceful shutdown
+
+- **Restart preserves sessions** — `be-conductor restart` now gracefully interrupts all running sessions (SIGINT / stop sequence) and waits up to 10 seconds for agents to print their resume tokens before shutting down. Sessions that exit in time are saved as resumable and reappear after the server comes back
+- **Force-killed sessions with resume_command are preserved** — agents like Codex that use command-based resume are now saved even during hard shutdown
+
 ## v0.3.14
 
 ### Web dashboard

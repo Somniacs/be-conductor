@@ -91,7 +91,9 @@ class SessionRegistry:
         for path in SESSIONS_DIR.glob("*.json"):
             try:
                 meta = json.loads(path.read_text())
-                if meta.get("resume_id") and meta.get("status") == "exited":
+                if meta.get("status") == "exited" and (
+                    meta.get("resume_id") or meta.get("worktree")
+                ):
                     self.resumable[meta["id"]] = meta
             except Exception:
                 pass
@@ -298,8 +300,9 @@ class SessionRegistry:
         if session:
             await session.kill()
             await session.cleanup()
-            if session.worktree:
-                # Keep worktree active — user can restart or explicitly finalize
+            # Try to extract resume info even after hard kill
+            session._extract_resume_id()
+            if session.resume_id or session.worktree:
                 meta = session.to_dict()
                 meta["status"] = "exited"
                 self.resumable[session_id] = meta
@@ -360,5 +363,36 @@ class SessionRegistry:
         path.unlink(missing_ok=True)
 
     async def cleanup_all(self):
-        for session_id in list(self.sessions.keys()):
-            await self.remove(session_id)
+        """Gracefully stop all sessions, preserving resume tokens.
+
+        Phase 1: Interrupt every running session (sends SIGINT / stop
+        sequence so agents can print resume tokens).
+        Phase 2: Wait up to 10 s for processes to exit — ``_monitor_process``
+        extracts the resume token and ``_on_session_exit`` persists it.
+        Phase 3: Hard-kill any stragglers.
+        """
+        ids = list(self.sessions.keys())
+        if not ids:
+            return
+
+        # Phase 1 — graceful interrupt
+        for sid in ids:
+            session = self.sessions.get(sid)
+            if session and session.status in ("running", "starting"):
+                session.interrupt(timeout=30)
+
+        # Phase 2 — wait for exits (resume tokens are extracted here)
+        for _ in range(50):                       # 50 × 0.2 s = 10 s
+            if not any(
+                sid in self.sessions
+                and self.sessions[sid].pty.poll() is None
+                for sid in ids
+            ):
+                break
+            await asyncio.sleep(0.2)
+        # Let _monitor_process / _on_session_exit callbacks finish
+        await asyncio.sleep(0.3)
+
+        # Phase 3 — force-remove anything still alive
+        for sid in list(self.sessions.keys()):
+            await self.remove(sid)

@@ -2043,6 +2043,105 @@
             color: #a0e0a0;
         }
         .upload-actions .upload-insert:hover { background: #2a4a2a; }
+
+        /* --- Per-session notification bell + popup --- */
+        .session-notif-bell {
+            position: relative;
+            background: none;
+            border: none;
+            color: #cc9933;
+            cursor: pointer;
+            padding: 2px 4px;
+            line-height: 1;
+            flex-shrink: 0;
+        }
+        .session-notif-bell:hover { color: #ffcc44; }
+        .session-notif-bell svg { width: 11px; height: 11px; vertical-align: middle; }
+
+        .notif-popup {
+            position: fixed;
+            z-index: 1000;
+            background: #0d0d22;
+            border: 1px solid #2a2a5a;
+            border-radius: 6px;
+            width: 280px;
+            max-height: 300px;
+            overflow-y: auto;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+        }
+
+        .notif-popup-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 12px;
+            border-bottom: 1px solid #1e1e3e;
+            position: sticky; top: 0;
+            background: #0d0d22;
+            border-radius: 6px 6px 0 0;
+            z-index: 1;
+        }
+        .notif-popup-title {
+            font-size: 11px; font-weight: 600;
+            color: #8080a0;
+            letter-spacing: 0.3px;
+            text-transform: uppercase;
+        }
+        .notif-clear-btn {
+            background: none; border: none;
+            color: #7878a0; font-size: 11px;
+            cursor: pointer; padding: 2px 6px; border-radius: 3px;
+        }
+        .notif-clear-btn:hover { color: #ff6666; background: #1a1a3e; }
+
+        .notif-item {
+            padding: 8px 12px;
+            border-bottom: 1px solid #1a1a30;
+            cursor: pointer;
+            transition: background 0.15s;
+            position: relative;
+        }
+        .notif-item:hover { background: #1a1a3e; }
+        .notif-item.unread { border-left: 2px solid #8080ff; }
+
+        .notif-item-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 6px;
+        }
+        .notif-item-session {
+            font-size: 12px; font-weight: 500; color: #d0d0ff;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;
+        }
+        .notif-item-time {
+            font-size: 10px; color: #505070; white-space: nowrap; flex-shrink: 0;
+            margin-right: 16px;
+        }
+        .notif-item-msg {
+            font-size: 11px; color: #9898b0; margin-top: 2px;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+
+        .notif-item-type {
+            font-size: 9px; padding: 1px 5px; border-radius: 3px;
+            font-weight: 500; display: inline-block; margin-right: 4px;
+        }
+        .notif-item-type.server-notification { color: #ffcc44; background: #332b11; }
+        .notif-item-type.status-change { color: #60b0ff; background: #112233; }
+
+        .notif-item-dismiss {
+            position: absolute; top: 6px; right: 6px;
+            background: none; border: none; color: #505070;
+            font-size: 12px; cursor: pointer; padding: 0 3px; line-height: 1;
+            display: none;
+        }
+        .notif-item:hover .notif-item-dismiss { display: block; }
+        .notif-item-dismiss:hover { color: #ff6666; }
+
+        .notif-empty {
+            padding: 20px 12px; text-align: center; color: #505070; font-size: 12px;
+        }
     </style>
 </head>
 <body>
@@ -2363,6 +2462,13 @@
         let sessions = [];
         let panels = [];
         let layoutRoot = null;   // binary tree: { type:'leaf', panelId } | { type:'split', direction, children:[a,b], ratio }
+
+        // --- Notification message list state ---
+        const NOTIF_MAX = 50;
+        let _notifications = [];
+        let _notifIdCounter = 0;
+        let _notifPopupSessionCid = null;  // compound ID of session whose popup is open, or null
+        let _prevSessionStatuses = null;   // null = first poll not done
 
         let _layoutRestored = false;
 
@@ -2866,6 +2972,33 @@
 
             sessions = allSessions;
 
+            // --- Detect status changes for notification list ---
+            if (_prevSessionStatuses !== null) {
+                const currentStatuses = {};
+                for (const s of allSessions) {
+                    const cid = s._compoundId;
+                    currentStatuses[cid] = s.status;
+                    const prev = _prevSessionStatuses[cid];
+
+                    if (prev !== undefined && prev !== s.status) {
+                        addNotification({
+                            sessionName: s.name,
+                            sessionId: s.id,
+                            server: s._server,
+                            eventType: 'status-change',
+                            message: prev + ' \u2192 ' + s.status,
+                            bufferLine: _getBufferLine(s.id, s._server),
+                        });
+                    }
+                }
+                _prevSessionStatuses = currentStatuses;
+            } else {
+                _prevSessionStatuses = {};
+                for (const s of allSessions) {
+                    _prevSessionStatuses[s._compoundId] = s.status;
+                }
+            }
+
             // Close panels whose session no longer exists on the server.
             // Suppress drawer open — this is automated cleanup, not user action.
             const knownIds = new Set(allSessions.map(s => s._compoundId));
@@ -2950,7 +3083,12 @@
                     <button onclick="event.stopPropagation();${dismissAction}" title="${dismissTitle}">&times;</button>
                 `;
             } else if (s.status === 'running') {
-                actions = `<button onclick="event.stopPropagation();killSession('${cidEsc}')" title="Stop">&times;</button>`;
+                const notifCount = _notifsForSession(cid).length;
+                const _bellSvg = `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6V11c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>`;
+                const bellBtn = notifCount > 0
+                    ? `<button class="session-notif-bell" onclick="toggleNotifPopup('${cidEsc}',event)" title="${notifCount} notification${notifCount > 1 ? 's' : ''}">${_bellSvg}</button>`
+                    : '';
+                actions = `${bellBtn}<button onclick="event.stopPropagation();killSession('${cidEsc}')" title="Stop">&times;</button>`;
             } else {
                 actions = '';
             }
@@ -6555,7 +6693,7 @@
             } else {
                 runContainer.style.display = '';
                 extContainer.style.display = 'none';
-                btn.textContent = 'Run';
+                btn.textContent = _newSessionMode === 'resume' ? 'Resume' : 'Run';
             }
         }
 
@@ -7358,9 +7496,182 @@
             _showNativeNotification(title, body);
         }
 
+        // --- Notification message list ---
+
+        function _notifsForSession(cid) {
+            return _notifications.filter(n => compoundId(n.server, n.sessionId) === cid);
+        }
+
+        function addNotification(opts) {
+            const notif = {
+                id: ++_notifIdCounter,
+                timestamp: Date.now(),
+                sessionName: opts.sessionName || 'Unknown',
+                sessionId: opts.sessionId || null,
+                server: opts.server || 'local',
+                eventType: opts.eventType || 'info',
+                message: opts.message || '',
+                bufferLine: opts.bufferLine != null ? opts.bufferLine : null,
+            };
+            _notifications.unshift(notif);
+            if (_notifications.length > NOTIF_MAX) _notifications.length = NOTIF_MAX;
+            // Re-render session list to update bell icons
+            renderSessionList();
+            // Update popup if it's open for this session
+            const cid = compoundId(notif.server, notif.sessionId);
+            if (_notifPopupSessionCid === cid) _renderNotifPopup(cid);
+        }
+
+        function _getBufferLine(sessionId, serverKey) {
+            const cid = compoundId(serverKey, sessionId);
+            const panel = panels.find(p => p.id === cid);
+            if (!panel || !panel.terminal) return null;
+            const buf = panel.terminal.buffer.active;
+            return buf.baseY + buf.cursorY;
+        }
+
+        function toggleNotifPopup(cid, event) {
+            event.stopPropagation();
+            if (_notifPopupSessionCid === cid) {
+                closeNotifPopup();
+                return;
+            }
+            _notifPopupSessionCid = cid;
+
+            let popup = document.getElementById('notif-popup');
+            if (!popup) {
+                popup = document.createElement('div');
+                popup.id = 'notif-popup';
+                popup.className = 'notif-popup';
+                document.body.appendChild(popup);
+            }
+
+            // Position near the bell button
+            const btn = event.currentTarget;
+            const rect = btn.getBoundingClientRect();
+            popup.style.display = 'block';
+            popup.style.top = rect.bottom + 4 + 'px';
+            popup.style.left = Math.min(rect.left, window.innerWidth - 290) + 'px';
+
+            _renderNotifPopup(cid);
+        }
+
+        function closeNotifPopup() {
+            _notifPopupSessionCid = null;
+            const popup = document.getElementById('notif-popup');
+            if (popup) popup.style.display = 'none';
+        }
+
+        // Close popup when clicking outside
+        document.addEventListener('click', function(e) {
+            if (_notifPopupSessionCid && !e.target.closest('.notif-popup') && !e.target.closest('.session-notif-bell')) {
+                closeNotifPopup();
+            }
+        });
+
+        function _renderNotifPopup(cid) {
+            const popup = document.getElementById('notif-popup');
+            if (!popup) return;
+            const items = _notifsForSession(cid);
+            const cidEsc = cid.replace(/'/g, "\\'");
+
+            let html = `<div class="notif-popup-header">
+                <span class="notif-popup-title">Notifications</span>
+                <button class="notif-clear-btn" onclick="event.stopPropagation();clearSessionNotifications('${cidEsc}')" title="Clear all">&times; Clear</button>
+            </div>`;
+
+            if (items.length === 0) {
+                html += '<div class="notif-empty">No notifications</div>';
+            } else {
+                html += items.map(n => {
+                    const time = _formatNotifTime(n.timestamp);
+                    const typeLabel = {
+                        'server-notification': 'alert',
+                        'status-change': 'status',
+                    }[n.eventType] || n.eventType;
+                    return `<div class="notif-item" onclick="jumpToNotification(${n.id})">
+                        <button class="notif-item-dismiss" onclick="event.stopPropagation();dismissNotification(${n.id})">&times;</button>
+                        <div class="notif-item-header">
+                            <span class="notif-item-session">
+                                <span class="notif-item-type ${n.eventType}">${typeLabel}</span>
+                                ${escHtml(n.message)}
+                            </span>
+                            <span class="notif-item-time">${time}</span>
+                        </div>
+                    </div>`;
+                }).join('');
+            }
+            popup.innerHTML = html;
+        }
+
+        function _formatNotifTime(ts) {
+            const d = new Date(ts);
+            const now = new Date();
+            const diffMs = now - d;
+            if (diffMs < 60000) return 'just now';
+            if (diffMs < 3600000) return Math.floor(diffMs / 60000) + 'm ago';
+            if (d.toDateString() === now.toDateString())
+                return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' +
+                   d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
+
+        function clearSessionNotifications(cid) {
+            _notifications = _notifications.filter(n => compoundId(n.server, n.sessionId) !== cid);
+            renderSessionList();
+            if (_notifPopupSessionCid === cid) closeNotifPopup();
+        }
+
+        function dismissNotification(id) {
+            const idx = _notifications.findIndex(n => n.id === id);
+            if (idx < 0) return;
+            _notifications.splice(idx, 1);
+            renderSessionList();
+            if (_notifPopupSessionCid) _renderNotifPopup(_notifPopupSessionCid);
+        }
+
+        function jumpToNotification(id) {
+            const notif = _notifications.find(n => n.id === id);
+            if (!notif) return;
+
+            const cid = compoundId(notif.server, notif.sessionId);
+
+            // Close notification popup
+            closeNotifPopup();
+
+            const panel = panels.find(p => p.id === cid);
+            if (panel) {
+                setFocus(cid);
+                if (panel.terminal) {
+                    if (notif.bufferLine != null) panel.terminal.scrollToLine(notif.bufferLine);
+                    panel.terminal.focus();
+                }
+            } else {
+                const sess = sessions.find(s => s._compoundId === cid);
+                if (sess && sess.status === 'running') openSession(cid, notif.sessionName);
+            }
+            closeDrawer();
+
+            // Remove the notification after jumping (click = dismiss)
+            dismissNotification(id);
+        }
+
         function _handleServerNotification(msg, panel) {
             const name = msg.session_name || (panel && panel.name) || 'Session';
             const reason = msg.reason || 'Needs attention';
+
+            // Add to in-browser notification list
+            addNotification({
+                sessionName: name,
+                sessionId: msg.session_id,
+                server: panel ? panel.server : 'local',
+                eventType: 'server-notification',
+                message: reason,
+                bufferLine: panel && panel.terminal
+                    ? panel.terminal.buffer.active.baseY + panel.terminal.buffer.active.cursorY
+                    : null,
+            });
+
             const isFocused = document.hasFocus();
             const isSameSession = panel && panel.sessionId === msg.session_id;
 
