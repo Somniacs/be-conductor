@@ -83,8 +83,9 @@ class Session:
         self.rows: int = 24
         self.cols: int = 80
         self.resize_source: str | None = None
-        self.resize_owner_id: str | None = None   # client_id of the resize authority (first CLI)
-        self.cli_attach_count: int = 0             # number of CLI WebSocket connections
+        self.resize_owner_id: str | None = None     # client_id of the CLI resize authority
+        self.browser_resize_owner_id: str | None = None  # client_id of the browser resize authority
+        self.cli_attach_count: int = 0               # number of CLI WebSocket connections
         self._monitor_task: asyncio.Task | None = None
         self._on_exit = on_exit
         self._reader_thread: threading.Thread | None = None
@@ -203,16 +204,20 @@ class Session:
                client_id: str | None = None):
         """Resize the PTY with priority enforcement.
 
-        Priority: first CLI > other CLIs > browser.
+        Priority: CLI owner > other CLIs > browser owner > other browsers.
         """
         if source == "cli":
             if self.resize_owner_id and client_id and client_id != self.resize_owner_id:
-                return  # Not the owner — ignore
+                return  # Not the CLI owner — ignore
             if not self.resize_owner_id and client_id:
                 self.resize_owner_id = client_id  # First CLI becomes owner
         elif source == "browser":
             if self.cli_attach_count > 0:
                 return  # CLI connected — browser can't resize
+            if self.browser_resize_owner_id and client_id and client_id != self.browser_resize_owner_id:
+                return  # Not the browser owner — ignore
+            if not self.browser_resize_owner_id and client_id:
+                self.browser_resize_owner_id = client_id
         self.rows = rows
         self.cols = cols
         if source:
@@ -230,8 +235,20 @@ class Session:
         self.cli_attach_count = max(0, self.cli_attach_count - 1)
         if client_id == self.resize_owner_id:
             self.resize_owner_id = None  # Owner left — next CLI resize will claim
+            if self.cli_attach_count == 0 and not self.browser_resize_owner_id:
+                self.resize_source = None  # No CLI or browser owner → fresh start
+
+    def browser_connected(self, client_id: str):
+        """Track a browser WebSocket connection."""
+        if not self.browser_resize_owner_id:
+            self.browser_resize_owner_id = client_id
+
+    def browser_disconnected(self, client_id: str):
+        """Track a browser WebSocket disconnection."""
+        if client_id == self.browser_resize_owner_id:
+            self.browser_resize_owner_id = None
             if self.cli_attach_count == 0:
-                self.resize_source = None  # No CLI → browser can take over
+                self.resize_source = None
 
     def _cleanup_uploads(self):
         """Remove the session's upload directory."""
@@ -412,6 +429,7 @@ class Session:
             "rows": self.rows,
             "cols": self.cols,
             "resize_source": self.resize_source,
+            "resize_owner": self.resize_owner_id or self.browser_resize_owner_id,
             "cli_attach_count": self.cli_attach_count,
         }
         if self.resume_id:

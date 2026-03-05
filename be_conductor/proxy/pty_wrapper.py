@@ -96,13 +96,19 @@ if not _IS_WIN:
             if self.extra_env:
                 env.update(self.extra_env)
 
+            def _child_setup(fd=slave_fd):
+                os.setsid()
+                # Set the slave PTY as the controlling terminal so that
+                # TIOCSWINSZ on the master delivers SIGWINCH to the child.
+                fcntl.ioctl(fd, termios.TIOCSCTTY, 0)
+
             self.process = subprocess.Popen(
                 args,
                 stdin=slave_fd,
                 stdout=slave_fd,
                 stderr=slave_fd,
                 cwd=self.cwd,
-                preexec_fn=os.setsid,
+                preexec_fn=_child_setup,
                 env=env,
             )
 

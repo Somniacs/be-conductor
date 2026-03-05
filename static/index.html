@@ -2763,6 +2763,9 @@
                 // 4. Resize terminal.  Single call, no oscillation.
                 if (p.terminal.cols !== p._ptyCols || p.terminal.rows !== visibleRows) {
                     p.terminal.resize(p._ptyCols, visibleRows);
+                    // Force repaint — some mobile browsers skip render after
+                    // resize when the terminal is wider than the viewport.
+                    p.terminal.refresh(0, visibleRows - 1);
                 }
             } else {
                 // Browser-only session — use same manual measurement as
@@ -3288,6 +3291,7 @@
                 ws: null, terminal: null, fitAddon: null,
                 element: null, _resizeObserver: null, _theme: 'default',
                 _sizeChecked: false, _dimensionsReady: true, _ptyRows: null, _ptyCols: null,
+                _clientId: (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36)),
             };
             panels.push(panel);
             buildPanelElement(panel);
@@ -3430,7 +3434,7 @@
             });
         }
 
-        const MIN_COLS = 80;
+        const MIN_COLS = 20;
 
         // Build the panel DOM + terminal ONCE. This is only called when a session is first opened.
         function buildPanelElement(panel) {
@@ -4526,9 +4530,9 @@
         // Send current terminal size to PTY via REST
         function syncResizeToPTY(panel) {
             if (!panel.terminal) return;
-            // Don't resize until we've checked if a CLI terminal owns the size
+            // Don't resize until we've checked if another client owns the size
             if (!panel._sizeChecked) return;
-            // If a CLI terminal owns the PTY size, don't override it
+            // Another client owns the PTY size — don't override it
             if (panel._ptyRows && panel._ptyCols) return;
             const cols = panel.terminal.cols;
             const rows = panel.terminal.rows;
@@ -4536,7 +4540,7 @@
                 fetch(serverUrl(panel.server, `/sessions/${panel.sessionId}/resize`), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ rows, cols, source: 'browser' }),
+                    body: JSON.stringify({ rows, cols, source: 'browser', client_id: panel._clientId }),
                 });
             }
         }
@@ -4706,8 +4710,15 @@
         // --- WebSocket ---
         function connectWebSocket(panel) {
             const isReconnect = !!panel.ws;
+
+            // Pre-fetch session info so PTY dimensions are ready by the time
+            // the WebSocket upgrade completes — avoids a visible refit glitch.
+            const infoPromise = fetch(serverUrl(panel.server, `/sessions/${panel.sessionId}`) + '?_t=' + Date.now())
+                .then(r => r.json()).catch(() => null);
+
             let wsUrl = serverWsUrl(panel.server, `/sessions/${panel.sessionId}/stream`);
             wsUrl += (wsUrl.includes('?') ? '&' : '?') + 'source=browser';
+            if (panel._clientId) wsUrl += '&client_id=' + encodeURIComponent(panel._clientId);
             if (_conductorToken) wsUrl += '&token=' + encodeURIComponent(_conductorToken);
             const ws = new WebSocket(wsUrl);
             ws.binaryType = 'arraybuffer';
@@ -4722,16 +4733,18 @@
 
                 panel._dimensionsReady = false;
 
-                // Fetch PTY dimensions from the session — host terminal is the authority.
-                // If a CLI has set the size, match it; otherwise browser can resize freely.
+                // Check if another client owns resize — if so, match their size.
                 try {
-                    const info = await fetch(serverUrl(panel.server, `/sessions/${panel.sessionId}`)).then(r => r.json());
-                    if (info.resize_source === 'cli' && info.rows && info.cols) {
-                        panel._ptyRows = info.rows;
-                        panel._ptyCols = info.cols;
-                    } else {
-                        panel._ptyRows = null;
-                        panel._ptyCols = null;
+                    const info = await infoPromise;
+                    if (info) {
+                        const otherOwnsResize = info.resize_owner && info.resize_owner !== panel._clientId;
+                        if (otherOwnsResize && info.resize_source && info.rows && info.cols) {
+                            panel._ptyRows = info.rows;
+                            panel._ptyCols = info.cols;
+                        } else {
+                            panel._ptyRows = null;
+                            panel._ptyCols = null;
+                        }
                     }
                 } catch (e) {
                     panel._ptyRows = null;
@@ -4747,7 +4760,11 @@
                 panel._dimensionsReady = true;
                 if (writeBuf.length && !writeRaf) writeRaf = requestAnimationFrame(flushWrites);
 
-                setTimeout(() => { panel._bufferReplay = false; }, 1500);
+                setTimeout(() => {
+                    panel._bufferReplay = false;
+                    // Ensure viewport is at the latest output after replay.
+                    if (panel.terminal) panel.terminal.scrollToBottom();
+                }, 1500);
             };
 
             // Batch incoming WebSocket data and flush once per animation frame
@@ -4789,12 +4806,25 @@
             ws.onmessage = (event) => {
                 if (event.data instanceof ArrayBuffer && event.data.byteLength === 0) return;
 
-                // Server-side notification events arrive as JSON text
+                // Server-side control events arrive as JSON text
                 if (typeof event.data === 'string') {
                     try {
                         const msg = JSON.parse(event.data);
                         if (msg.type === 'notification') {
                             _handleServerNotification(msg, panel);
+                            return;
+                        }
+                        if (msg.type === 'resize') {
+                            // Another client resized — match their size
+                            if (msg.owner && msg.owner !== panel._clientId && msg.rows && msg.cols) {
+                                panel._ptyRows = msg.rows;
+                                panel._ptyCols = msg.cols;
+                            } else if (!msg.owner) {
+                                // Owner disconnected — use own size
+                                panel._ptyRows = null;
+                                panel._ptyCols = null;
+                            }
+                            _fitPanelCore(panel);
                             return;
                         }
                     } catch (_) {

@@ -215,9 +215,9 @@ def run(command, name, detach, worktree, use_json, rows, cols):
                 click.echo(f"Session '{data['name']}' started in worktree.")
                 click.echo(f"  Branch: {data['worktree']['branch']}")
                 click.echo(f"  Path:   {data['worktree']['worktree_path']}")
-            click.echo(f"Attaching... (Ctrl+] to detach)")
+            click.echo(f"Attaching... (Ctrl+] to stop)")
             _resize_session(data["name"])
-            _attach_session(data["name"])
+            _attach_session(data["name"], stop_on_exit=True)
     elif r.status_code == 409:
         if use_json:
             click.echo(json.dumps({"error": f"Session '{name}' already exists"}))
@@ -255,12 +255,20 @@ def attach(name):
     _attach_session(name)
 
 
-def _attach_session(session_name: str):
-    """Attach terminal to a session via WebSocket."""
+def _attach_session(session_name: str, stop_on_exit: bool = False):
+    """Attach terminal to a session via WebSocket.
+
+    If *stop_on_exit* is True (used by ``run``), the session is gracefully
+    stopped when the CLI detaches for any reason (Ctrl+C, Ctrl+], terminal
+    close, or the session process exiting).
+    """
     if sys.platform == "win32":
         _attach_session_win(session_name)
     else:
-        _attach_session_unix(session_name)
+        _attach_session_unix(session_name, stop_on_exit=stop_on_exit)
+
+    if stop_on_exit:
+        _stop_session_quietly(session_name)
 
 
 def _ws_url(session_name: str, source: str | None = None,
@@ -296,7 +304,20 @@ def _resize_session(session_name: str, client_id: str | None = None):
         pass
 
 
-def _attach_session_unix(session_name: str):
+def _stop_session_quietly(session_name: str):
+    """Send a graceful stop to the session, ignoring errors."""
+    try:
+        httpx.post(
+            f"{BASE_URL}/sessions/{_urlquote(session_name, safe='')}/stop",
+            json={"mode": "graceful"},
+            headers=_auth_headers(),
+            timeout=5,
+        )
+    except Exception:
+        pass
+
+
+def _attach_session_unix(session_name: str, stop_on_exit: bool = False):
     """Unix attach — raw terminal with select-based I/O."""
     import select
     import signal
@@ -339,12 +360,25 @@ def _attach_session_unix(session_name: str):
 
     signal.signal(signal.SIGWINCH, on_winch)
 
+    # If we own the session, also stop it on SIGHUP (terminal closed).
+    old_sighup = None
+    if stop_on_exit:
+        old_sighup = signal.getsignal(signal.SIGHUP)
+        def on_hup(signum, frame):
+            _stop_session_quietly(session_name)
+            sys.exit(0)
+        signal.signal(signal.SIGHUP, on_hup)
+
     try:
         tty.setraw(stdin_fd)
         ws = ws_sync.connect(ws_url)
 
         reader_thread = threading.Thread(target=ws_reader, args=(ws,), daemon=True)
         reader_thread.start()
+
+        # Final resize sync — catches any terminal size changes that
+        # happened between session creation and handler installation.
+        _resize_session(session_name, client_id=client_id)
 
         try:
             while not stop.is_set():
@@ -374,8 +408,13 @@ def _attach_session_unix(session_name: str):
         pass
     finally:
         signal.signal(signal.SIGWINCH, old_sigwinch)
+        if old_sighup is not None:
+            signal.signal(signal.SIGHUP, old_sighup)
         termios.tcsetattr(stdin_fd, termios.TCSADRAIN, old_settings)
-        click.echo("\nDetached.")
+        if stop_on_exit:
+            click.echo("")  # newline after raw mode
+        else:
+            click.echo("\nDetached.")
 
 
 def _attach_session_win(session_name: str):

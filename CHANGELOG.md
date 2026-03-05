@@ -4,19 +4,29 @@ All notable changes to Be-Conductor are documented here.
 
 ## v0.3.16
 
-### Resize authority system
+### Resize authority
 
-- **Native terminal owns resize** — when a CLI/IDE terminal is attached, it becomes the resize authority. The browser follows the CLI's column width instead of resizing independently. Second CLI attachments don't override the first
-- **Server-side enforcement** — resize priority (CLI > browser) is now enforced server-side with client identity tracking, not just browser-side heuristics
-- **Automatic fallback** — when all CLI terminals disconnect, the browser regains resize control
+- **CLI/IDE terminal owns resize** — when a native terminal is attached, the browser follows its dimensions instead of resizing independently
+- **Browser resize ownership** — the first browser to open a session owns the resize. Other browsers (desktop or mobile) follow the owner's size. When the owner disconnects, the next browser takes over
+- **Resize signals reach all processes** — agents like Claude Code now receive window resize events reliably, not just shell processes
+- **Browser follows live resizes** — resizing a CLI terminal or the owner browser updates all other connected browsers in real-time
+
+### CLI
+
+- **`be-conductor run` owns the session** — `Ctrl+]` stops the session and exits. `Ctrl+C` is forwarded to the agent. Closing the terminal also triggers a graceful stop
+- **Attach/resume remain detach-only** — disconnecting leaves the session running
+
+### Bug fixes
+
+- **Mobile browser rendering** — opening a session on mobile that is already open on desktop now shows the correct terminal size immediately
+- **Mobile over LAN** — fixed the dashboard failing to load sessions when accessed via LAN IP (non-HTTPS)
+- **Narrow terminals** — browser terminals can now resize below 80 columns
 
 ### IDE plugins (v0.2.1)
 
-- **VSCode: fix proposed API error** — removed `terminalDimensions` proposed API usage that caused errors on some VSCode versions. Resume now runs `be-conductor resume` directly in the terminal for correct dimensions
-- **VSCode: fix auto-resume on restart** — properly await workspace state persistence so sessions survive IDE close/reopen cycles
-- **JetBrains: resume with dimensions** — pass estimated terminal dimensions when resuming sessions so the PTY starts at a reasonable size
-- **Both: session persistence** — track which sessions were running at IDE close; only auto-resume those on next startup
-- **Both: prevent venv activation** — clear `VIRTUAL_ENV` and `CONDA_PREFIX` in be-conductor terminals to prevent Python extension auto-activation
+- **VSCode** — fixed proposed API error on some versions; fixed auto-resume not persisting across IDE restarts
+- **JetBrains** — resume now uses correct terminal dimensions
+- **Both** — sessions are tracked and auto-resumed on IDE restart; Python venv auto-activation is suppressed in be-conductor terminals
 
 ## v0.3.15
 

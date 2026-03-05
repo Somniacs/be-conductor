@@ -130,6 +130,28 @@ async def _broadcast_notification(event: NotificationEvent):
 registry.notification_manager.register_handler(_broadcast_notification)
 
 
+async def _broadcast_resize(session_id: str, rows: int, cols: int,
+                            source: str | None, owner_id: str | None = None):
+    """Send a resize event to all browser WebSockets watching this session."""
+    msg = json.dumps({
+        "type": "resize",
+        "rows": rows,
+        "cols": cols,
+        "source": source,
+        "owner": owner_id,
+    })
+    dead: list[WebSocket] = []
+    for ws, sid in list(_notification_ws.items()):
+        if sid != session_id:
+            continue
+        try:
+            await ws.send_text(msg)
+        except Exception:
+            dead.append(ws)
+    for ws in dead:
+        _notification_ws.pop(ws, None)
+
+
 def _allowed_base_commands() -> set[str]:
     """Build set of allowed base commands from current config (re-evaluated on each call)."""
     return {shlex.split(c["command"])[0] for c in cfg.ALLOWED_COMMANDS}
@@ -230,6 +252,8 @@ class SessionResponse(BaseModel):
     rows: int | None = None
     cols: int | None = None
     resize_source: str | None = None
+    resize_owner: str | None = None
+    cli_attach_count: int | None = None
     resume_id: str | None = None
     resume_flag: str | None = None
     resume_command: str | None = None
@@ -592,7 +616,13 @@ async def resize_session(session_id: str, req: ResizeRequest):
     session = registry.get(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
+    old_rows, old_cols = session.rows, session.cols
     session.resize(req.rows, req.cols, source=req.source, client_id=req.client_id)
+    # Notify browser clients of the new PTY size so they can refit.
+    if session.rows != old_rows or session.cols != old_cols:
+        owner = session.resize_owner_id or session.browser_resize_owner_id
+        await _broadcast_resize(session_id, session.rows, session.cols,
+                                session.resize_source, owner_id=owner)
     return {"status": "ok"}
 
 
@@ -1112,10 +1142,13 @@ async def stream_session(ws: WebSocket, session_id: str, typed: bool = False,
 
     await ws.accept()
 
-    # Track CLI connections for resize authority
+    # Track CLI/browser connections for resize authority
     is_cli = source == "cli" and client_id
+    is_browser = source == "browser" and client_id
     if is_cli:
         session.cli_connected(client_id)
+    elif is_browser:
+        session.browser_connected(client_id)
 
     # Track this WebSocket for notification broadcast.
     _notification_ws[ws] = session_id
@@ -1129,6 +1162,8 @@ async def stream_session(ws: WebSocket, session_id: str, typed: bool = False,
         _notification_ws.pop(ws, None)
         if is_cli:
             session.cli_disconnected(client_id)
+        elif is_browser:
+            session.browser_disconnected(client_id)
 
 
 async def _stream_raw(ws: WebSocket, session: Any):

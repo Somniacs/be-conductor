@@ -180,7 +180,8 @@ class SessionRegistry:
             worktree=worktree_info,
             notifier=notifier,
         )
-        await session.start(rows=rows or 24, cols=cols or 80)
+        start_rows, start_cols = rows or 24, cols or 80
+        await session.start(rows=start_rows, cols=start_cols)
         # Record initial size so the web client knows the PTY dimensions.
         if rows and cols and source == "cli":
             session.resize(rows, cols, source="cli")
