@@ -51,6 +51,13 @@ public class AppShutdownListener implements AppLifecycleListener {
 
             if (running.isEmpty()) return;
 
+            // Save which sessions were running so auto-resume only picks up these
+            List<String> runningNames = new ArrayList<>();
+            for (ApiModels.SessionResponse s : running) runningNames.add(s.name);
+            for (Project project : ProjectManager.getInstance().getOpenProjects()) {
+                SessionListPanel.setRunningAtClose(project, runningNames);
+            }
+
             // Fire parallel graceful stops
             CountDownLatch latch = new CountDownLatch(running.size());
             for (ApiModels.SessionResponse s : running) {

@@ -188,7 +188,8 @@ class SessionRegistry:
         self._save_metadata(session)
         return session
 
-    async def resume(self, session_id: str) -> Session:
+    async def resume(self, session_id: str, rows: int | None = None,
+                     cols: int | None = None) -> Session:
         """Resume a previously exited session using its stored resume ID.
 
         Two modes:
@@ -262,7 +263,8 @@ class SessionRegistry:
         self._delete_metadata(session_id)
 
         # Create the resumed session (don't create a new worktree — reuse existing)
-        session = await self.create(meta["name"], command, cwd=cwd)
+        session = await self.create(meta["name"], command, cwd=cwd,
+                                    rows=rows, cols=cols)
 
         # Re-attach the worktree info
         if worktree_data:

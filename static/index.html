@@ -4707,7 +4707,8 @@
         function connectWebSocket(panel) {
             const isReconnect = !!panel.ws;
             let wsUrl = serverWsUrl(panel.server, `/sessions/${panel.sessionId}/stream`);
-            if (_conductorToken) wsUrl += (wsUrl.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(_conductorToken);
+            wsUrl += (wsUrl.includes('?') ? '&' : '?') + 'source=browser';
+            if (_conductorToken) wsUrl += '&token=' + encodeURIComponent(_conductorToken);
             const ws = new WebSocket(wsUrl);
             ws.binaryType = 'arraybuffer';
 
@@ -7413,7 +7414,19 @@
             showBusy(`Resuming "${label}"…`);
             const { server, sessionId } = parseCompoundId(cid);
             try {
-                const resp = await fetch(serverUrl(server, `/sessions/${sessionId}/resume`), { method: 'POST' });
+                // Estimate terminal dimensions from the content area so the
+                // PTY starts at a reasonable size instead of the 80×24 default.
+                const _ct = document.getElementById('content');
+                const _estCols = _ct ? Math.floor(_ct.clientWidth / 9) - 2 : null;
+                const _estRows = _ct ? Math.floor(_ct.clientHeight / 18) - 1 : null;
+                const resp = await fetch(serverUrl(server, `/sessions/${sessionId}/resume`), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        rows: _estRows || null,
+                        cols: _estCols || null,
+                    }),
+                });
                 if (resp.ok) {
                     await fetchAllSessions();
                     _suppressDrawerOpen = true;

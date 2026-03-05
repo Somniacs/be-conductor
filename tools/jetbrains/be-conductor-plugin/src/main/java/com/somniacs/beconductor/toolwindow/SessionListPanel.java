@@ -71,6 +71,24 @@ public class SessionListPanel extends JPanel {
         return java.util.Arrays.asList(val.split(","));
     }
 
+    private static final String RUNNING_AT_CLOSE_KEY = "be-conductor.runningAtClose";
+
+    public static void setRunningAtClose(Project project, List<String> names) {
+        PropertiesComponent props = PropertiesComponent.getInstance(project);
+        if (names.isEmpty()) {
+            props.unsetValue(RUNNING_AT_CLOSE_KEY);
+        } else {
+            props.setValue(RUNNING_AT_CLOSE_KEY, String.join(",", names));
+        }
+    }
+
+    public static List<String> getRunningAtClose(Project project) {
+        PropertiesComponent props = PropertiesComponent.getInstance(project);
+        String val = props.getValue(RUNNING_AT_CLOSE_KEY);
+        if (val == null || val.isEmpty()) return java.util.Collections.emptyList();
+        return java.util.Arrays.asList(val.split(","));
+    }
+
     public static void saveTrackedSessions(Project project, List<String> names) {
         PropertiesComponent props = PropertiesComponent.getInstance(project);
         if (names.isEmpty()) {
@@ -476,10 +494,24 @@ public class SessionListPanel extends JPanel {
         });
     }
 
+    /** Estimate terminal dimensions from the IDE's main frame. */
+    private int[] estimateTerminalDimensions() {
+        java.awt.Window frame = SwingUtilities.getWindowAncestor(this);
+        int cols = 120, rows = 30;
+        if (frame != null) {
+            // Rough estimate: terminal area ≈ 70% of frame width, 40% of height
+            // at ~8px per char and ~16px per row, with a safety margin
+            cols = Math.max((int) (frame.getWidth() * 0.7 / 8) - 2, 80);
+            rows = Math.max((int) (frame.getHeight() * 0.4 / 16) - 1, 24);
+        }
+        return new int[]{rows, cols};
+    }
+
     private void resumeSession(String id, String name, String cwd) {
+        int[] dims = estimateTerminalDimensions();
         ApplicationManager.getApplication().executeOnPooledThread(() -> {
             try {
-                BeConductorClient.getInstance().resumeSession(id);
+                BeConductorClient.getInstance().resumeSession(id, dims[0], dims[1]);
                 SwingUtilities.invokeLater(() -> {
                     attachSession(name, cwd);
                     refresh();
@@ -665,6 +697,20 @@ public class SessionListPanel extends JPanel {
         List<String> tracked = new java.util.ArrayList<>(getTrackedSessions(project));
         if (tracked.isEmpty()) return;
 
+        // Only resume sessions that were actually running when the IDE closed.
+        Set<String> wasRunning = new java.util.HashSet<>(getRunningAtClose(project));
+        setRunningAtClose(project, java.util.Collections.emptyList());  // consume once
+
+        // Estimate terminal dimensions from the IDE frame on the EDT
+        final int[] dims = {30, 120};  // defaults
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                int[] est = estimateTerminalDimensions();
+                dims[0] = est[0];
+                dims[1] = est[1];
+            });
+        } catch (Exception ignored) {}
+
         try {
             BeConductorClient client = BeConductorClient.getInstance();
             if (!client.isServerRunning()) return;
@@ -679,7 +725,6 @@ public class SessionListPanel extends JPanel {
             for (String name : tracked) {
                 ApiModels.SessionResponse s = byName.get(name);
                 if (s == null) {
-                    // Session gone — drop from tracking
                     untrackSession(project, name);
                     continue;
                 }
@@ -687,10 +732,11 @@ public class SessionListPanel extends JPanel {
                     // Still running — just re-attach
                     SwingUtilities.invokeLater(() -> attachSession(s.name, s.cwd));
                     reattached.add(name);
-                } else if ("exited".equals(s.status) && (s.resume_id != null || s.worktree != null)) {
-                    // Resumable — resume and attach
+                } else if ("exited".equals(s.status) && (s.resume_id != null || s.worktree != null)
+                        && wasRunning.contains(name)) {
+                    // Was running at IDE close, now resumable — resume and attach
                     try {
-                        ApiModels.SessionResponse resumed_s = client.resumeSession(s.id);
+                        ApiModels.SessionResponse resumed_s = client.resumeSession(s.id, dims[0], dims[1]);
                         String resumedCwd = resumed_s != null ? resumed_s.cwd : s.cwd;
                         SwingUtilities.invokeLater(() -> attachSession(s.name, resumedCwd));
                         resumed.add(name);
@@ -698,7 +744,6 @@ public class SessionListPanel extends JPanel {
                         untrackSession(project, name);
                     }
                 } else {
-                    // Completed without resume — drop
                     untrackSession(project, name);
                 }
             }
@@ -783,7 +828,10 @@ public class SessionListPanel extends JPanel {
             }
 
             // Status indicator
-            if ("stopping".equals(session.status)) {
+            if ("running".equals(session.status) && attachedSessions.contains(session.name)) {
+                component.append("  [attached]", new SimpleTextAttributes(
+                        SimpleTextAttributes.STYLE_ITALIC, new Color(0x60, 0xb0, 0xff)));
+            } else if ("stopping".equals(session.status)) {
                 component.append("  [stopping]", new SimpleTextAttributes(
                         SimpleTextAttributes.STYLE_ITALIC, new Color(0xdd, 0xaa, 0x33)));
             } else if (resumable) {

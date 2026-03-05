@@ -21,6 +21,7 @@ import socket
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 from urllib.parse import quote as _urlquote
 
@@ -131,7 +132,9 @@ def serve(host, port):
 @click.option("-d", "--detach", is_flag=True, help="Run in background (don't attach to terminal)")
 @click.option("-w", "--worktree", is_flag=True, help="Create an isolated git worktree for this session")
 @click.option("--json", "use_json", is_flag=True, help="Output JSON (implies --detach)")
-def run(command, name, detach, worktree, use_json):
+@click.option("--rows", type=int, default=None, help="Terminal rows (auto-detected if omitted)")
+@click.option("--cols", type=int, default=None, help="Terminal columns (auto-detected if omitted)")
+def run(command, name, detach, worktree, use_json, rows, cols):
     """Run a command in a new Be-Conductor session.
 
     By default, attaches to the session so you see output in your terminal.
@@ -183,7 +186,9 @@ def run(command, name, detach, worktree, use_json):
     size = shutil.get_terminal_size()
     payload = {
         "name": name, "command": command, "cwd": os.getcwd(),
-        "source": "cli", "rows": size.lines, "cols": size.columns,
+        "source": "cli",
+        "rows": rows or size.lines,
+        "cols": cols or size.columns,
     }
     if worktree:
         payload["worktree"] = True
@@ -258,21 +263,32 @@ def _attach_session(session_name: str):
         _attach_session_unix(session_name)
 
 
-def _ws_url(session_name: str) -> str:
-    """Build the WebSocket URL, appending token if auth is configured."""
+def _ws_url(session_name: str, source: str | None = None,
+            client_id: str | None = None) -> str:
+    """Build the WebSocket URL, appending auth and client identity."""
     url = BASE_URL.replace("http://", "ws://") + f"/sessions/{_urlquote(session_name, safe='')}/stream"
+    params = []
     if CONDUCTOR_TOKEN:
-        url += f"?token={CONDUCTOR_TOKEN}"
+        params.append(f"token={CONDUCTOR_TOKEN}")
+    if source:
+        params.append(f"source={source}")
+    if client_id:
+        params.append(f"client_id={client_id}")
+    if params:
+        url += "?" + "&".join(params)
     return url
 
 
-def _resize_session(session_name: str):
+def _resize_session(session_name: str, client_id: str | None = None):
     """Send the current host terminal size to the remote PTY session."""
     try:
         size = shutil.get_terminal_size()
+        body: dict = {"rows": size.lines, "cols": size.columns, "source": "cli"}
+        if client_id:
+            body["client_id"] = client_id
         httpx.post(
             f"{BASE_URL}/sessions/{_urlquote(session_name, safe='')}/resize",
-            json={"rows": size.lines, "cols": size.columns, "source": "cli"},
+            json=body,
             headers=_auth_headers(),
             timeout=3,
         )
@@ -289,7 +305,8 @@ def _attach_session_unix(session_name: str):
     import tty
     import websockets.sync.client as ws_sync
 
-    ws_url = _ws_url(session_name)
+    client_id = str(uuid.uuid4())
+    ws_url = _ws_url(session_name, source="cli", client_id=client_id)
 
     stdin_fd = sys.stdin.fileno()
     old_settings = termios.tcgetattr(stdin_fd)
@@ -313,12 +330,12 @@ def _attach_session_unix(session_name: str):
             os.write(wake_w, b"\x00")
 
     # Sync terminal size on attach and on SIGWINCH (terminal resize)
-    _resize_session(session_name)
+    _resize_session(session_name, client_id=client_id)
 
     old_sigwinch = signal.getsignal(signal.SIGWINCH)
 
     def on_winch(signum, frame):
-        _resize_session(session_name)
+        _resize_session(session_name, client_id=client_id)
 
     signal.signal(signal.SIGWINCH, on_winch)
 
@@ -367,7 +384,8 @@ def _attach_session_win(session_name: str):
     import threading
     import websockets.sync.client as ws_sync
 
-    ws_url = _ws_url(session_name)
+    client_id = str(uuid.uuid4())
+    ws_url = _ws_url(session_name, source="cli", client_id=client_id)
     stop = threading.Event()
 
     def ws_reader(ws):
@@ -496,8 +514,10 @@ def resume(name, detach, token, cmd):
             timeout=10,
         )
     else:
+        size = shutil.get_terminal_size()
         r = httpx.post(
             f"{BASE_URL}/sessions/{_urlquote(name, safe='')}/resume",
+            json={"rows": size.lines, "cols": size.columns},
             headers=_auth_headers(),
             timeout=10,
         )

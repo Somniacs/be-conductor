@@ -192,6 +192,11 @@ class InputRequest(BaseModel):
     keys: list[str] | None = None
 
 
+class ResumeRequest(BaseModel):
+    rows: int | None = None
+    cols: int | None = None
+
+
 class StopRequest(BaseModel):
     mode: str = "kill"  # "kill" = hard stop, "graceful" = SIGINT (allows resume), "forget" = SIGINT + discard
 
@@ -200,6 +205,7 @@ class ResizeRequest(BaseModel):
     rows: int
     cols: int
     source: str | None = None
+    client_id: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -586,7 +592,7 @@ async def resize_session(session_id: str, req: ResizeRequest):
     session = registry.get(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    session.resize(req.rows, req.cols, source=req.source)
+    session.resize(req.rows, req.cols, source=req.source, client_id=req.client_id)
     return {"status": "ok"}
 
 
@@ -627,10 +633,12 @@ async def upload_file(session_id: str, request: Request):
 
 
 @router.post("/sessions/{session_id}/resume", response_model=SessionResponse)
-async def resume_session(session_id: str):
+async def resume_session(session_id: str, req: ResumeRequest | None = None):
     """Resume an exited session that has a stored --resume id."""
     try:
-        session = await registry.resume(session_id)
+        rows = req.rows if req else None
+        cols = req.cols if req else None
+        session = await registry.resume(session_id, rows=rows, cols=cols)
         return session.to_dict()
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -1090,7 +1098,8 @@ async def observe_external_session(ws: WebSocket, file_id: str):
 # ---------------------------------------------------------------------------
 
 @router.websocket("/sessions/{session_id}/stream")
-async def stream_session(ws: WebSocket, session_id: str, typed: bool = False):
+async def stream_session(ws: WebSocket, session_id: str, typed: bool = False,
+                         source: str | None = None, client_id: str | None = None):
     # Auth check
     if not _check_ws_auth(ws):
         await ws.close(code=4001, reason="Unauthorized")
@@ -1103,6 +1112,11 @@ async def stream_session(ws: WebSocket, session_id: str, typed: bool = False):
 
     await ws.accept()
 
+    # Track CLI connections for resize authority
+    is_cli = source == "cli" and client_id
+    if is_cli:
+        session.cli_connected(client_id)
+
     # Track this WebSocket for notification broadcast.
     _notification_ws[ws] = session_id
 
@@ -1113,6 +1127,8 @@ async def stream_session(ws: WebSocket, session_id: str, typed: bool = False):
             await _stream_raw(ws, session)
     finally:
         _notification_ws.pop(ws, None)
+        if is_cli:
+            session.cli_disconnected(client_id)
 
 
 async def _stream_raw(ws: WebSocket, session: Any):
@@ -1264,7 +1280,9 @@ async def _stream_typed(ws: WebSocket, session: Any):
                         elif msg_type == "resize":
                             rows = msg.get("rows", 24)
                             cols = msg.get("cols", 80)
-                            session.resize(rows, cols)
+                            session.resize(rows, cols,
+                                           source=msg.get("source"),
+                                           client_id=msg.get("client_id"))
                     except (json.JSONDecodeError, TypeError):
                         # Plain text fallback — treat as raw input
                         session.send_input(text)

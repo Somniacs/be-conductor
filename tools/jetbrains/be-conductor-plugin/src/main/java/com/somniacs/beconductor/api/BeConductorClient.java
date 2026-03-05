@@ -197,8 +197,18 @@ public final class BeConductorClient {
     }
 
     public ApiModels.SessionResponse resumeSession(String sessionId) throws Exception {
+        return resumeSession(sessionId, 0, 0);
+    }
+
+    public ApiModels.SessionResponse resumeSession(String sessionId, int rows, int cols) throws Exception {
+        java.util.Map<String, Object> body = null;
+        if (rows > 0 && cols > 0) {
+            body = new java.util.HashMap<>();
+            body.put("rows", rows);
+            body.put("cols", cols);
+        }
         return doPost("/sessions/" + encode(sessionId) + "/resume",
-                null, ApiModels.SessionResponse.class);
+                body, ApiModels.SessionResponse.class);
     }
 
     // ── Git ───────────────────────────────────────────────────────────────

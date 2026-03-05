@@ -50,6 +50,10 @@ public class SessionPersistenceListener implements ProjectManagerListener {
 
             if (running.isEmpty()) return;
 
+            // Save which sessions were running so auto-resume only picks up these
+            SessionListPanel.setRunningAtClose(project,
+                    running.stream().map(s -> s.name).collect(java.util.stream.Collectors.toList()));
+
             // Fire parallel graceful stops
             CountDownLatch latch = new CountDownLatch(running.size());
             for (ApiModels.SessionResponse s : running) {

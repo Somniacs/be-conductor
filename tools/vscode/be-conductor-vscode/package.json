@@ -2,7 +2,7 @@
   "name": "be-conductor-launcher",
   "displayName": "be-conductor",
   "description": "Launch AI agent sessions from VS Code via be-conductor (https://github.com/somniacs/be-conductor)",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "somniacs",
   "license": "MIT",
   "repository": {
@@ -217,6 +217,6 @@
     }
   },
   "devDependencies": {
-    "@vscode/vsce": "^2.19.0"
+    "@vscode/vsce": "^2.32.0"
   }
 }

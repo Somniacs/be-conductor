@@ -2,7 +2,7 @@
 const vscode = require('vscode');
 const api = require('./src/api');
 const { getServerUrl, getPollInterval } = require('./src/config');
-const { createSessionFlow, attachSession, setWorkspaceState, getTrackedSessions, untrackSession, clearTrackedSessions } = require('./src/createSession');
+const { createSessionFlow, attachSession, setWorkspaceState, getTrackedSessions, trackSession, untrackSession, clearTrackedSessions, focusTerminal, terminalMap, getRunningAtClose, setRunningAtClose } = require('./src/createSession');
 const { SessionTreeProvider, registerSessionCommands } = require('./src/sessionTree');
 const { WorktreeTreeProvider, DiffContentProvider, registerWorktreeCommands } = require('./src/worktreeTree');
 
@@ -100,8 +100,13 @@ function activate(context) {
     );
 
     // ── Auto-resume tracked sessions from previous IDE session ──────────
+    // Only sessions that were *running* when the IDE closed (saved in
+    // runningAtClose) should be auto-resumed.  Other resumable sessions
+    // are left alone — they weren't ours to begin with.
     setTimeout(async () => {
         const tracked = getTrackedSessions();
+        const wasRunning = new Set(getRunningAtClose());
+        setRunningAtClose([]);  // clear the list once consumed
         if (tracked.length === 0) return;
         try {
             const sessions = await api.listSessions();
@@ -112,7 +117,6 @@ function activate(context) {
             for (const name of tracked) {
                 const s = byName.get(name);
                 if (!s) {
-                    // Session gone — drop from tracking
                     untrackSession(name);
                     continue;
                 }
@@ -120,17 +124,29 @@ function activate(context) {
                     // Still running — just re-attach
                     attachSession(s.name);
                     reattached.push(name);
+                } else if (s.status === 'exited' && (s.resume_id || s.worktree) && wasRunning.has(name)) {
+                    // Resume via CLI in a terminal — CLI reads correct
+                    // dimensions from the established terminal PTY.
+                    const workDir = s.cwd ||
+                        (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0]
+                            ? vscode.workspace.workspaceFolders[0].uri.fsPath
+                            : undefined);
+                    const terminal = vscode.window.createTerminal({
+                        name,
+                        cwd: workDir,
+                        isTransient: true,
+                        env: { VIRTUAL_ENV: '', CONDA_PREFIX: '' },
+                    });
+                    terminal.show();
+                    // Small delay so terminal PTY is established before CLI reads size
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                    terminal.sendText(`be-conductor resume "${name}" ; exit`);
+                    terminalMap.set(name, terminal);
+                    trackSession(name);
+                    resumed.push(name);
                 } else if (s.status === 'exited' && (s.resume_id || s.worktree)) {
-                    // Resumable — resume and attach
-                    try {
-                        await api.resumeSession(s.id);
-                        attachSession(s.name);
-                        resumed.push(name);
-                    } catch {
-                        untrackSession(name);
-                    }
+                    // Resumable but wasn't running at close — leave tracked, don't resume
                 } else {
-                    // Completed without resume — drop
                     untrackSession(name);
                 }
             }
@@ -157,6 +173,10 @@ async function deactivate() {
         const sessions = await api.listSessions();
         const running = sessions.filter(s => tracked.includes(s.name) && s.status === 'running');
         if (running.length === 0) return;
+
+        // Save which sessions were running so auto-resume on next
+        // startup only resumes these (not pre-existing resumable ones).
+        await setRunningAtClose(running.map(s => s.name));
 
         await Promise.all(running.map(s =>
             api.stopSession(s.id, 'graceful').catch(() => {})

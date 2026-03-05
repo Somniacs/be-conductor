@@ -66,7 +66,7 @@ async function stopSession(id, mode) {
     return request('POST', `/sessions/${encodeURIComponent(id)}/stop`, { mode: mode || 'kill' });
 }
 async function deleteSession(id) { return request('DELETE', `/sessions/${encodeURIComponent(id)}`); }
-async function resumeSession(id) { return request('POST', `/sessions/${encodeURIComponent(id)}/resume`); }
+async function resumeSession(id, body) { return request('POST', `/sessions/${encodeURIComponent(id)}/resume`, body); }
 async function resizeSession(id, rows, cols) {
     return request('POST', `/sessions/${encodeURIComponent(id)}/resize`, { rows, cols, source: 'vscode' });
 }

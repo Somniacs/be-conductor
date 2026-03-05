@@ -15,6 +15,7 @@ vscode.window.onDidCloseTerminal((t) => {
 
 // ── Session persistence (survives IDE restart) ──────────────────────────
 const TRACKED_KEY = 'be-conductor.trackedSessions';
+const RUNNING_AT_CLOSE_KEY = 'be-conductor.runningAtClose';
 /** @type {vscode.Memento | null} */
 let _workspaceState = null;
 
@@ -24,6 +25,17 @@ function setWorkspaceState(state) { _workspaceState = state; }
 function getTrackedSessions() {
     if (!_workspaceState) return [];
     return _workspaceState.get(TRACKED_KEY, []);
+}
+
+/** @returns {string[]} sessions that were running when IDE closed */
+function getRunningAtClose() {
+    if (!_workspaceState) return [];
+    return _workspaceState.get(RUNNING_AT_CLOSE_KEY, []);
+}
+
+function setRunningAtClose(names) {
+    if (!_workspaceState) return Promise.resolve();
+    return _workspaceState.update(RUNNING_AT_CLOSE_KEY, names);
 }
 
 function trackSession(name) {
@@ -179,16 +191,22 @@ async function createSessionFlow(callbacks) {
     }
 
     // Step 5: Run session in terminal (handles server startup, creation, and attach)
-    const cmd = useWorktree
-        ? `be-conductor run -w "${agent.command}" "${trimmed}"`
-        : `be-conductor run "${agent.command}" "${trimmed}"`;
-
     const terminal = vscode.window.createTerminal({
         name: `${trimmed} (${agent.label})`,
         cwd: selectedCwd,
         isTransient: true,
+        // Prevent VSCode Python extension from auto-activating a venv
+        env: { VIRTUAL_ENV: '', CONDA_PREFIX: '' },
     });
     terminal.show();
+
+    // Wait briefly for the terminal PTY to be established so the CLI's
+    // shutil.get_terminal_size() returns actual dimensions (not 80x24).
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    const cmd = useWorktree
+        ? `be-conductor run -w "${agent.command}" "${trimmed}"`
+        : `be-conductor run "${agent.command}" "${trimmed}"`;
     terminal.sendText(cmd);
     terminalMap.set(trimmed, terminal);
     trackSession(trimmed);
@@ -219,6 +237,7 @@ function attachSession(name, cwd) {
         name,
         cwd: workDir,
         isTransient: true,
+        env: { VIRTUAL_ENV: '', CONDA_PREFIX: '' },
     });
     terminal.show();
     terminal.sendText(`be-conductor attach "${name}" ; exit`);
@@ -243,4 +262,5 @@ function focusTerminal(name) {
 module.exports = {
     createSessionFlow, attachSession, focusTerminal, terminalMap,
     setWorkspaceState, getTrackedSessions, trackSession, untrackSession, clearTrackedSessions,
+    getRunningAtClose, setRunningAtClose,
 };

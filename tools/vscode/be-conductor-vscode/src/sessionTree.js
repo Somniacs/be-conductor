@@ -1,7 +1,7 @@
 'use strict';
 const vscode = require('vscode');
 const api = require('./api');
-const { terminalMap, attachSession, focusTerminal, untrackSession } = require('./createSession');
+const { terminalMap, attachSession, focusTerminal, untrackSession, trackSession } = require('./createSession');
 
 class SessionItem extends vscode.TreeItem {
     constructor(session) {
@@ -25,8 +25,10 @@ class SessionItem extends vscode.TreeItem {
         }
 
         if (session.status === 'running') {
+            const attached = terminalMap.has(session.name);
             this.iconPath = new vscode.ThemeIcon('circle-filled', new vscode.ThemeColor('testing.iconPassed'));
-            this.contextValue = terminalMap.has(session.name) ? 'session-running-attached' : 'session-running';
+            this.contextValue = attached ? 'session-running-attached' : 'session-running';
+            if (attached) this.description += '  [attached]';
         } else if (session.status === 'stopping') {
             this.iconPath = new vscode.ThemeIcon('loading~spin');
             this.contextValue = 'session-stopping';
@@ -147,15 +149,30 @@ function registerSessionCommands(context, provider) {
 
         vscode.commands.registerCommand('be-conductor.resumeSession', async (item) => {
             if (!(item instanceof SessionItem)) return;
-            try {
-                await api.resumeSession(item.session.id);
-                vscode.window.showInformationMessage(`Resuming "${item.session.name}"...`);
-                // Auto-attach terminal
-                attachSession(item.session.name);
-                setTimeout(() => provider.refresh(), 1000);
-            } catch (e) {
-                vscode.window.showErrorMessage(`Failed to resume session: ${e.message}`);
+            const session = item.session;
+            // Resume via CLI in a terminal — the CLI reads correct dimensions
+            // from the established terminal PTY (no proposed API needed).
+            if (terminalMap.has(session.name)) {
+                terminalMap.get(session.name).show();
+                return;
             }
+            const workDir = session.cwd ||
+                (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0]
+                    ? vscode.workspace.workspaceFolders[0].uri.fsPath
+                    : undefined);
+            const terminal = vscode.window.createTerminal({
+                name: session.name,
+                cwd: workDir,
+                isTransient: true,
+                env: { VIRTUAL_ENV: '', CONDA_PREFIX: '' },
+            });
+            terminal.show();
+            await new Promise(resolve => setTimeout(resolve, 500));
+            terminal.sendText(`be-conductor resume "${session.name}" ; exit`);
+            terminalMap.set(session.name, terminal);
+            trackSession(session.name);
+            vscode.window.showInformationMessage(`Resuming "${session.name}"...`);
+            setTimeout(() => provider.refresh(), 1000);
         }),
 
         vscode.commands.registerCommand('be-conductor.stopSession', async (item) => {

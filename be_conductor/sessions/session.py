@@ -83,6 +83,8 @@ class Session:
         self.rows: int = 24
         self.cols: int = 80
         self.resize_source: str | None = None
+        self.resize_owner_id: str | None = None   # client_id of the resize authority (first CLI)
+        self.cli_attach_count: int = 0             # number of CLI WebSocket connections
         self._monitor_task: asyncio.Task | None = None
         self._on_exit = on_exit
         self._reader_thread: threading.Thread | None = None
@@ -197,12 +199,39 @@ class Session:
     def send_input_bytes(self, data: bytes):
         self.pty.write(data)
 
-    def resize(self, rows: int, cols: int, source: str | None = None):
+    def resize(self, rows: int, cols: int, source: str | None = None,
+               client_id: str | None = None):
+        """Resize the PTY with priority enforcement.
+
+        Priority: first CLI > other CLIs > browser.
+        """
+        if source == "cli":
+            if self.resize_owner_id and client_id and client_id != self.resize_owner_id:
+                return  # Not the owner — ignore
+            if not self.resize_owner_id and client_id:
+                self.resize_owner_id = client_id  # First CLI becomes owner
+        elif source == "browser":
+            if self.cli_attach_count > 0:
+                return  # CLI connected — browser can't resize
         self.rows = rows
         self.cols = cols
         if source:
             self.resize_source = source
         self.pty.resize(rows, cols)
+
+    def cli_connected(self, client_id: str):
+        """Track a CLI WebSocket connection."""
+        self.cli_attach_count += 1
+        if not self.resize_owner_id:
+            self.resize_owner_id = client_id
+
+    def cli_disconnected(self, client_id: str):
+        """Track a CLI WebSocket disconnection."""
+        self.cli_attach_count = max(0, self.cli_attach_count - 1)
+        if client_id == self.resize_owner_id:
+            self.resize_owner_id = None  # Owner left — next CLI resize will claim
+            if self.cli_attach_count == 0:
+                self.resize_source = None  # No CLI → browser can take over
 
     def _cleanup_uploads(self):
         """Remove the session's upload directory."""
@@ -383,6 +412,7 @@ class Session:
             "rows": self.rows,
             "cols": self.cols,
             "resize_source": self.resize_source,
+            "cli_attach_count": self.cli_attach_count,
         }
         if self.resume_id:
             d["resume_id"] = self.resume_id
