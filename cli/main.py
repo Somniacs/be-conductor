@@ -22,6 +22,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from urllib.parse import quote as _urlquote
 
 import click
 import httpx
@@ -259,7 +260,7 @@ def _attach_session(session_name: str):
 
 def _ws_url(session_name: str) -> str:
     """Build the WebSocket URL, appending token if auth is configured."""
-    url = BASE_URL.replace("http://", "ws://") + f"/sessions/{session_name}/stream"
+    url = BASE_URL.replace("http://", "ws://") + f"/sessions/{_urlquote(session_name, safe='')}/stream"
     if CONDUCTOR_TOKEN:
         url += f"?token={CONDUCTOR_TOKEN}"
     return url
@@ -270,7 +271,7 @@ def _resize_session(session_name: str):
     try:
         size = shutil.get_terminal_size()
         httpx.post(
-            f"{BASE_URL}/sessions/{session_name}/resize",
+            f"{BASE_URL}/sessions/{_urlquote(session_name, safe='')}/resize",
             json={"rows": size.lines, "cols": size.columns, "source": "cli"},
             headers=_auth_headers(),
             timeout=3,
@@ -496,7 +497,7 @@ def resume(name, detach, token, cmd):
         )
     else:
         r = httpx.post(
-            f"{BASE_URL}/sessions/{name}/resume",
+            f"{BASE_URL}/sessions/{_urlquote(name, safe='')}/resume",
             headers=_auth_headers(),
             timeout=10,
         )
@@ -526,7 +527,7 @@ def stop(name):
         click.echo("Server not running.", err=True)
         sys.exit(1)
 
-    r = httpx.delete(f"{BASE_URL}/sessions/{name}", headers=_auth_headers(), timeout=5)
+    r = httpx.delete(f"{BASE_URL}/sessions/{_urlquote(name, safe='')}", headers=_auth_headers(), timeout=5)
     if r.status_code == 200:
         click.echo(f"Session '{name}' stopped.")
     elif r.status_code == 404:
