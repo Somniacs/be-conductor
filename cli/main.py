@@ -287,10 +287,18 @@ def _ws_url(session_name: str, source: str | None = None,
     return url
 
 
+_last_sent_size: tuple[int, int] = (0, 0)
+
+
 def _resize_session(session_name: str, client_id: str | None = None):
     """Send the current host terminal size to the remote PTY session."""
+    global _last_sent_size
     try:
         size = shutil.get_terminal_size()
+        dims = (size.lines, size.columns)
+        if dims == _last_sent_size:
+            return
+        _last_sent_size = dims
         body: dict = {"rows": size.lines, "cols": size.columns, "source": "cli"}
         if client_id:
             body["client_id"] = client_id
@@ -341,22 +349,29 @@ def _attach_session_unix(session_name: str, stop_on_exit: bool = False):
                 if isinstance(message, bytes) and message:
                     sys.stdout.buffer.write(message)
                     sys.stdout.buffer.flush()
-                elif isinstance(message, str) and message:
-                    sys.stdout.write(message)
-                    sys.stdout.flush()
+                # Text messages are JSON control events (resize, notifications)
+                # — not terminal data, so don't print them.
         except Exception:
             pass
         finally:
             stop.set()
             os.write(wake_w, b"\x00")
 
-    # Sync terminal size on attach and on SIGWINCH (terminal resize)
+    # Sync terminal size on attach and on SIGWINCH (terminal resize).
+    # The signal handler only writes to a pipe to wake select();
+    # the actual HTTP resize call happens safely in the main loop.
     _resize_session(session_name, client_id=client_id)
+
+    resize_r, resize_w = os.pipe()
+    os.set_blocking(resize_w, False)
 
     old_sigwinch = signal.getsignal(signal.SIGWINCH)
 
     def on_winch(signum, frame):
-        _resize_session(session_name, client_id=client_id)
+        try:
+            os.write(resize_w, b"R")
+        except OSError:
+            pass
 
     signal.signal(signal.SIGWINCH, on_winch)
 
@@ -382,10 +397,18 @@ def _attach_session_unix(session_name: str, stop_on_exit: bool = False):
 
         try:
             while not stop.is_set():
-                readable, _, _ = select.select([stdin_fd, wake_r], [], [], 1.0)
+                readable, _, _ = select.select(
+                    [stdin_fd, wake_r, resize_r], [], [], 0.5)
 
                 if wake_r in readable:
                     break
+
+                if resize_r in readable:
+                    os.read(resize_r, 64)  # drain
+                    _resize_session(session_name, client_id=client_id)
+
+                # Also poll size on every iteration as a fallback.
+                _resize_session(session_name, client_id=client_id)
 
                 if stdin_fd in readable:
                     data = os.read(stdin_fd, 1024)
@@ -404,6 +427,8 @@ def _attach_session_unix(session_name: str, stop_on_exit: bool = False):
                 pass
             os.close(wake_r)
             os.close(wake_w)
+            os.close(resize_r)
+            os.close(resize_w)
     except KeyboardInterrupt:
         pass
     finally:
@@ -433,9 +458,8 @@ def _attach_session_win(session_name: str):
                 if isinstance(message, bytes) and message:
                     sys.stdout.buffer.write(message)
                     sys.stdout.buffer.flush()
-                elif isinstance(message, str) and message:
-                    sys.stdout.write(message)
-                    sys.stdout.flush()
+                # Text messages are JSON control events (resize, notifications)
+                # — not terminal data, so don't print them.
         except Exception:
             pass
         finally:
