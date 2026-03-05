@@ -2,6 +2,22 @@
 
 All notable changes to Be-Conductor are documented here.
 
+## v0.3.16
+
+### Resize authority system
+
+- **Native terminal owns resize** — when a CLI/IDE terminal is attached, it becomes the resize authority. The browser follows the CLI's column width instead of resizing independently. Second CLI attachments don't override the first
+- **Server-side enforcement** — resize priority (CLI > browser) is now enforced server-side with client identity tracking, not just browser-side heuristics
+- **Automatic fallback** — when all CLI terminals disconnect, the browser regains resize control
+
+### IDE plugins (v0.2.1)
+
+- **VSCode: fix proposed API error** — removed `terminalDimensions` proposed API usage that caused errors on some VSCode versions. Resume now runs `be-conductor resume` directly in the terminal for correct dimensions
+- **VSCode: fix auto-resume on restart** — properly await workspace state persistence so sessions survive IDE close/reopen cycles
+- **JetBrains: resume with dimensions** — pass estimated terminal dimensions when resuming sessions so the PTY starts at a reasonable size
+- **Both: session persistence** — track which sessions were running at IDE close; only auto-resume those on next startup
+- **Both: prevent venv activation** — clear `VIRTUAL_ENV` and `CONDA_PREFIX` in be-conductor terminals to prevent Python extension auto-activation
+
 ## v0.3.15
 
 ### In-browser notification list
