@@ -1,4 +1,4 @@
-# ♭ be-conductor
+# ♭conductor
 
 Orchestrate your AI coding agents across your own machines — local-first, cloud-optional.
 

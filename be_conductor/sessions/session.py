@@ -93,7 +93,8 @@ class Session:
         self._notifier = notifier  # SessionNotifier instance (optional)
 
     async def start(self, rows: int = 24, cols: int = 80):
-        self.pty.spawn(rows=rows, cols=cols)
+        # Reserve the last row for the watermark label.
+        self.pty.spawn(rows=max(1, rows - 1), cols=cols)
         self.pid = self.pty.pid
         self.start_time = time.time()
         self.created_at = datetime.fromtimestamp(self.start_time, tz=timezone.utc).isoformat()
@@ -121,7 +122,10 @@ class Session:
             data = os.read(self.pty.master_fd, 65536)
             if data:
                 self._append_buffer(data)
+                if b'\n' in data:
+                    self._broadcast(self._watermark_clear_seq())
                 self._broadcast(data)
+                self._broadcast(self._watermark_seq())
         except OSError:
             # EIO means the slave side closed (process exited).
             # Unregister immediately to avoid a tight spin in the event loop.
@@ -139,13 +143,46 @@ class Session:
                 data = self.pty.read()
                 if data:
                     self._loop.call_soon_threadsafe(self._append_buffer, data)
+                    if b'\n' in data:
+                        self._loop.call_soon_threadsafe(self._broadcast, self._watermark_clear_seq())
                     self._loop.call_soon_threadsafe(self._broadcast, data)
+                    self._loop.call_soon_threadsafe(self._broadcast, self._watermark_seq())
                 else:
                     time.sleep(0.01)
             except OSError:
                 break
             except Exception:
                 break
+
+    # -- Watermark ---------------------------------------------------------
+
+    _WATERMARK_LABEL = "♭conductor"
+    _WATERMARK_LEN = len(_WATERMARK_LABEL)  # 10 columns (♭ is narrow)
+
+    def _watermark_clear_seq(self) -> bytes:
+        """Erase the watermark area on the current cursor row."""
+        if self.cols < self._WATERMARK_LEN:
+            return b""
+        col = self.cols - self._WATERMARK_LEN + 1
+        return (
+            f"\x1b7"                       # DECSC: save cursor + attributes
+            f"\x1b[{col}G"                # CHA: move to column (absolute)
+            f"\x1b[0K"                     # EL: erase from cursor to end of line
+            f"\x1b8"                       # DECRC: restore cursor + attributes
+        ).encode("utf-8")
+
+    def _watermark_seq(self) -> bytes:
+        """Build ANSI sequence that draws the watermark on the cursor row."""
+        if self.cols < self._WATERMARK_LEN:
+            return b""
+        col = self.cols - self._WATERMARK_LEN + 1
+        return (
+            f"\x1b7"                       # DECSC: save cursor + attributes
+            f"\x1b[{col}G"                # CHA: move to column (absolute)
+            f"\x1b[2;38;5;242m"            # SGR: dim + gray
+            f"{self._WATERMARK_LABEL}"
+            f"\x1b8"                       # DECRC: restore cursor + attributes
+        ).encode("utf-8")
 
     # -- Buffer & broadcast ------------------------------------------------
 
@@ -222,7 +259,7 @@ class Session:
         self.cols = cols
         if source:
             self.resize_source = source
-        self.pty.resize(rows, cols)
+        self.pty.resize(max(1, rows - 1), cols)
 
     def cli_connected(self, client_id: str):
         """Track a CLI WebSocket connection."""

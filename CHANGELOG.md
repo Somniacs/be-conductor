@@ -2,6 +2,14 @@
 
 All notable changes to Be-Conductor are documented here.
 
+## v0.3.17
+
+### Terminal watermark
+
+- **♭conductor label** — a subtle "♭conductor" watermark appears at the right edge of the cursor row in every terminal session, rendered server-side via ANSI escape sequences so it works across all clients (browser, CLI, IDE)
+- **Content-aware positioning** — the label follows the cursor position rather than sitting at the bottom of the viewport, keeping it close to the active content area
+- **Clean transitions** — the watermark is cleared before output that moves the cursor to a new row and immediately repainted after each output chunk, avoiding ghost artifacts on resize or scrolling
+
 ## v0.3.16
 
 ### Resize authority
