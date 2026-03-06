@@ -128,7 +128,16 @@ http://my-laptop:7777
 
 Run `tailscale status` to see the name. No IP to remember.
 
-## 6. Keep it running
+## 6. IDE plugins (optional)
+
+Run and manage sessions directly from your editor — no terminal needed.
+
+- **VSCode** — install "be-conductor" from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=somniacs.be-conductor-vscode)
+- **JetBrains** — install "be-conductor" from the [JetBrains Marketplace](https://plugins.jetbrains.com/plugin/26768-be-conductor)
+
+Both plugins auto-discover the running server and let you start, attach, resume, and observe sessions in an embedded terminal tab. Worktree isolation is available from the new-session dialog.
+
+## 7. Keep it running
 
 The be-conductor server starts automatically when you run your first agent and stays running in the background. If you accepted autostart during install, the dashboard is already reachable after a reboot. Otherwise, see [Auto-Start on Boot](autostart.md) for manual systemd (Linux), launchd (macOS), and Task Scheduler (Windows) setup.
 
