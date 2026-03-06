@@ -196,13 +196,20 @@ if ($installed) {
             }
         } catch {}
 
-        # Place a VBS script in the Startup folder (no admin needed, no window flash)
+        # Place a shortcut in the Startup folder (no admin needed)
         $startupDir = [System.Environment]::GetFolderPath("Startup")
-        $vbsPath = Join-Path $startupDir "$Project.vbs"
-        $vbsLine1 = 'Set WshShell = CreateObject("WScript.Shell")'
-        $vbsLine2 = "WshShell.Run """"""$conductorPath"" up"", 0, False"
-        $vbsContent = "$vbsLine1`r`n$vbsLine2"
-        Set-Content -Path $vbsPath -Value $vbsContent -Encoding ASCII
+
+        # Remove legacy VBS autostart if present
+        $oldVbs = Join-Path $startupDir "$Project.vbs"
+        if (Test-Path $oldVbs) { Remove-Item $oldVbs -Force }
+
+        $lnkPath = Join-Path $startupDir "$Project.lnk"
+        $shell = New-Object -ComObject WScript.Shell
+        $shortcut = $shell.CreateShortcut($lnkPath)
+        $shortcut.TargetPath = $conductorPath
+        $shortcut.Arguments = "up"
+        $shortcut.WindowStyle = 7  # minimized
+        $shortcut.Save()
 
         Write-Host "  Autostart configured (Startup folder)" -NoNewline
         Write-Host " OK" -ForegroundColor Green

@@ -40,13 +40,15 @@ if ($OldProject -and $OldProject -ne $Project) {
 
 # ── Remove autostart ──────────────────────────────────────────────────
 
-# Remove Startup folder VBS script
+# Remove Startup folder shortcut (and legacy VBS script)
 $startupDir = [System.Environment]::GetFolderPath("Startup")
-$vbsPath = Join-Path $startupDir "$Project.vbs"
-if (Test-Path $vbsPath) {
-    Remove-Item -Force $vbsPath
-    Write-Host "  Startup script removed" -NoNewline
-    Write-Host " OK" -ForegroundColor Green
+foreach ($ext in @("lnk", "vbs")) {
+    $p = Join-Path $startupDir "$Project.$ext"
+    if (Test-Path $p) {
+        Remove-Item -Force $p
+        Write-Host "  Startup $ext removed" -NoNewline
+        Write-Host " OK" -ForegroundColor Green
+    }
 }
 
 # Remove old scheduled tasks (from previous installs)
