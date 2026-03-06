@@ -188,30 +188,27 @@ if ($installed) {
             $conductorPath = "$env:USERPROFILE\.local\bin\$Project.exe"
         }
 
-        # Remove old scheduled task if present (migration from previous installs)
+        # Clean up legacy autostart (old scheduled task, VBS, shortcut)
         try {
             $oldTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
             if ($oldTask) {
                 Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
             }
         } catch {}
-
-        # Place a shortcut in the Startup folder (no admin needed)
         $startupDir = [System.Environment]::GetFolderPath("Startup")
+        foreach ($ext in @("vbs", "lnk")) {
+            $old = Join-Path $startupDir "$Project.$ext"
+            if (Test-Path $old) { Remove-Item $old -Force }
+        }
 
-        # Remove legacy VBS autostart if present
-        $oldVbs = Join-Path $startupDir "$Project.vbs"
-        if (Test-Path $oldVbs) { Remove-Item $oldVbs -Force }
+        # Scheduled task — runs hidden, no console window flash
+        $action   = New-ScheduledTaskAction -Execute $conductorPath -Argument "up"
+        $trigger  = New-ScheduledTaskTrigger -AtLogOn
+        $trigger.UserId = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+        $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan)
+        Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings -Force | Out-Null
 
-        $lnkPath = Join-Path $startupDir "$Project.lnk"
-        $shell = New-Object -ComObject WScript.Shell
-        $shortcut = $shell.CreateShortcut($lnkPath)
-        $shortcut.TargetPath = $conductorPath
-        $shortcut.Arguments = "up"
-        $shortcut.WindowStyle = 7  # minimized
-        $shortcut.Save()
-
-        Write-Host "  Autostart configured (Startup folder)" -NoNewline
+        Write-Host "  Autostart configured (scheduled task)" -NoNewline
         Write-Host " OK" -ForegroundColor Green
 
         # Start the server now
