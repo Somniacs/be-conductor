@@ -19,5 +19,8 @@ dependencies = [
     "pywinpty>=2.0; sys_platform == 'win32'",
 ]
 
+[tool.hatch.build.targets.wheel]
+packages = ["be_conductor", "cli"]
+
 [project.scripts]
 be-conductor = "cli.main:cli"
