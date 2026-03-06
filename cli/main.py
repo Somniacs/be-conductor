@@ -114,6 +114,134 @@ def serve(host, port):
     run_server(host=host, port=port)
 
 
+def _get_latest_version() -> str | None:
+    """Check GitHub for the latest release. Returns version string or None."""
+    try:
+        r = httpx.get(
+            "https://api.github.com/repos/somniacs/be-conductor/releases/latest",
+            timeout=3,
+            follow_redirects=True,
+        )
+        if r.status_code != 200:
+            return None
+        latest = r.json().get("tag_name", "").lstrip("v")
+        if not latest:
+            return None
+        current = VERSION.split(".")
+        remote = latest.split(".")
+        for a, b in zip(current, remote):
+            if int(b) > int(a):
+                return latest
+            if int(a) > int(b):
+                return None
+        return None
+    except Exception:
+        return None
+
+
+def _check_for_update(gui: bool = False):
+    """Check for updates. Runs in a background thread so it never blocks startup."""
+    import threading
+
+    def _run():
+        latest = _get_latest_version()
+        if not latest:
+            return
+        click.echo(
+            click.style(f"  Update available: v{VERSION} → v{latest}", fg="yellow")
+            + f"\n  https://github.com/somniacs/be-conductor/releases/latest"
+        )
+        if gui:
+            _show_update_dialog(latest)
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    # Give the thread a moment to print the hint before the CLI exits,
+    # but never block for more than 5 seconds.
+    t.join(timeout=5)
+
+
+def _show_update_dialog(latest: str):
+    """Show a native desktop dialog offering to update. Runs in background."""
+    title = "Be-Conductor Update"
+    msg = f"A new version is available: v{VERSION} → v{latest}\\n\\nUpdate now?"
+
+    if sys.platform == "win32":
+        # PowerShell MessageBox — "Yes" triggers the install one-liner
+        ps_script = (
+            "Add-Type -AssemblyName System.Windows.Forms;"
+            f"$r = [System.Windows.Forms.MessageBox]::Show("
+            f"'A new version of Be-Conductor is available: v{VERSION} → v{latest}.`n`nUpdate now?',"
+            f"'{title}',"
+            f"[System.Windows.Forms.MessageBoxButtons]::YesNo,"
+            f"[System.Windows.Forms.MessageBoxIcon]::Information);"
+            "if ($r -eq 'Yes') {"
+            "  Start-Process powershell -ArgumentList '-ExecutionPolicy','Bypass','-Command',"
+            "    \"irm https://github.com/somniacs/be-conductor/releases/latest/download/install.ps1 | iex\""
+            "}"
+        )
+        try:
+            subprocess.Popen(
+                ["powershell", "-WindowStyle", "Hidden", "-Command", ps_script],
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+        except Exception:
+            pass
+    elif sys.platform == "darwin":
+        # macOS: osascript dialog
+        script = (
+            f'set r to display dialog "A new version of Be-Conductor is available: '
+            f'v{VERSION} → v{latest}.\\n\\nUpdate now?" '
+            f'buttons {{"Later", "Update"}} default button "Update" '
+            f'with title "{title}" with icon note\n'
+            f'if button returned of r is "Update" then\n'
+            f'  do shell script "curl -fsSL https://github.com/somniacs/be-conductor/releases/latest/download/install.sh | bash &"\n'
+            f'end if'
+        )
+        try:
+            subprocess.Popen(["osascript", "-e", script])
+        except Exception:
+            pass
+    else:
+        # Linux: try zenity (GNOME), then kdialog (KDE)
+        zenity = shutil.which("zenity")
+        kdialog = shutil.which("kdialog")
+        install_cmd = "curl -fsSL https://github.com/somniacs/be-conductor/releases/latest/download/install.sh | bash"
+        # Find a terminal emulator for running the install script
+        term = None
+        for t in ("x-terminal-emulator", "gnome-terminal", "konsole", "xfce4-terminal", "xterm"):
+            if shutil.which(t):
+                term = t
+                break
+        # gnome-terminal uses -- instead of -e
+        term_flag = "--" if term and "gnome-terminal" in term else "-e"
+        run_install = (
+            f'{term} {term_flag} bash -c \'{install_cmd}; echo "\\nDone. Press Enter to close."; read\''
+            if term else install_cmd
+        )
+        if zenity:
+            try:
+                subprocess.Popen([
+                    "bash", "-c",
+                    f'{zenity} --question --title "{title}" '
+                    f'--text "A new version of Be-Conductor is available: v{VERSION} → v{latest}.\\n\\nUpdate now?" '
+                    f'--ok-label "Update" --cancel-label "Later" --no-wrap '
+                    f'&& {run_install} || true',
+                ])
+            except Exception:
+                pass
+        elif kdialog:
+            try:
+                subprocess.Popen([
+                    "bash", "-c",
+                    f'{kdialog} --title "{title}" '
+                    f'--yesno "A new version of Be-Conductor is available: v{VERSION} → v{latest}.\\n\\nUpdate now?" '
+                    f'&& {run_install} || true',
+                ])
+            except Exception:
+                pass
+
+
 @cli.command()
 def up():
     """Start the be-conductor server in the background."""
@@ -124,11 +252,13 @@ def up():
         except Exception:
             version = "?"
         click.echo(f"Server already running (v{version}) on {BASE_URL}")
+        _check_for_update(gui=True)
         return
 
     click.echo("Starting server...")
     if start_server_daemon():
         click.echo(f"Server started on {BASE_URL}")
+        _check_for_update(gui=True)
     else:
         click.echo("Failed to start server. Try: be-conductor serve", err=True)
         sys.exit(1)
@@ -683,6 +813,7 @@ def status(use_json):
     if pid:
         click.echo(f"  PID:  {pid}")
     click.echo(f"  Auth: {'bearer token' if CONDUCTOR_TOKEN else 'none'}")
+    _check_for_update()
 
 
 def _find_server_pid() -> int | None:

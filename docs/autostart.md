@@ -181,30 +181,33 @@ To stop and unload:
 launchctl unload ~/Library/LaunchAgents/com.be-conductor.server.plist
 ```
 
-## Windows (Task Scheduler)
+## Windows (Startup folder)
 
-Open PowerShell as your user:
+Place a small VBS script in your Startup folder that launches the server silently at login. No admin needed.
+
+Open PowerShell:
 
 ```powershell
 $conductorPath = (Get-Command be-conductor).Source
+$startupDir = [System.Environment]::GetFolderPath("Startup")
+$vbsPath = Join-Path $startupDir "be-conductor.vbs"
 
-$action = New-ScheduledTaskAction -Execute $conductorPath -Argument "serve"
-$trigger = New-ScheduledTaskTrigger -AtLogOn
-$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
+@"
+Set WshShell = CreateObject("WScript.Shell")
+WshShell.Run """$conductorPath"" up", 0, False
+"@ | Set-Content -Path $vbsPath -Encoding ASCII
+```
 
-Register-ScheduledTask -TaskName "be-conductor" -Action $action -Trigger $trigger -Settings $settings -Description "be-conductor Server"
+Start the server now:
+
+```powershell
+be-conductor up
 ```
 
 To remove:
 
 ```powershell
-Unregister-ScheduledTask -TaskName "be-conductor" -Confirm:$false
-```
-
-Alternatively, place a shortcut to `be-conductor serve` in your Startup folder:
-
-```
-Win+R → shell:startup → create shortcut → be-conductor serve
+Remove-Item (Join-Path ([System.Environment]::GetFolderPath("Startup")) "be-conductor.vbs")
 ```
 
 ## Verify

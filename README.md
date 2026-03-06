@@ -81,7 +81,7 @@ be-conductor works with any interactive terminal process. The dashboard ships wi
 
 The dashboard can only launch commands from the allowlist. The CLI is unrestricted.
 
-**From the dashboard (recommended):** Open the hamburger menu → **Settings** (only visible on localhost). The dialog is organized into three tabs — **Agents** (command allowlist), **Directories** (default paths), and **General** (limits and server info). Add, edit, or remove commands and click **Save**. Changes take effect immediately on all connected clients — no restart needed. Settings are stored in `~/.be-conductor/config.yaml`.
+**From the dashboard (recommended):** Open the hamburger menu → **Settings**. The dialog is organized into tabs — **General** (server info, auth token, limits), **Agents** (command allowlist), **Directories** (default paths), **Servers** (multi-machine management), and **Notifications** (browser/webhook alerts). Admin tabs (General, Agents, Directories) are visible on localhost or when `BE_CONDUCTOR_TOKEN` is set. Add, edit, or remove commands and click **Save**. Changes take effect immediately on all connected clients — no restart needed. Settings are stored in `~/.be-conductor/config.yaml`.
 
 **From the config file:** Edit `~/.be-conductor/config.yaml` directly (created on first save from Settings):
 
@@ -363,7 +363,7 @@ tailscale ip -4
 
 Then open `http://100.x.x.x:7777` on your phone.
 
-Done. Full terminal access to all sessions from your phone — type prompts, view output, create or kill sessions. Add more machines from the Servers dialog.
+Done. Full terminal access to all sessions from your phone — type prompts, view output, create or kill sessions. Add more machines from Settings → Servers.
 
 ### Using Tailscale MagicDNS names
 
@@ -377,10 +377,10 @@ To find your machine's name:
 
 ```bash
 tailscale status
-# or check the be-conductor dashboard: hamburger menu → Servers → "This server"
+# or check the be-conductor dashboard: Settings → Servers → "This server"
 ```
 
-The Servers dialog shows your machine's MagicDNS name, Tailscale IP, and hostname — all fetched from the `/info` endpoint. MagicDNS names are easier to remember and don't change when IPs rotate.
+The Servers tab in Settings shows your machine's MagicDNS name, Tailscale IP, and hostname — all fetched from the `/info` endpoint. MagicDNS names are easier to remember and don't change when IPs rotate.
 
 ### Why remote access works
 
@@ -395,7 +395,7 @@ Yes. be-conductor runs entirely on your machines — no cloud backend, no vendor
 - **No authentication layer needed** — when using Tailscale, only devices signed into *your* Tailscale account can reach the server. The network itself is the firewall.
 - **No data leaves your machine** — session output stays in an in-memory buffer on localhost. Nothing is logged to external services.
 - **Restricted dashboard commands** — the web dashboard can only launch commands from a predefined allowlist. The CLI is unrestricted, but the browser cannot start arbitrary processes.
-- **Localhost-only admin** — the Settings panel and admin API (`/admin/settings`) are only accessible from `127.0.0.1`. Remote clients cannot view or modify server configuration.
+- **Localhost-only admin by default** — the Settings admin tabs and admin API (`/admin/settings`) are only accessible from `127.0.0.1`. Set `BE_CONDUCTOR_TOKEN` (or use Settings → General → Auth Token) to allow authenticated remote access.
 - **No shell injection** — session input is sent through the PTY as keystrokes, not evaluated as shell commands by be-conductor itself.
 - **Sanitized session names** — names are validated against a strict allowlist (alphanumeric, hyphens, underscores, max 64 chars) on both the frontend and backend to prevent path traversal or injection via crafted names.
 - **Open source (MIT)** — the entire codebase is a single Python package and a single HTML file. Read it, audit it, fork it.
@@ -422,8 +422,8 @@ The web dashboard provides:
 - **Link Device** — QR code in the hamburger menu for opening the dashboard on another device
 - **Git worktree isolation** — run any agent in an isolated git worktree; each gets its own branch and working copy, so parallel agents never conflict with each other or your work. Auto-commits before merge, non-destructive merge cycle (work → merge → resume → merge again → delete when done). Merge dialog with conflict detection, strategy picker (squash/merge/rebase), and fullscreen diff viewer with file sidebar, keyboard navigation (j/k, ↑/↓), and font zoom (+/−). Merge button only appears when there are commits to merge
 - **Layout persistence** — open panels, split layout, and focus are saved to localStorage and restored on page reload; only panels with running sessions are restored
-- **Settings panel** — tabbed dialog (Agents, Directories, General) for managing allowed commands, directories, buffer size, upload warning threshold, and stop timeout from the dashboard (localhost only). Changes persist and propagate to all clients automatically
-- **Server management** — add/remove servers, Tailscale device picker, QR scanner, connection status
+- **Settings panel** — tabbed dialog (General, Agents, Directories, Servers, Notifications) for managing auth tokens, allowed commands, directories, multi-server setup, webhook notifications, and more. Admin tabs visible on localhost or with token auth. Changes persist and propagate to all clients automatically
+- **Cross-server notification sync** — view and sync webhook configuration across all connected machines from the Notifications tab
 - **File upload** — drag and drop files onto the terminal (desktop), paste from clipboard (Ctrl+V), or tap the attachment button (mobile) to upload any file (images, PDFs, code, text, etc.); shows an upload dialog with progress, then lets you insert the file path into the terminal or copy it to clipboard. Uploaded files are auto-cleaned when the session ends
 - **Mobile extra keys** — on-screen toolbar with ESC, TAB, arrows, CTRL, ALT, Page Up/Down, Home/End, and attachment button; appears above the virtual keyboard on touch devices, with collapsible drawer (state persisted)
 - **Mobile touch scroll** — smooth native one-finger scrolling with hardware-accelerated momentum
@@ -502,8 +502,10 @@ Default port `7777`. All endpoints relative to your host. OpenAPI spec at `/open
 | `GET` | `/tailscale/peers` | Online Tailscale peers for device picker |
 | `GET` | `/config` | Allowed commands and default directories |
 | `GET` | `/browse?path=~` | Directory listing for the directory picker |
-| `GET` | `/admin/settings` | Full admin settings (localhost only, 403 for remote) |
-| `PUT` | `/admin/settings` | Update settings and persist to `~/.be-conductor/config.yaml` (localhost only) |
+| `GET` | `/admin/settings` | Full admin settings (localhost or token auth) |
+| `PUT` | `/admin/settings` | Update settings and persist to `~/.be-conductor/config.yaml` (localhost or token auth) |
+| `PUT` | `/admin/token` | Set or change the auth token (localhost only) |
+| `DELETE` | `/admin/token` | Remove the auth token (localhost only) |
 
 ## Agent Integration
 

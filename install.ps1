@@ -178,38 +178,34 @@ try {
 
 Write-Host ""
 
-# ── Autostart setup (Task Scheduler) ─────────────────────────────────
+# ── Autostart setup (Startup folder) ──────────────────────────────────
 
 if ($installed) {
-    $answer = Read-Host "Start $Project automatically on boot? [Y/n]"
+    $answer = Read-Host "Start $Project automatically on login? [Y/n]"
     if ($answer -eq "" -or $answer -match "^[Yy]") {
         $conductorPath = (Get-Command $Project -ErrorAction SilentlyContinue).Source
         if (-not $conductorPath) {
             $conductorPath = "$env:USERPROFILE\.local\bin\$Project.exe"
         }
 
-        # Register scheduled task (requires admin — may fail)
+        # Remove old scheduled task if present (migration from previous installs)
         try {
-            $action = New-ScheduledTaskAction -Execute $conductorPath -Argument "serve"
-            $trigger = New-ScheduledTaskTrigger -AtLogOn
-            $settings = New-ScheduledTaskSettingsSet `
-                -AllowStartIfOnBatteries `
-                -DontStopIfGoingOnBatteries `
-                -RestartCount 3 `
-                -RestartInterval (New-TimeSpan -Minutes 1)
+            $oldTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+            if ($oldTask) {
+                Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
+            }
+        } catch {}
 
-            Register-ScheduledTask -TaskName $TaskName -Action $action `
-                -Trigger $trigger -Settings $settings `
-                -Description "be-conductor Server" -Force | Out-Null
+        # Place a VBS script in the Startup folder (no admin needed, no window flash)
+        $startupDir = [System.Environment]::GetFolderPath("Startup")
+        $vbsPath = Join-Path $startupDir "$Project.vbs"
+        $vbsContent = "Set WshShell = CreateObject(""WScript.Shell"")`r`nWshShell.Run """""$conductorPath"" up"", 0, False"
+        Set-Content -Path $vbsPath -Value $vbsContent -Encoding ASCII
 
-            Write-Host "  Scheduled task registered" -NoNewline
-            Write-Host " OK" -ForegroundColor Green
-        } catch {
-            Write-Host "  Warning: could not create scheduled task (needs admin): $_" -ForegroundColor Yellow
-            Write-Host "  Run PowerShell as Administrator to enable autostart, or see docs -> Auto-Start on Boot."
-        }
+        Write-Host "  Autostart configured (Startup folder)" -NoNewline
+        Write-Host " OK" -ForegroundColor Green
 
-        # Start the server now regardless
+        # Start the server now
         & $conductorPath up
     } else {
         Write-Host "  Skipped. See docs -> Auto-Start on Boot"

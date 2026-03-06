@@ -24,11 +24,14 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from be_conductor.api.routes import router, registry
-from be_conductor.utils.config import CONDUCTOR_TOKEN, HOST, PORT, PID_FILE, VERSION, ensure_dirs
+import be_conductor.utils.config as _config
+from be_conductor.utils.config import HOST, PORT, PID_FILE, VERSION, ensure_dirs
 
 
 # ---------------------------------------------------------------------------
-# Bearer token auth middleware (only active when CONDUCTOR_TOKEN is set)
+# Bearer token auth middleware — always mounted, no-op when no token is set.
+# Reads CONDUCTOR_TOKEN from the config module dynamically so token changes
+# (e.g. via the admin API) take effect immediately without a restart.
 # ---------------------------------------------------------------------------
 
 # Paths that never require auth
@@ -38,6 +41,10 @@ _PUBLIC_PREFIXES = ("/static/",)
 
 class BearerAuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        token = _config.CONDUCTOR_TOKEN
+        if not token:
+            return await call_next(request)  # no token configured → open access
+
         path = request.url.path
 
         # Skip auth for public paths
@@ -52,7 +59,7 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
 
         # Check Bearer token
         auth = request.headers.get("authorization", "")
-        if auth == f"Bearer {CONDUCTOR_TOKEN}":
+        if auth == f"Bearer {token}":
             return await call_next(request)
 
         return JSONResponse(
@@ -102,9 +109,8 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # Auth middleware — only when CONDUCTOR_TOKEN is set
-    if CONDUCTOR_TOKEN:
-        app.add_middleware(BearerAuthMiddleware)
+    # Auth middleware — always mounted; becomes active when a token is set
+    app.add_middleware(BearerAuthMiddleware)
 
     app.include_router(router)
 
@@ -114,12 +120,13 @@ def create_app() -> FastAPI:
 
         @app.get("/")
         async def dashboard():
-            if CONDUCTOR_TOKEN:
+            token = _config.CONDUCTOR_TOKEN
+            if token:
                 # Inject auth token meta tag so the dashboard can authenticate
                 html = (static_dir / "index.html").read_text()
                 html = html.replace(
                     "<head>",
-                    f'<head>\n    <meta name="be-conductor-token" content="{CONDUCTOR_TOKEN}">',
+                    f'<head>\n    <meta name="be-conductor-token" content="{token}">',
                     1,
                 )
                 return HTMLResponse(html)

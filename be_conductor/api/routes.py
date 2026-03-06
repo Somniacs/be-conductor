@@ -40,9 +40,7 @@ from urllib.parse import quote
 from be_conductor.notifications.webhook import send_webhook, test_webhook
 from be_conductor.sessions.registry import SessionRegistry
 from be_conductor.utils import config as cfg
-from be_conductor.utils.config import (
-    CONDUCTOR_TOKEN, PORT, UPLOADS_DIR, VERSION,
-)
+from be_conductor.utils.config import PORT, UPLOADS_DIR, VERSION
 
 router = APIRouter()
 registry = SessionRegistry()
@@ -318,15 +316,16 @@ def _ws_url_for(request: Request, session_id: str) -> str:
 
 def _check_ws_auth(ws: WebSocket) -> bool:
     """Validate WebSocket auth when CONDUCTOR_TOKEN is set. Returns True if ok."""
-    if not CONDUCTOR_TOKEN:
+    expected = cfg.CONDUCTOR_TOKEN
+    if not expected:
         return True
     # Check Authorization header
     auth = ws.headers.get("authorization", "")
-    if auth == f"Bearer {CONDUCTOR_TOKEN}":
+    if auth == f"Bearer {expected}":
         return True
     # Check query parameter
     token = ws.query_params.get("token", "")
-    if token == CONDUCTOR_TOKEN:
+    if token == expected:
         return True
     return False
 
@@ -342,19 +341,24 @@ async def health():
 
 
 @router.get("/info")
-async def server_info():
+async def server_info(request: Request):
     """Return server identity for multi-server dashboard."""
     loop = asyncio.get_event_loop()
     ts_ip, ts_name = await asyncio.gather(
         loop.run_in_executor(None, _get_tailscale_ip),
         loop.run_in_executor(None, _get_tailscale_name),
     )
+    # Tell the frontend whether this client has admin access
+    host = request.client.host if request.client else ""
+    is_local = host in ("127.0.0.1", "::1")
+    is_admin = is_local or bool(cfg.CONDUCTOR_TOKEN)
     return {
         "hostname": socket.gethostname(),
         "port": PORT,
         "version": VERSION,
         "tailscale_ip": ts_ip,
         "tailscale_name": ts_name,
+        "is_admin": is_admin,
     }
 
 
@@ -443,24 +447,32 @@ async def browse_directory(path: str = "~"):
         raise HTTPException(status_code=400, detail=str(e))
 
 
-def _require_localhost(request: Request):
-    """Raise 403 if the request is not from localhost."""
+def _require_admin(request: Request):
+    """Raise 403 unless the request is from localhost or authenticated via token.
+
+    When CONDUCTOR_TOKEN is set, the BearerAuthMiddleware already validated
+    the token before we get here — so any request that reaches this point
+    with a token configured is authenticated.  Without a token, only
+    localhost is allowed (safe default).
+    """
+    if cfg.CONDUCTOR_TOKEN:
+        return  # auth middleware already verified the bearer token
     host = request.client.host if request.client else ""
     if host not in ("127.0.0.1", "::1"):
-        raise HTTPException(status_code=403, detail="Admin settings are only accessible from localhost")
+        raise HTTPException(status_code=403, detail="Admin settings require localhost access or a CONDUCTOR_TOKEN")
 
 
 @router.get("/admin/settings")
 async def get_admin_settings(request: Request):
     """Return full settings for the admin panel. Localhost only."""
-    _require_localhost(request)
+    _require_admin(request)
     return cfg.get_admin_settings()
 
 
 @router.put("/admin/settings")
 async def put_admin_settings(request: Request):
     """Update settings and persist to ~/.be-conductor/config.yaml. Localhost only."""
-    _require_localhost(request)
+    _require_admin(request)
     data = await request.json()
     cfg.save_user_config(data)
     return {"status": "ok", "config_version": cfg.get_config_version()}
@@ -469,9 +481,46 @@ async def put_admin_settings(request: Request):
 @router.post("/admin/settings/reset")
 async def reset_admin_settings(request: Request):
     """Reset all settings to built-in defaults. Localhost only."""
-    _require_localhost(request)
+    _require_admin(request)
     cfg.reset_to_defaults()
     return {"status": "ok", "config_version": cfg.get_config_version()}
+
+
+def _require_localhost(request: Request):
+    """Raise 403 unless the request comes from localhost (regardless of token)."""
+    host = request.client.host if request.client else ""
+    if host not in ("127.0.0.1", "::1"):
+        raise HTTPException(status_code=403, detail="This action requires localhost access")
+
+
+@router.put("/admin/token")
+async def set_admin_token(request: Request):
+    """Set or update the auth token. Localhost only (even with token auth)."""
+    _require_localhost(request)
+    data = await request.json()
+    token = data.get("token", "").strip()
+    if not token or len(token) < 8:
+        raise HTTPException(status_code=400, detail="Token must be at least 8 characters")
+    if cfg._TOKEN_FROM_ENV:
+        raise HTTPException(
+            status_code=409,
+            detail="Token is set via environment variable — remove BE_CONDUCTOR_TOKEN to manage via GUI",
+        )
+    cfg.set_conductor_token(token)
+    return {"status": "ok", "auth_enabled": True}
+
+
+@router.delete("/admin/token")
+async def delete_admin_token(request: Request):
+    """Remove the auth token. Localhost only."""
+    _require_localhost(request)
+    if cfg._TOKEN_FROM_ENV:
+        raise HTTPException(
+            status_code=409,
+            detail="Token is set via environment variable — remove BE_CONDUCTOR_TOKEN to manage via GUI",
+        )
+    cfg.set_conductor_token(None)
+    return {"status": "ok", "auth_enabled": False}
 
 
 # ---------------------------------------------------------------------------

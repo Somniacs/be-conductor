@@ -2154,7 +2154,6 @@
                 <div class="menu-wrapper">
                     <button class="menu-btn" onclick="toggleMenu()" title="Menu">&#9776;</button>
                     <div class="menu-dropdown" id="hamburger-menu">
-                        <a onclick="toggleMenu();toggleServersDialog()">Servers</a>
                         <a id="settings-menu-item" style="display:none" onclick="toggleMenu();toggleSettingsDialog()">Settings</a>
                         <div class="menu-sep"></div>
                         <a onclick="toggleMenu();toggleQR()">Link Device</a>
@@ -2310,30 +2309,7 @@
         </div>
     </div>
 
-    <div class="servers-overlay" id="servers-dialog" onclick="if(event.target===this)toggleServersDialog()">
-        <div class="servers-box">
-            <button class="about-close" onclick="toggleServersDialog()">&times;</button>
-            <h2>Servers</h2>
-            <div id="servers-list"></div>
-            <div id="tailscale-picker" style="margin-top:12px;">
-                <label style="display:block;font-size:11px;color:#9898b0;margin-bottom:4px;">Tailscale devices</label>
-                <div id="tailscale-picker-content">
-                    <div style="font-size:12px;color:#505070;padding:4px 0;">Loading...</div>
-                </div>
-            </div>
-            <div style="margin-top:10px;">
-                <label style="display:block;font-size:11px;color:#9898b0;margin-bottom:4px;">Or add manually</label>
-                <div class="server-add-form">
-                    <input type="text" id="server-url-input" placeholder="http://100.x.x.x:7777" autocomplete="off"
-                        onkeydown="if(event.key==='Enter')addServerFromInput()">
-                    <button onclick="addServerFromInput()">Add</button>
-                    <button onclick="toggleQRScanner()" id="qr-scan-btn" title="Scan QR code">&#x1F4F7;</button>
-                </div>
-            </div>
-            <div id="qr-scanner-area"></div>
-            <div class="server-self-info" id="server-self-info"></div>
-        </div>
-    </div>
+    <!-- Servers dialog removed — now part of the Settings dialog Servers tab -->
 
     <div class="confirm-overlay" id="confirm-dialog">
         <div class="confirm-box">
@@ -2522,6 +2498,8 @@
         let servers = [];
         let serverConnected = {};   // serverKey -> boolean
         let _serverConfigs = {};    // serverKey -> { allowed_commands, default_directories }
+        let _serverVersions = {};   // serverKey -> version string (e.g. "0.3.19")
+        let _localVersion = null;   // this server's version
         let _newSessionServer = 'local';
 
         function loadServers() {
@@ -5153,9 +5131,9 @@
         // ── Settings dialog (localhost-only) ──────────────────────────────
 
         let _settingsData = null;  // loaded from /admin/settings
+        let _isAdmin = false;     // true if localhost or token-authenticated
 
-        // Show settings menu item for all devices (notifications tab is universal).
-        // Admin tabs (Agents, Directories, General) are only shown on localhost.
+        // Show settings menu item for all devices.
         {
             const mi = document.getElementById('settings-menu-item');
             if (mi) mi.style.display = '';
@@ -5189,16 +5167,31 @@
             const el = document.getElementById('settings-content');
             el.innerHTML = '<div style="color:#7878a0;font-size:13px;padding:8px 0;">Loading...</div>';
             try {
-                if (isLocalhost()) {
-                    const resp = await fetch('/admin/settings');
-                    if (resp.ok) {
-                        _settingsData = await resp.json();
+                // Check admin access via /info
+                try {
+                    const infoResp = await fetch('/info');
+                    if (infoResp.ok) {
+                        const info = await infoResp.json();
+                        _isAdmin = !!info.is_admin;
+                        _settingsServerInfo = info;
                     }
+                } catch (_) {}
+
+                // Try loading admin settings (works for localhost or token-authenticated)
+                if (_isAdmin) {
+                    try {
+                        const resp = await fetch('/admin/settings');
+                        if (resp.ok) {
+                            _settingsData = await resp.json();
+                        }
+                    } catch (_) {}
                 }
-                // If no admin data (remote device), create minimal shell for notifications tab
+                // If no admin data, create minimal shell for non-admin tabs
                 if (!_settingsData) {
                     _settingsData = { _remote: true };
-                    _settingsTab = 'notifications';
+                    if (_settingsTab !== 'servers' && _settingsTab !== 'notifications') {
+                        _settingsTab = 'notifications';
+                    }
                 }
                 // Load global webhook settings from server
                 try {
@@ -5211,12 +5204,201 @@
                     }
                 } catch (_) {}
                 renderSettings();
+                // Fetch server info and Tailscale peers for the Servers tab
+                _loadServersTabData();
             } catch (e) {
                 el.innerHTML = '<div style="color:#ff6060;font-size:13px;">Failed to load settings.</div>';
             }
         }
 
-        let _settingsTab = 'agents';
+        let _settingsServerInfo = null;
+
+        async function _loadServersTabData() {
+            // Fetch self info for the Servers tab
+            if (!_settingsServerInfo) {
+                try {
+                    const resp = await fetch('/info');
+                    if (resp.ok) _settingsServerInfo = await resp.json();
+                } catch (_) {}
+            }
+            _renderServersTabSelfInfo();
+            _fetchServersTabPeers();
+        }
+
+        function _renderServersTabSelfInfo() {
+            const info = _settingsServerInfo;
+
+            // Always update global state and version labels (even if dialog isn't open)
+            if (info) {
+                if (info.port) PORT = info.port;
+                if (info.version) {
+                    _localVersion = info.version;
+                    _serverVersions['local'] = info.version;
+                    const vEl = document.querySelector('.about-version');
+                    if (vEl) vEl.textContent = 'v' + info.version;
+                    const svEl = document.getElementById('sidebar-version');
+                    if (svEl) svEl.textContent = 'v' + info.version;
+                }
+                if (info.hostname) {
+                    const local = servers.find(s => s.key === 'local');
+                    if (local && local.label !== info.hostname) {
+                        local.label = info.hostname;
+                        saveServers();
+                        renderSessionList();
+                    }
+                }
+            }
+
+            // Render the Servers tab content (only if the dialog is open)
+            const el = document.getElementById('servers-tab-self-info');
+            if (!el) return;
+            if (!info) {
+                el.innerHTML = '<div style="color:#7878a0;font-size:12px;">Could not fetch server info</div>';
+                return;
+            }
+            let html = '<div style="margin-bottom:4px;font-weight:500;color:#a0a0d0;">This server</div>';
+            html += `<div>Hostname: ${escHtml(info.hostname)}</div>`;
+            if (info.tailscale_name) {
+                html += `<div>MagicDNS: <span class="self-url">${escHtml(info.tailscale_name)}:${escHtml(String(info.port))}</span></div>`;
+            }
+            if (info.tailscale_ip) {
+                html += `<div>Tailscale: <span class="self-url">${escHtml(info.tailscale_ip)}:${escHtml(String(info.port))}</span></div>`;
+            }
+            if (!info.tailscale_ip && !info.tailscale_name) {
+                html += `<div>Port: ${escHtml(String(info.port))}</div>`;
+            }
+            el.innerHTML = html;
+        }
+
+        async function _fetchServersTabPeers() {
+            const content = document.getElementById('servers-tab-peers-content');
+            if (!content) return;
+            try {
+                const resp = await fetch('/tailscale/peers');
+                const peers = await resp.json();
+                if (!peers || peers.length === 0) {
+                    content.innerHTML = '<div style="font-size:12px;color:#505070;padding:4px 0;">No Tailscale peers found</div>';
+                    return;
+                }
+                const existingKeys = new Set(servers.map(s => s.key));
+                const available = peers.filter(p => {
+                    const key = p.ip + ':' + PORT;
+                    const dnsKey = p.dns_name ? p.dns_name + ':' + PORT : null;
+                    return !existingKeys.has(key) && (!dnsKey || !existingKeys.has(dnsKey));
+                });
+                if (available.length === 0) {
+                    content.innerHTML = '<div style="font-size:12px;color:#505070;padding:4px 0;">All Tailscale peers already added</div>';
+                    return;
+                }
+                content.innerHTML = `
+                    <div style="display:flex;gap:6px;">
+                        <select id="servers-tab-tailscale-select" style="flex:1;padding:7px 10px;background:#0a0a1a;border:1px solid #2a2a5a;color:#e0e0e0;border-radius:5px;font-size:13px;">
+                            ${available.map(p => {
+                                const label = p.hostname || p.dns_name || p.ip;
+                                const host = p.dns_name || p.ip;
+                                const url = 'http://' + host + ':' + PORT;
+                                const dot = p.online ? '\u25CF' : '\u25CB';
+                                return `<option value="${escHtml(url)}" data-label="${escHtml(label)}" data-online="${p.online ? '1' : ''}" style="color:${p.online ? '#e0e0e0' : '#707090'}">${dot} ${escHtml(p.hostname)} (${escHtml(p.ip)})</option>`;
+                            }).join('')}
+                        </select>
+                        <button onclick="_addServersTabTailscale()" style="padding:7px 14px;background:#2a2a6a;border:1px solid #3a3aaa;color:#e0e0e0;border-radius:5px;cursor:pointer;font-size:13px;white-space:nowrap;">Add</button>
+                    </div>`;
+            } catch (e) {
+                content.innerHTML = '<div style="font-size:12px;color:#505070;padding:4px 0;">Tailscale not available</div>';
+            }
+        }
+
+        async function _addServersTabTailscale() {
+            const sel = document.getElementById('servers-tab-tailscale-select');
+            if (!sel) return;
+            const url = sel.value;
+            if (!url) return;
+            const label = sel.options[sel.selectedIndex].dataset.label || url;
+            const isOnline = sel.options[sel.selectedIndex].dataset.online === '1';
+
+            if (isOnline) {
+                const info = await probeServer(url);
+                if (info) {
+                    const finalLabel = info.hostname || info.tailscale_name || label;
+                    const finalUrl = info.tailscale_name
+                        ? 'http://' + info.tailscale_name + ':' + (info.port || PORT)
+                        : info.url;
+                    const server = addServer(finalUrl, finalLabel);
+                    if (server) {
+                        if (info.version) _serverVersions[server.key] = info.version;
+                        fetchConfig(server.key);
+                        fetchAllSessions();
+                    }
+                } else {
+                    addServer(url, label);
+                    fetchAllSessions();
+                }
+            } else {
+                addServer(url, label);
+                fetchAllSessions();
+            }
+            updateServerSelectorVisibility();
+            _renderServersTabList();
+            _fetchServersTabPeers();
+        }
+
+        async function _addServerFromTabInput() {
+            const input = document.getElementById('servers-tab-url-input');
+            if (!input) return;
+            const url = input.value.trim();
+            if (!url) return;
+
+            const info = await probeServer(url);
+            if (!info) {
+                input.style.borderColor = '#ff6666';
+                setTimeout(() => { input.style.borderColor = '#2a2a5a'; }, 2000);
+                return;
+            }
+
+            const label = info.hostname || info.tailscale_name || url.replace(/^https?:\/\//, '');
+            const finalUrl = info.tailscale_name
+                ? 'http://' + info.tailscale_name + ':' + (info.port || PORT)
+                : info.url;
+            const server = addServer(finalUrl, label);
+            if (server) {
+                if (info.version) _serverVersions[server.key] = info.version;
+                fetchConfig(server.key);
+                fetchAllSessions();
+            }
+            input.value = '';
+            updateServerSelectorVisibility();
+            _renderServersTabList();
+            _fetchServersTabPeers();
+        }
+
+        function _renderServersTabList() {
+            const list = document.getElementById('servers-tab-list');
+            if (!list) return;
+            list.innerHTML = servers.map(s => {
+                const dotClass = serverConnected[s.key] === true ? 'connected' : serverConnected[s.key] === false ? 'disconnected' : 'unknown';
+                const removeBtn = s.key !== 'local' ?
+                    `<button onclick="removeServer('${s.key.replace(/'/g, "\\'")}');_renderServersTabList();_fetchServersTabPeers()" title="Remove">&times;</button>` : '';
+                const urlText = s.url || '(local)';
+                const ver = _serverVersions[s.key];
+                let verBadge = '';
+                if (ver) {
+                    const compat = !_localVersion || _semverMinorMatch(ver, _localVersion);
+                    verBadge = compat
+                        ? `<span style="font-size:10px;color:#7878a0;margin-left:6px">v${escHtml(ver)}</span>`
+                        : `<span style="font-size:10px;color:#ff9944;margin-left:6px" title="Version mismatch — local is v${escHtml(_localVersion || '?')}">⚠ v${escHtml(ver)}</span>`;
+                }
+                return `<div class="server-list-item">
+                    <span class="server-dot ${dotClass}"></span>
+                    <div class="server-info">
+                        <div class="server-label">${escHtml(s.label)}${verBadge}</div>
+                        <div class="server-url-text">${escHtml(urlText)}</div>
+                    </div>
+                    ${removeBtn}
+                </div>`;
+            }).join('');
+        }
+
+        let _settingsTab = 'general';
 
         function switchSettingsTab(tab) {
             _settingsTab = tab;
@@ -5224,7 +5406,9 @@
             document.querySelectorAll('.settings-tab-panel').forEach(p => p.classList.toggle('active', p.dataset.tab === tab));
             // Show/hide footer buttons based on tab
             const resetBtn = document.querySelector('.settings-footer .btn-reset');
-            if (resetBtn) resetBtn.style.display = (tab !== 'notifications' && isLocalhost()) ? '' : 'none';
+            if (resetBtn) resetBtn.style.display = (tab !== 'notifications' && tab !== 'servers' && _isAdmin) ? '' : 'none';
+            // Load servers tab data on first switch
+            if (tab === 'servers') _loadServersTabData();
         }
 
         // ── Notification settings ────
@@ -5601,17 +5785,36 @@
             const d = _settingsData;
             if (!d) return;
 
-            const local = isLocalhost() && !d._remote;
+            const admin = _isAdmin && !d._remote;
             let html = '';
 
-            // ── Tabs (admin tabs only on localhost)
+            // ── Tabs
             html += '<div class="settings-tabs">';
-            if (local) {
+            if (admin) {
+                html += `<button class="settings-tab${_settingsTab === 'general' ? ' active' : ''}" data-tab="general" onclick="switchSettingsTab('general')">General</button>`;
                 html += `<button class="settings-tab${_settingsTab === 'agents' ? ' active' : ''}" data-tab="agents" onclick="switchSettingsTab('agents')">Agents</button>`;
                 html += `<button class="settings-tab${_settingsTab === 'directories' ? ' active' : ''}" data-tab="directories" onclick="switchSettingsTab('directories')">Directories</button>`;
-                html += `<button class="settings-tab${_settingsTab === 'general' ? ' active' : ''}" data-tab="general" onclick="switchSettingsTab('general')">General</button>`;
             }
+            html += `<button class="settings-tab${_settingsTab === 'servers' ? ' active' : ''}" data-tab="servers" onclick="switchSettingsTab('servers')">Servers</button>`;
             html += `<button class="settings-tab${_settingsTab === 'notifications' ? ' active' : ''}" data-tab="notifications" onclick="switchSettingsTab('notifications')">Notifications</button>`;
+            html += '</div>';
+
+            // ── Servers tab
+            html += `<div class="settings-tab-panel${_settingsTab === 'servers' ? ' active' : ''}" data-tab="servers">`;
+            html += '<div id="servers-tab-list" class="settings-section">';
+            html += '</div>';
+            html += '<div style="margin-top:12px;">';
+            html += '<div class="settings-section-title">Tailscale devices</div>';
+            html += '<div id="servers-tab-peers-content"><div style="font-size:12px;color:#505070;padding:4px 0;">Loading...</div></div>';
+            html += '</div>';
+            html += '<div style="margin-top:10px;">';
+            html += '<div class="settings-section-title">Add manually</div>';
+            html += '<div class="server-add-form">';
+            html += '<input type="text" id="servers-tab-url-input" placeholder="http://100.x.x.x:7777" autocomplete="off" onkeydown="if(event.key===\'Enter\')_addServerFromTabInput()">';
+            html += '<button onclick="_addServerFromTabInput()">Add</button>';
+            html += '</div>';
+            html += '</div>';
+            html += '<div class="server-self-info" id="servers-tab-self-info"></div>';
             html += '</div>';
 
             // ── Agents tab
@@ -5673,9 +5876,28 @@
             html += '<div class="settings-section"><div class="settings-section-title">Server Info</div>';
             html += `<div class="settings-info-row"><span class="info-label">Version</span><span class="info-value">${escHtml(d.version || '')}</span></div>`;
             html += `<div class="settings-info-row"><span class="info-label">Host</span><span class="info-value">${escHtml(d.host || '')}:${d.port || ''}</span></div>`;
-            html += `<div class="settings-info-row"><span class="info-label">Auth token</span><span class="info-value">${d.auth_enabled ? 'Enabled' : 'Not set'}</span></div>`;
-            if (!d.auth_enabled) {
-                html += '<div class="settings-hint">Set <code>BE_CONDUCTOR_TOKEN</code> in your environment or systemd service to require authentication for API access.</div>';
+            html += '</div>';
+
+            html += '<div class="settings-section"><div class="settings-section-title">Auth Token</div>';
+            if (d.auth_from_env) {
+                html += '<div class="settings-info-row"><span class="info-label">Status</span><span class="info-value" style="color:#44dd77">Enabled (env var)</span></div>';
+                html += '<div class="settings-hint">Token is set via <code>BE_CONDUCTOR_TOKEN</code> environment variable. Remove it to manage the token here.</div>';
+            } else if (d.auth_enabled) {
+                html += '<div class="settings-info-row"><span class="info-label">Status</span><span class="info-value" style="color:#44dd77">Enabled</span></div>';
+                html += '<div style="margin-top:8px;display:flex;gap:8px;align-items:center;">';
+                html += '<button class="run-btn" style="width:auto;padding:4px 14px;font-size:11px;" onclick="_changeToken()">Change</button>';
+                html += '<button class="run-btn" style="width:auto;padding:4px 14px;font-size:11px;background:#3a1a1a;border-color:#5a2a2a;color:#ff8080;" onclick="_removeToken()">Remove</button>';
+                html += '<span id="token-action-result" style="font-size:11px;color:#7878a0"></span>';
+                html += '</div>';
+            } else {
+                html += '<div class="settings-info-row"><span class="info-label">Status</span><span class="info-value" style="color:#9898b0">Not set</span></div>';
+                html += '<div class="settings-hint">Set a token to require authentication for all API access. Needed for secure remote access over Tailscale.</div>';
+                html += '<div style="margin-top:8px;display:flex;gap:8px;align-items:center;">';
+                html += '<input type="text" class="settings-input" id="token-new-input" placeholder="Enter token (min 8 chars)" style="flex:1;max-width:250px">';
+                html += '<button class="run-btn" style="width:auto;padding:4px 14px;font-size:11px;" onclick="_setToken()">Set token</button>';
+                html += '<span id="token-action-result" style="font-size:11px;color:#7878a0"></span>';
+                html += '</div>';
+                html += '<div style="margin-top:6px;"><button style="background:none;border:none;color:#6070ff;cursor:pointer;font-size:11px;padding:0;" onclick="_generateToken()">Generate random token</button></div>';
             }
             html += '</div>';
             html += '</div>';
@@ -5737,6 +5959,18 @@
             html += '</div>';
             html += '</div>';
 
+            // ── Cross-server webhook sync (only when multiple servers)
+            if (_isMultiServer()) {
+                html += '<div class="settings-section"><div class="settings-section-title">Webhook across servers</div>';
+                html += '<div class="settings-hint" style="margin-bottom:8px">Each server has its own webhook endpoint. You can sync the current webhook config to all online servers, or configure each individually.</div>';
+                html += '<div id="notif-cross-server-list"><div style="font-size:12px;color:#505070;padding:4px 0;">Loading...</div></div>';
+                html += '<div style="margin-top:8px;display:flex;gap:8px;align-items:center;">';
+                html += '<button class="run-btn" style="width:auto;padding:4px 14px;font-size:11px;" onclick="_syncWebhookToAll()">Sync to all servers</button>';
+                html += '<span id="notif-sync-result" style="font-size:11px;color:#7878a0"></span>';
+                html += '</div>';
+                html += '</div>';
+            }
+
             html += '<div class="settings-section"><div class="settings-section-title">Device</div>';
             html += `<div class="settings-info-row"><span class="info-label">Device ID</span><span class="info-value" style="font-family:monospace;font-size:11px">${escHtml(_getDeviceId())}</span></div>`;
             html += '<div class="settings-hint">This device is identified by a unique ID stored in your browser. Notification preferences are saved per device.</div>';
@@ -5749,6 +5983,179 @@
             if (typeof Notification !== 'undefined' && Notification.permission === 'denied'
                 && !localStorage.getItem('be-conductor_notif_verified')) {
                 _showNotifDeniedBanner();
+            }
+            // Populate servers tab list
+            _renderServersTabList();
+            // Load cross-server webhook status if multi-server
+            if (_isMultiServer()) {
+                _loadCrossServerWebhookStatus();
+            }
+        }
+
+        // ── Cross-server webhook sync ────────────────────────────────────
+
+        async function _loadCrossServerWebhookStatus() {
+            const list = document.getElementById('notif-cross-server-list');
+            if (!list) return;
+
+            const results = await Promise.all(servers.map(async (s) => {
+                const base = s.url || '';
+                try {
+                    const [whResp, infoResp] = await Promise.all([
+                        fetch(base + '/notifications/webhook', { signal: AbortSignal.timeout(5000) }),
+                        fetch(base + '/info', { signal: AbortSignal.timeout(5000) }),
+                    ]);
+                    const wh = whResp.ok ? await whResp.json() : null;
+                    const info = infoResp.ok ? await infoResp.json() : null;
+                    if (info && info.version) _serverVersions[s.key] = info.version;
+                    return { key: s.key, label: s.label, online: true, webhook: wh, version: info?.version };
+                } catch (_) {}
+                return { key: s.key, label: s.label, online: false, webhook: null, version: _serverVersions[s.key] };
+            }));
+
+            list.innerHTML = results.map(r => {
+                const dot = r.online ? '<span style="color:#44dd77">\u25CF</span>' : '<span style="color:#505070">\u25CB</span>';
+                let status = '<span style="color:#505070">offline</span>';
+                if (r.online && r.webhook) {
+                    if (r.webhook.webhook_enabled && r.webhook.webhook_url) {
+                        const platform = r.webhook.webhook_platform || 'custom';
+                        status = `<span style="color:#44dd77">${escHtml(platform)}</span>`;
+                    } else {
+                        status = '<span style="color:#9898b0">not configured</span>';
+                    }
+                }
+                const compat = !_localVersion || !r.version || _semverMinorMatch(r.version, _localVersion);
+                const verWarn = (!compat && r.online) ? ` <span style="color:#ff9944;font-size:10px" title="v${escHtml(r.version)} — version mismatch">⚠</span>` : '';
+                return `<div class="settings-info-row" style="padding:3px 0;">
+                    <span class="info-label">${dot} ${escHtml(r.label)}${verWarn}</span>
+                    <span class="info-value" style="font-size:12px">${status}</span>
+                </div>`;
+            }).join('');
+        }
+
+        async function _syncWebhookToAll() {
+            const resultEl = document.getElementById('notif-sync-result');
+            if (resultEl) resultEl.textContent = 'Syncing...';
+
+            const payload = JSON.stringify(_webhookSettings);
+            let ok = 0, fail = 0, skipped = 0;
+
+            await Promise.all(servers.map(async (s) => {
+                // Skip servers with incompatible minor version
+                const ver = _serverVersions[s.key];
+                if (_localVersion && ver && !_semverMinorMatch(ver, _localVersion)) {
+                    skipped++;
+                    return;
+                }
+                const url = s.url ? s.url + '/notifications/webhook' : '/notifications/webhook';
+                try {
+                    const resp = await fetch(url, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: payload,
+                        signal: AbortSignal.timeout(5000),
+                    });
+                    if (resp.ok) { ok++; return; }
+                } catch (_) {}
+                fail++;
+            }));
+
+            if (resultEl) {
+                let msg = '';
+                if (fail === 0 && skipped === 0) {
+                    msg = `Synced to ${ok} server${ok !== 1 ? 's' : ''}`;
+                    resultEl.style.color = '#44dd77';
+                } else {
+                    const parts = [`${ok} synced`];
+                    if (fail) parts.push(`${fail} failed`);
+                    if (skipped) parts.push(`${skipped} skipped (version mismatch)`);
+                    msg = parts.join(', ');
+                    resultEl.style.color = '#ff9944';
+                }
+                resultEl.textContent = msg;
+            }
+            // Refresh the status display
+            _loadCrossServerWebhookStatus();
+        }
+
+        // ── Token management ─────────────────────────────────────────────
+
+        function _generateToken() {
+            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+            const arr = new Uint8Array(32);
+            crypto.getRandomValues(arr);
+            const token = Array.from(arr, b => chars[b % chars.length]).join('');
+            const input = document.getElementById('token-new-input');
+            if (input) input.value = token;
+        }
+
+        async function _setToken() {
+            const input = document.getElementById('token-new-input');
+            const result = document.getElementById('token-action-result');
+            const token = input ? input.value.trim() : '';
+            if (!token || token.length < 8) {
+                if (result) { result.textContent = 'Token must be at least 8 characters'; result.style.color = '#ff6060'; }
+                return;
+            }
+            try {
+                const resp = await fetch('/admin/token', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token }),
+                });
+                if (resp.ok) {
+                    if (result) { result.textContent = 'Token set — reloading...'; result.style.color = '#44dd77'; }
+                    setTimeout(() => window.location.reload(), 1000);
+                } else {
+                    const err = await resp.json().catch(() => ({}));
+                    if (result) { result.textContent = err.detail || 'Failed'; result.style.color = '#ff6060'; }
+                }
+            } catch (e) {
+                if (result) { result.textContent = 'Request failed'; result.style.color = '#ff6060'; }
+            }
+        }
+
+        async function _changeToken() {
+            const newToken = prompt('Enter new auth token (min 8 characters):');
+            if (!newToken) return;
+            if (newToken.trim().length < 8) {
+                const result = document.getElementById('token-action-result');
+                if (result) { result.textContent = 'Token must be at least 8 characters'; result.style.color = '#ff6060'; }
+                return;
+            }
+            const result = document.getElementById('token-action-result');
+            try {
+                const resp = await fetch('/admin/token', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: newToken.trim() }),
+                });
+                if (resp.ok) {
+                    if (result) { result.textContent = 'Token changed — reloading...'; result.style.color = '#44dd77'; }
+                    setTimeout(() => window.location.reload(), 1000);
+                } else {
+                    const err = await resp.json().catch(() => ({}));
+                    if (result) { result.textContent = err.detail || 'Failed'; result.style.color = '#ff6060'; }
+                }
+            } catch (e) {
+                if (result) { result.textContent = 'Request failed'; result.style.color = '#ff6060'; }
+            }
+        }
+
+        async function _removeToken() {
+            if (!confirm('Remove the auth token? All API access will be open without authentication.')) return;
+            const result = document.getElementById('token-action-result');
+            try {
+                const resp = await fetch('/admin/token', { method: 'DELETE' });
+                if (resp.ok) {
+                    if (result) { result.textContent = 'Token removed — reloading...'; result.style.color = '#44dd77'; }
+                    setTimeout(() => window.location.reload(), 1000);
+                } else {
+                    const err = await resp.json().catch(() => ({}));
+                    if (result) { result.textContent = err.detail || 'Failed'; result.style.color = '#ff6060'; }
+                }
+            } catch (e) {
+                if (result) { result.textContent = 'Request failed'; result.style.color = '#ff6060'; }
             }
         }
 
@@ -5881,8 +6288,8 @@
                 });
             } catch (e) {}
 
-            // If remote device, just close the dialog — no admin settings to save
-            if (!_settingsData || _settingsData._remote) {
+            // If no admin access, just close the dialog — no admin settings to save
+            if (!_settingsData || !_isAdmin || _settingsData._remote) {
                 document.getElementById('settings-dialog').classList.remove('open');
                 return;
             }
@@ -6021,159 +6428,19 @@
         }
 
         // --- Server Management Dialog ---
+        // Legacy stubs — Servers dialog merged into Settings
         async function toggleServersDialog() {
-            const dialog = document.getElementById('servers-dialog');
-            dialog.classList.toggle('open');
-            if (dialog.classList.contains('open')) {
-                renderServersDialog();
-                await fetchSelfInfo();   // sets PORT before peer URLs are built
-                fetchTailscalePeers();
-            } else {
-                stopQRScanner();
-            }
+            _settingsTab = 'servers';
+            await toggleSettingsDialog();
         }
-
-        async function fetchSelfInfo() {
-            const el = document.getElementById('server-self-info');
-            try {
-                const resp = await fetch('/info');
-                const info = await resp.json();
-                if (info.port) PORT = info.port;
-
-                // Populate version from server (single source: pyproject.toml)
-                if (info.version) {
-                    const vEl = document.querySelector('.about-version');
-                    if (vEl) vEl.textContent = 'v' + info.version;
-                    const svEl = document.getElementById('sidebar-version');
-                    if (svEl) svEl.textContent = 'v' + info.version;
-                }
-
-                // Update local server label to real hostname
-                if (info.hostname) {
-                    const local = servers.find(s => s.key === 'local');
-                    if (local) {
-                        local.label = info.hostname;
-                        saveServers();
-                        renderSessionList();
-                    }
-                }
-
-                let html = '<div style="margin-bottom:4px;font-weight:500;color:#a0a0d0;">This server</div>';
-                html += `<div>Hostname: ${escHtml(info.hostname)}</div>`;
-                if (info.tailscale_name) {
-                    html += `<div>MagicDNS: <span class="self-url">${escHtml(info.tailscale_name)}:${escHtml(String(info.port))}</span></div>`;
-                }
-                if (info.tailscale_ip) {
-                    html += `<div>Tailscale: <span class="self-url">${escHtml(info.tailscale_ip)}:${escHtml(String(info.port))}</span></div>`;
-                }
-                if (!info.tailscale_ip && !info.tailscale_name) {
-                    html += `<div>Port: ${escHtml(String(info.port))}</div>`;
-                }
-                el.innerHTML = html;
-            } catch (e) {
-                el.innerHTML = '<div style="color:#7878a0;">Could not fetch server info</div>';
-            }
-        }
-
-        async function fetchTailscalePeers() {
-            const content = document.getElementById('tailscale-picker-content');
-            if (!content) return;
-            try {
-                const resp = await fetch('/tailscale/peers');
-                const peers = await resp.json();
-                if (!peers || peers.length === 0) {
-                    content.innerHTML = '<div style="font-size:12px;color:#505070;padding:4px 0;">No Tailscale peers found</div>';
-                    return;
-                }
-                // Filter out peers already added as servers
-                const existingKeys = new Set(servers.map(s => s.key));
-                const available = peers.filter(p => {
-                    const key = p.ip + ':' + PORT;
-                    const dnsKey = p.dns_name ? p.dns_name + ':' + PORT : null;
-                    return !existingKeys.has(key) && (!dnsKey || !existingKeys.has(dnsKey));
-                });
-                if (available.length === 0) {
-                    content.innerHTML = '<div style="font-size:12px;color:#505070;padding:4px 0;">All Tailscale peers already added</div>';
-                    return;
-                }
-                content.innerHTML = `
-                    <div style="display:flex;gap:6px;">
-                        <select id="tailscale-select" style="flex:1;padding:7px 10px;background:#0a0a1a;border:1px solid #2a2a5a;color:#e0e0e0;border-radius:5px;font-size:13px;">
-                            ${available.map(p => {
-                                const label = p.hostname || p.dns_name || p.ip;
-                                const host = p.dns_name || p.ip;
-                                const url = 'http://' + host + ':' + PORT;
-                                const dot = p.online ? '\u25CF' : '\u25CB';
-                                const dotColor = p.online ? '#44dd77' : '#505070';
-                                return `<option value="${escHtml(url)}" data-label="${escHtml(label)}" data-online="${p.online ? '1' : ''}" style="color:${p.online ? '#e0e0e0' : '#707090'}">${dot} ${escHtml(p.hostname)} (${escHtml(p.ip)})</option>`;
-                            }).join('')}
-                        </select>
-                        <button onclick="addTailscaleDevice()" style="padding:7px 14px;background:#2a2a6a;border:1px solid #3a3aaa;color:#e0e0e0;border-radius:5px;cursor:pointer;font-size:13px;white-space:nowrap;">Add</button>
-                    </div>`;
-            } catch (e) {
-                content.innerHTML = '<div style="font-size:12px;color:#505070;padding:4px 0;">Tailscale not available</div>';
-            }
-        }
+        async function fetchSelfInfo() { await _loadServersTabData(); }
+        async function fetchTailscalePeers() { await _fetchServersTabPeers(); }
 
         // Port used when constructing URLs for Tailscale peers (updated from /info)
         let PORT = 7777;
 
-        async function addTailscaleDevice() {
-            const sel = document.getElementById('tailscale-select');
-            const url = sel.value;
-            if (!url) return;
-            const label = sel.options[sel.selectedIndex].dataset.label || url;
-            const isOnline = sel.options[sel.selectedIndex].dataset.online === '1';
-
-            if (isOnline) {
-                // Probe online devices to confirm and get server info
-                const info = await probeServer(url);
-                if (info) {
-                    const finalLabel = info.hostname || info.tailscale_name || label;
-                    const finalUrl = info.tailscale_name
-                        ? 'http://' + info.tailscale_name + ':' + (info.port || PORT)
-                        : info.url;
-                    const server = addServer(finalUrl, finalLabel);
-                    if (server) {
-                        renderServersDialog();
-                        updateServerSelectorVisibility();
-                        fetchConfig(server.key);
-                        fetchAllSessions();
-                    }
-                } else {
-                    // Probe failed — add with URL as-is
-                    addServer(url, label);
-                    renderServersDialog();
-                    updateServerSelectorVisibility();
-                    fetchAllSessions();
-                }
-            } else {
-                // Offline device — skip probe, add directly
-                addServer(url, label);
-                renderServersDialog();
-                updateServerSelectorVisibility();
-                fetchAllSessions();
-            }
-            // Refresh the dropdown to remove the added device
-            fetchTailscalePeers();
-        }
-
         function renderServersDialog() {
-            const list = document.getElementById('servers-list');
-            list.innerHTML = servers.map(s => {
-                const dotClass = serverConnected[s.key] === true ? 'connected' : serverConnected[s.key] === false ? 'disconnected' : 'unknown';
-                const removeBtn = s.key !== 'local' ?
-                    `<button onclick="removeServer('${s.key.replace(/'/g, "\\'")}');renderServersDialog();fetchTailscalePeers()" title="Remove">&times;</button>` : '';
-                const urlText = s.url || '(local)';
-                return `<div class="server-list-item">
-                    <span class="server-dot ${dotClass}"></span>
-                    <div class="server-info">
-                        <div class="server-label">${escHtml(s.label)}</div>
-                        <div class="server-url-text">${escHtml(urlText)}</div>
-                    </div>
-                    ${removeBtn}
-                </div>`;
-            }).join('');
+            _renderServersTabList();
         }
 
         async function probeServer(url) {
@@ -6183,7 +6450,7 @@
                 const resp = await fetch(url + '/info', { signal: AbortSignal.timeout(5000) });
                 if (!resp.ok) return null;
                 const info = await resp.json();
-                return { url, hostname: info.hostname, port: info.port, tailscale_name: info.tailscale_name };
+                return { url, hostname: info.hostname, port: info.port, tailscale_name: info.tailscale_name, version: info.version };
             } catch (e) {
                 return null;
             }
@@ -7776,7 +8043,14 @@
             navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
         }
 
-        // --- Update check ---
+        // --- Version helpers ---
+        function _semverMinorMatch(a, b) {
+            if (!a || !b) return false;
+            const pa = a.split('.').map(Number);
+            const pb = b.split('.').map(Number);
+            return (pa[0] || 0) === (pb[0] || 0) && (pa[1] || 0) === (pb[1] || 0);
+        }
+
         function _semverNewer(a, b) {
             const pa = a.split('.').map(Number);
             const pb = b.split('.').map(Number);

@@ -38,8 +38,18 @@ if ($OldProject -and $OldProject -ne $Project) {
     try { & $OldProject shutdown 2>&1 | Out-Null } catch {}
 }
 
-# ── Remove autostart (Task Scheduler) ────────────────────────────────
+# ── Remove autostart ──────────────────────────────────────────────────
 
+# Remove Startup folder VBS script
+$startupDir = [System.Environment]::GetFolderPath("Startup")
+$vbsPath = Join-Path $startupDir "$Project.vbs"
+if (Test-Path $vbsPath) {
+    Remove-Item -Force $vbsPath
+    Write-Host "  Startup script removed" -NoNewline
+    Write-Host " OK" -ForegroundColor Green
+}
+
+# Remove old scheduled tasks (from previous installs)
 foreach ($name in @($TaskName, $OldProject, $OldTaskName) | Select-Object -Unique) {
     if (-not $name) { continue }
     try {

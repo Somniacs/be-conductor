@@ -24,6 +24,7 @@ try:
 except Exception:
     VERSION = "0.0.0"
 CONDUCTOR_TOKEN = os.environ.get("BE_CONDUCTOR_TOKEN") or os.environ.get("CONDUCTOR_TOKEN")
+_TOKEN_FROM_ENV = CONDUCTOR_TOKEN is not None  # True if token came from environment
 
 HOST = "0.0.0.0"
 PORT = 7777
@@ -34,6 +35,7 @@ SESSIONS_DIR = CONDUCTOR_DIR / "sessions"
 LOG_DIR = CONDUCTOR_DIR / "logs"
 UPLOADS_DIR = CONDUCTOR_DIR / "uploads"
 PID_FILE = CONDUCTOR_DIR / "server.pid"
+TOKEN_FILE = CONDUCTOR_DIR / "token"
 USER_CONFIG_FILE = CONDUCTOR_DIR / "config.yaml"
 WORKTREES_FILE = CONDUCTOR_DIR / "worktrees.json"
 
@@ -238,12 +240,43 @@ def get_admin_settings() -> dict:
         "port": PORT,
         "version": VERSION,
         "auth_enabled": CONDUCTOR_TOKEN is not None,
+        "auth_from_env": _TOKEN_FROM_ENV,
     }
+
+
+# ── Token management ────────────────────────────────────────────────────────
+
+def _load_stored_token():
+    """Load token from ~/.be-conductor/token if env var isn't set."""
+    global CONDUCTOR_TOKEN
+    if CONDUCTOR_TOKEN:
+        return  # env var takes precedence
+    if TOKEN_FILE.exists():
+        try:
+            stored = TOKEN_FILE.read_text().strip()
+            if stored:
+                CONDUCTOR_TOKEN = stored
+        except Exception:
+            pass
+
+
+def set_conductor_token(token: str | None):
+    """Set or clear the auth token. Persists to disk and updates in-memory."""
+    global CONDUCTOR_TOKEN
+    CONDUCTOR_DIR.mkdir(parents=True, exist_ok=True)
+    if token:
+        TOKEN_FILE.write_text(token)
+        TOKEN_FILE.chmod(0o600)
+        CONDUCTOR_TOKEN = token
+    else:
+        TOKEN_FILE.unlink(missing_ok=True)
+        CONDUCTOR_TOKEN = None
 
 
 # ── Migrate + load user config on import ────────────────────────────────────
 
 migrate_from_old_name()
+_load_stored_token()
 load_user_config()
 
 

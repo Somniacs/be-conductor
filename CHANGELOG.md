@@ -2,6 +2,23 @@
 
 All notable changes to be-conductor are documented here.
 
+## v0.3.19
+
+### Settings consolidation
+
+- **Servers tab in Settings** — the standalone Servers dialog has been merged into the Settings dialog. The hamburger menu is now shorter: Settings | Link Device | Help | About. Tab order: General | Agents | Directories | Servers | Notifications (remote devices without a token see only Servers and Notifications)
+- **Cross-server notification sync** — the Notifications tab now shows per-server webhook status when multiple servers are configured. A "Sync to all" button pushes the current webhook config to every online server in one click
+- **Token-gated remote settings** — when `BE_CONDUCTOR_TOKEN` is set, remote devices (mobile, other machines) get full access to all settings tabs (Agents, Directories, General). Without a token, remote devices see only Servers and Notifications
+- **GUI token management** — auth tokens can now be set, changed, or removed from the General tab in Settings (localhost only). Previously required editing environment variables or systemd service files
+
+### Version compatibility
+
+- **Cross-server version check** — when syncing settings or viewing servers, the dashboard checks each remote server's version. Servers running a different minor version show a warning badge, and webhook sync is blocked to prevent incompatible config changes
+
+### CLI
+
+- **Update check with desktop dialog** — `be-conductor up` and `be-conductor status` check GitHub for newer releases. On `up` (which autostart calls at boot), a native desktop dialog pops up offering to update with one click (zenity/kdialog on Linux, osascript on macOS, MessageBox on Windows). The CLI also prints a text hint
+
 ## v0.3.18
 
 ### CLI
