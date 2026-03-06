@@ -6,7 +6,7 @@ Get notified on your phone when an agent session needs your attention.
 
 1. Open Telegram and search for **@BotFather**
 2. Tap **Start**, then send `/newbot`
-3. Enter a name for your bot (e.g. `Be-Conductor`)
+3. Enter a name for your bot (e.g. `be-conductor`)
 4. Enter a username ending in `bot` (e.g. `be_conductor_myname_bot`)
 5. BotFather replies with a **token** — a long string like:
    ```
@@ -27,9 +27,9 @@ This step is required — Telegram bots can only message users who have started 
 1. Search for the bot username you just created (e.g. `@be_conductor_myname_bot`)
 2. Tap **Start**
 
-## 4. Configure in Be-Conductor
+## 4. Configure in be-conductor
 
-1. Open the Be-Conductor dashboard
+1. Open the be-conductor dashboard
 2. Tap the gear icon to open **Settings**
 3. Go to the **Notifications** tab
 4. Under **Webhook**:
@@ -42,7 +42,7 @@ This step is required — Telegram bots can only message users who have started 
 
 ## How It Works
 
-When an agent session is idle and waiting for input (e.g. asking a question, waiting for confirmation), Be-Conductor sends a message to your Telegram bot. This works from any device and any browser — no push notification support required.
+When an agent session is idle and waiting for input (e.g. asking a question, waiting for confirmation), be-conductor sends a message to your Telegram bot. This works from any device and any browser — no push notification support required.
 
 Notifications are only sent when:
 - The session has been idle for a few seconds

@@ -22,7 +22,7 @@ $Project     = "be-conductor"
 $Repo        = "somniacs/be-conductor"
 $ReleaseUrl  = "https://github.com/$Repo/releases/latest/download"
 $DataDir     = "$env:USERPROFILE\.$Project"
-$TaskName    = "Be-Conductor"
+$TaskName    = "be-conductor"
 
 # Previous name (for migration). Leave empty if not applicable.
 $OldProject  = "conductor"
@@ -115,6 +115,10 @@ if ($OldProject -and $OldProject -ne $Project) {
     Write-Host ""
 }
 
+# ── Stop running server before upgrade ────────────────────────────────
+
+try { & $Project shutdown 2>&1 | Out-Null } catch {}
+
 # ── Detect mode: local vs remote ─────────────────────────────────────
 
 $scriptDir = $null
@@ -183,9 +187,13 @@ if ($installed) {
 
             Register-ScheduledTask -TaskName $TaskName -Action $action `
                 -Trigger $trigger -Settings $settings `
-                -Description "Be-Conductor Server" -Force | Out-Null
+                -Description "be-conductor Server" -Force | Out-Null
 
-            Write-Host "  Scheduled task registered" -NoNewline
+            # Start the server right away (stop first in case of upgrade)
+            Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+            Start-ScheduledTask -TaskName $TaskName
+
+            Write-Host "  Scheduled task registered and started" -NoNewline
             Write-Host " OK" -ForegroundColor Green
         } catch {
             Write-Host "  Warning: could not create scheduled task: $_" -ForegroundColor Yellow

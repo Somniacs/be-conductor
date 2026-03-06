@@ -2,7 +2,7 @@
 
 **Status: Supported** (Windows 10 Build 1809+ / Windows 11)
 
-Be-Conductor runs natively on Windows using [ConPTY](https://devblogs.microsoft.com/commandline/windows-command-line-introducing-the-windows-pseudo-console-conpty/) (Windows Pseudo Console) via the [`pywinpty`](https://pypi.org/project/pywinpty/) library.
+be-conductor runs natively on Windows using [ConPTY](https://devblogs.microsoft.com/commandline/windows-command-line-introducing-the-windows-pseudo-console-conpty/) (Windows Pseudo Console) via the [`pywinpty`](https://pypi.org/project/pywinpty/) library.
 
 ## Prerequisites
 
@@ -91,7 +91,7 @@ Merging is non-destructive — resume the session, make more changes, and merge 
 
 ### Session resume
 
-When an agent exits with a resume token, Be-Conductor captures it. Resume from the dashboard (play button) or CLI:
+When an agent exits with a resume token, be-conductor captures it. Resume from the dashboard (play button) or CLI:
 
 ```powershell
 be-conductor resume research
@@ -107,7 +107,7 @@ be-conductor resume research
 
 To monitor sessions from multiple machines (Windows, Linux, Mac — any mix):
 
-1. Install and start Be-Conductor on each machine
+1. Install and start be-conductor on each machine
 2. Open the dashboard on any device
 3. Add machines via the **Servers** dialog — Tailscale device picker, manual URL, or QR scan
 
@@ -160,7 +160,7 @@ Make sure you're using Windows Terminal, PowerShell, or cmd.exe. Some third-part
 
 ## WSL alternative
 
-If you prefer, you can also run Be-Conductor inside WSL (Windows Subsystem for Linux):
+If you prefer, you can also run be-conductor inside WSL (Windows Subsystem for Linux):
 
 ```bash
 # Inside WSL

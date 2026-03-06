@@ -111,19 +111,22 @@ def start_server_daemon() -> bool:
 @click.group()
 @click.version_option(VERSION, prog_name="be-conductor")
 def cli():
-    """Be-Conductor — Local orchestration for interactive terminal processes."""
+    """be-conductor — Local orchestration for interactive terminal processes."""
 
 
 @cli.command()
 @click.option("--host", default=HOST, help="Host to bind to")
 @click.option("--port", default=PORT, type=int, help="Port to bind to")
 def serve(host, port):
-    """Start the Be-Conductor server."""
+    """Start the be-conductor server."""
     from be_conductor.server.app import run_server
 
-    click.echo(f"Be-Conductor server on {host}:{port}")
+    click.echo(f"be-conductor server on {host}:{port}")
     click.echo(f"  Dashboard: http://{host}:{port}")
     run_server(host=host, port=port)
+
+
+cli.add_command(serve, "up")
 
 
 @cli.command()
@@ -135,7 +138,7 @@ def serve(host, port):
 @click.option("--rows", type=int, default=None, help="Terminal rows (auto-detected if omitted)")
 @click.option("--cols", type=int, default=None, help="Terminal columns (auto-detected if omitted)")
 def run(command, name, detach, worktree, use_json, rows, cols):
-    """Run a command in a new Be-Conductor session.
+    """Run a command in a new be-conductor session.
 
     By default, attaches to the session so you see output in your terminal.
     Use -d/--detach to run in the background.
@@ -534,7 +537,7 @@ def resume(name, detach, token, cmd):
     Restarts a session that exited with a resume token (e.g. Claude Code's
     --resume <id>). Attaches to the new session by default.
 
-    Use --token to resume an external session inside Be-Conductor:
+    Use --token to resume an external session inside be-conductor:
 
         be-conductor resume my-session --token <UUID>
         be-conductor resume my-session --token <UUID> --command aider
@@ -669,7 +672,7 @@ def status(use_json):
     except Exception:
         pass
 
-    click.echo(f"Be-Conductor v{version}")
+    click.echo(f"be-conductor v{version}")
     click.echo(f"  URL:  {BASE_URL}")
     click.echo(f"  Host: {socket.gethostname()}")
     if pid:
@@ -756,7 +759,7 @@ def stop_server() -> bool:
 @cli.command()
 @click.option("--force", "-f", is_flag=True, help="Skip active-session warning")
 def shutdown(force):
-    """Stop the Be-Conductor server and all sessions."""
+    """Stop the be-conductor server and all sessions."""
     if not server_running():
         click.echo("Server not running.")
         return
@@ -779,7 +782,7 @@ def shutdown(force):
 @cli.command()
 @click.option("--force", "-f", is_flag=True, help="Skip active-session warning")
 def restart(force):
-    """Restart the Be-Conductor server (kills all sessions)."""
+    """Restart the be-conductor server (kills all sessions)."""
     if not server_running():
         click.echo("Server not running. Starting...")
     else:
@@ -803,7 +806,7 @@ def restart(force):
 
 @cli.command()
 def open():
-    """Open the Be-Conductor dashboard in the default browser."""
+    """Open the be-conductor dashboard in the default browser."""
     import webbrowser
 
     if not server_running():

@@ -1,12 +1,23 @@
 # Changelog
 
-All notable changes to Be-Conductor are documented here.
+All notable changes to be-conductor are documented here.
+
+## v0.3.18
+
+### CLI
+
+- **`be-conductor up`** — added `up` as an alias for `serve`
+
+### Installer
+
+- **Upgrade-safe** — the installer now stops the running server before upgrading and restarts it after, so upgrades pick up the new code immediately
+- **Server starts at install** — accepting the autostart prompt now starts the server right away on all platforms (previously the cron fallback on Linux and Windows Task Scheduler only started on next boot/login)
 
 ## v0.3.17
 
 ### Terminal watermark
 
-- **♭conductor label** — a subtle "♭conductor" watermark appears at the right edge of the cursor row in every terminal session, rendered server-side via ANSI escape sequences so it works across all clients (browser, CLI, IDE)
+- **♭conductor label** — a subtle "♭conductor" watermark appears at the right edge of the cursor row in every terminal session, rendered server-side via ANSI escape sequences so it works across all clients (browser, CLI, IDE). That way we always know we are in a be-conductor session and not in a native agent only session.
 - **Content-aware positioning** — the label follows the cursor position rather than sitting at the bottom of the viewport, keeping it close to the active content area
 - **Clean transitions** — the watermark is cleared before output that moves the cursor to a new row and immediately repainted after each output chunk, avoiding ghost artifacts on resize or scrolling
 
@@ -152,7 +163,7 @@ Both JetBrains and VS Code plugins grew from simple "launch a session" buttons i
 - **Agent-specific resume** — each agent uses its own resume command (e.g. `claude --resume`, `codex resume`, `copilot --resume`). The resume endpoint reads the command from the scanner instead of hardcoding
 - **Discover IDE sessions** — scans `~/.claude/projects/` for Claude Code, `~/.codex/state_5.sqlite` for Codex, `~/.copilot/session-state/` for Copilot, with defensive stubs for Gemini (`~/.gemini/tmp/`) and Goose (`~/.local/share/goose/`). Sessions running in VS Code or JetBrains IDEs are detected via lock files and shown with a live badge
 - **Observe live sessions** — select a running session to open a read-only observation panel. The JSONL file is tailed in real-time with ANSI-colored formatting. Sessions without a JSONL file (Gemini, Goose) hide the Observe button
-- **Session scanner** — `conductor.external` package handles discovery across all agents (10s cache, excludes subagent files, filters out sessions already in Be-Conductor) and observation (history limited to last 200 records, auto-cleanup on disconnect)
+- **Session scanner** — `conductor.external` package handles discovery across all agents (10s cache, excludes subagent files, filters out sessions already in be-conductor) and observation (history limited to last 200 records, auto-cleanup on disconnect)
 - **Security** — file IDs use an `agent::id` namespace format. Bare UUIDs are accepted for backward compatibility (mapped to Claude). IDs are validated against a strict allowlist of agent prefixes
 
 ### Notification system
@@ -194,7 +205,7 @@ The default command list now includes 12 agents. All agents support git worktree
 
 ### Resume support
 
-- **Resume from dashboard** — New/Resume toggle in the new-session dialog; in resume mode, paste an external resume token (e.g. from Claude's `--resume` output) to pick up the conversation inside Be-Conductor. Command-based agents (Codex, Copilot) show their resume command automatically — no token needed
+- **Resume from dashboard** — New/Resume toggle in the new-session dialog; in resume mode, paste an external resume token (e.g. from Claude's `--resume` output) to pick up the conversation inside be-conductor. Command-based agents (Codex, Copilot) show their resume command automatically — no token needed
 - **Multi-agent resume** — `be-conductor resume --token` and dashboard resume now work with any agent via the `--command` flag (defaults to claude); reads `resume_flag` from server config per agent
 - **Command-first dialog** — new-session dialog now shows the command picker before the session name, matching the CLI argument order
 
@@ -265,7 +276,7 @@ The default command list now includes 12 agents. All agents support git worktree
 - **CLI resume** — `be-conductor resume <name>` resumes an exited session from the terminal, attaching automatically (use `-d` to resume in background)
 - **Restart/shutdown safety** — `be-conductor restart` and `be-conductor shutdown` now warn about active sessions before killing them; pass `-f` to skip
 - **Resume auto-start** — `be-conductor resume` now auto-starts the server daemon if it isn't running, matching `be-conductor run` and `be-conductor open`
-- **External resume** — `be-conductor resume <name> --token <UUID>` brings an external Claude session into Be-Conductor; start Claude in any terminal, exit, copy the UUID from its `--resume` output, then resume it inside Be-Conductor
+- **External resume** — `be-conductor resume <name> --token <UUID>` brings an external Claude session into be-conductor; start Claude in any terminal, exit, copy the UUID from its `--resume` output, then resume it inside be-conductor
 
 ### Fixes
 
@@ -373,7 +384,7 @@ First public release.
 - **Web terminal rendering** — custom scrollbar, correct PTY dimensions on buffer replay, full-height terminal panels
 - **Graceful stop & resume** — stop sequence support, resume token capture from terminal output, persistent resume across reboots
 - **Session creation from dashboard** — pick agent, directory, and target machine; start sessions without a terminal
-- **Multi-machine dashboard** — connect to multiple Be-Conductor servers, sessions grouped by machine with status indicators
+- **Multi-machine dashboard** — connect to multiple be-conductor servers, sessions grouped by machine with status indicators
 - **Tailscale device picker** — discover and add machines from your Tailscale network
 - **File upload** — paste, drag-and-drop, or attachment button; upload dialog with progress; auto-cleanup on session end
 - **Mobile extra keys** — on-screen toolbar (ESC, TAB, arrows, CTRL, ALT, etc.) above the virtual keyboard, with collapsible drawer

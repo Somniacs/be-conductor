@@ -162,6 +162,13 @@ if [ -n "$OLD_PROJECT" ] && [ "$OLD_PROJECT" != "$PROJECT" ]; then
     echo ""
 fi
 
+# ── Stop running server before upgrade ────────────────────────────────
+
+if command -v "$PROJECT" &>/dev/null; then
+    echo "Stopping running server..."
+    "$PROJECT" shutdown 2>/dev/null || true
+fi
+
 # ── Detect mode: local vs remote ─────────────────────────────────────
 
 SCRIPT_DIR=""
@@ -230,7 +237,7 @@ EOF
 
     systemctl --user daemon-reload
     systemctl --user enable "$SERVICE_NAME"
-    systemctl --user start "$SERVICE_NAME"
+    systemctl --user restart "$SERVICE_NAME"
     # Survive logout
     loginctl enable-linger "$USER" 2>/dev/null || true
     echo "  systemd service enabled and started ✓"
@@ -241,15 +248,17 @@ setup_autostart_cron() {
     conductor_path=$(command -v "$PROJECT" || echo "$HOME/.local/bin/$PROJECT")
     local cron_entry="@reboot $conductor_path serve >> /tmp/$PROJECT.log 2>&1"
 
-    # Check if already installed
+    # Add cron entry if not already present
     if crontab -l 2>/dev/null | grep -qF "$PROJECT serve"; then
         echo "  cron @reboot entry already exists ✓"
-        return
+    else
+        ( crontab -l 2>/dev/null; echo "$cron_entry" ) | crontab -
+        echo "  cron @reboot entry added ✓"
     fi
 
-    # Append to existing crontab
-    ( crontab -l 2>/dev/null; echo "$cron_entry" ) | crontab -
-    echo "  cron @reboot entry added ✓"
+    # Start the server right away
+    nohup "$conductor_path" serve >> /tmp/$PROJECT.log 2>&1 &
+    echo "  server started ✓"
 }
 
 setup_autostart_macos() {
@@ -283,6 +292,7 @@ setup_autostart_macos() {
 </plist>
 EOF
 
+    launchctl unload "$plist_file" 2>/dev/null || true
     launchctl load "$plist_file" 2>/dev/null || true
     echo "  launchd agent loaded and started ✓"
 }

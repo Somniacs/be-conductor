@@ -1,6 +1,6 @@
 # macOS Setup
 
-Be-Conductor runs natively on macOS. No extra dependencies beyond Python.
+be-conductor runs natively on macOS. No extra dependencies beyond Python.
 
 ## Prerequisites
 
@@ -63,7 +63,7 @@ Merging is non-destructive — resume the session, make more changes, and merge 
 
 ### Session resume
 
-When an agent exits with a resume token, Be-Conductor captures it. Resume from the dashboard (play button) or CLI:
+When an agent exits with a resume token, be-conductor captures it. Resume from the dashboard (play button) or CLI:
 
 ```bash
 be-conductor resume research
@@ -79,7 +79,7 @@ be-conductor resume research
 
 To monitor sessions from multiple Macs (or a mix of Mac, Linux, Windows):
 
-1. Install and start Be-Conductor on each machine
+1. Install and start be-conductor on each machine
 2. Open the dashboard on any device
 3. Add machines via the **Servers** dialog — Tailscale device picker, manual URL, or QR scan
 

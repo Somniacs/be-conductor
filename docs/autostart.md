@@ -1,6 +1,6 @@
 # Auto-Start on Boot
 
-Set up Be-Conductor to start automatically when your machine boots, so the dashboard is always reachable.
+Set up be-conductor to start automatically when your machine boots, so the dashboard is always reachable.
 
 > **Tip:** The installer (`install.sh` / `install.ps1`) offers to configure autostart for you during installation. The manual steps below are only needed if you skipped that prompt or want to customize the configuration.
 
@@ -13,7 +13,7 @@ mkdir -p ~/.config/systemd/user
 
 cat > ~/.config/systemd/user/be-conductor.service << 'EOF'
 [Unit]
-Description=Be-Conductor Server
+Description=be-conductor Server
 After=network.target
 
 [Service]
@@ -52,7 +52,7 @@ View logs:
 journalctl --user -u be-conductor -f
 ```
 
-> **Note:** If you installed Be-Conductor to a different path, adjust the `ExecStart` line. Find it with `which be-conductor`.
+> **Note:** If you installed be-conductor to a different path, adjust the `ExecStart` line. Find it with `which be-conductor`.
 
 ## Linux (cron @reboot)
 
@@ -86,8 +86,8 @@ For Gentoo, Alpine, or Artix with OpenRC. Requires root.
 sudo tee /etc/init.d/be-conductor << 'EOF'
 #!/sbin/openrc-run
 
-name="Be-Conductor Server"
-description="Be-Conductor terminal session orchestrator"
+name="be-conductor Server"
+description="be-conductor terminal session orchestrator"
 command="/home/YOUR_USER/.local/bin/be-conductor"
 command_args="serve"
 command_user="YOUR_USER"
@@ -192,13 +192,13 @@ $action = New-ScheduledTaskAction -Execute $conductorPath -Argument "serve"
 $trigger = New-ScheduledTaskTrigger -AtLogOn
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
 
-Register-ScheduledTask -TaskName "Be-Conductor" -Action $action -Trigger $trigger -Settings $settings -Description "Be-Conductor Server"
+Register-ScheduledTask -TaskName "be-conductor" -Action $action -Trigger $trigger -Settings $settings -Description "be-conductor Server"
 ```
 
 To remove:
 
 ```powershell
-Unregister-ScheduledTask -TaskName "Be-Conductor" -Confirm:$false
+Unregister-ScheduledTask -TaskName "be-conductor" -Confirm:$false
 ```
 
 Alternatively, place a shortcut to `be-conductor serve` in your Startup folder:
@@ -209,7 +209,7 @@ Win+R → shell:startup → create shortcut → be-conductor serve
 
 ## Verify
 
-After reboot, check that Be-Conductor is running:
+After reboot, check that be-conductor is running:
 
 ```bash
 be-conductor status

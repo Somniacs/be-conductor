@@ -4,7 +4,7 @@ Orchestrate your AI coding agents across your own machines — local-first, clou
 
 Your best ideas don't always happen at your desk. With be-conductor, you can start an agent session from your phone and let it run on your workstation, GPU box, or dev machine. AI agents run for minutes — sometimes hours — and then stall on a single question. If you're not at that terminal, the session idles until you return.
 
-Be-Conductor keeps them moving. It runs entirely on your machines. No remote backend. No vendor dependency. It wraps terminal sessions in a lightweight server and exposes them through a web dashboard you can open from your phone, tablet, or laptop. Pair it with [Tailscale](https://tailscale.com/) and you get secure access to all your machines — no port forwarding, no VPN setup, just works.
+be-conductor keeps them moving. It runs entirely on your machines. No remote backend. No vendor dependency. It wraps terminal sessions in a lightweight server and exposes them through a web dashboard you can open from your phone, tablet, or laptop. Pair it with [Tailscale](https://tailscale.com/) and you get secure access to all your machines — no port forwarding, no VPN setup, just works.
 
 **New here?** Check out the [Quick Start Guide](docs/intro.md) — install, run an agent, and set up phone access in 5 minutes.
 
@@ -46,7 +46,7 @@ be-conductor run <agent> api   Sit on the couch.       Type a response. Done.
 
 You can also start new sessions directly from the web dashboard — pick an agent, name the session, and hit Run. No terminal needed. When you're back at your computer, attach to any running session from the terminal with `be-conductor attach <name>`.
 
-Sessions survive disconnects. Close the browser, reopen it later — everything is still there. When an agent session exits with a resume token (e.g. Claude Code's `--resume`), Be-Conductor captures it and lets you resume the conversation later — even after a reboot.
+Sessions survive disconnects. Close the browser, reopen it later — everything is still there. When an agent session exits with a resume token (e.g. Claude Code's `--resume`), be-conductor captures it and lets you resume the conversation later — even after a reboot.
 
 ## How It Works
 
@@ -57,7 +57,7 @@ Sessions survive disconnects. Close the browser, reopen it later — everything 
         │                                │
     PTY Wrapper                      PTY Wrapper
         │                                │
-  Be-Conductor Server                 Be-Conductor Server
+  be-conductor Server                 be-conductor Server
     0.0.0.0:7777                     0.0.0.0:7777
         │                                │
         └──────── Tailscale ─────────────┘
@@ -70,12 +70,12 @@ Each process runs in a PTY on your machine. Output goes into a rolling in-memory
 
 ## What You Can Run
 
-Be-Conductor works with any interactive terminal process. The dashboard ships with presets for common AI agents, but you can run anything from the CLI:
+be-conductor works with any interactive terminal process. The dashboard ships with presets for common AI agents, but you can run anything from the CLI:
 
 - **AI coding agents** — Claude Code, Gemini CLI, OpenCode, Codex CLI, GitHub Copilot CLI, Goose, Amp, Aider, Forge, Cursor Agent
 - **Training jobs** — long-running GPU training with live output
 - **Builds and test suites** — compilation, CI pipelines, test runs
-- **Any terminal process** — if it runs in a terminal, Be-Conductor can manage it
+- **Any terminal process** — if it runs in a terminal, be-conductor can manage it
 
 ### Adding commands to the allowlist
 
@@ -216,7 +216,7 @@ Want the dashboard always available? See [Auto-Start on Boot](docs/autostart.md)
 
 ### Git worktree isolation
 
-When AI agents write code, they change files in your working directory — which can conflict with your own uncommitted work or other running agents. Be-Conductor solves this with **git worktree isolation**: each session gets its own branch and working copy, so agents never step on each other or on your work. This works with any agent — Claude Code, Aider, Codex, Goose, Copilot, or any custom command.
+When AI agents write code, they change files in your working directory — which can conflict with your own uncommitted work or other running agents. be-conductor solves this with **git worktree isolation**: each session gets its own branch and working copy, so agents never step on each other or on your work. This works with any agent — Claude Code, Aider, Codex, Goose, Copilot, or any custom command.
 
 ```bash
 # Start a session in an isolated worktree
@@ -260,16 +260,16 @@ Enable worktree mode by toggling the worktree switch in the new-session dialog (
 
 ### Multi-machine setup
 
-Be-Conductor supports connecting to multiple machines from a single dashboard. Each machine runs its own independent Be-Conductor server. The dashboard in your browser connects to all of them directly — no central hub or proxy needed.
+be-conductor supports connecting to multiple machines from a single dashboard. Each machine runs its own independent be-conductor server. The dashboard in your browser connects to all of them directly — no central hub or proxy needed.
 
-**1. Install and start Be-Conductor on each machine:**
+**1. Install and start be-conductor on each machine:**
 
 ```bash
 # On workstation
 be-conductor run <agent> research
 be-conductor run <agent> coding
 
-# On GPU box (install Be-Conductor there too)
+# On GPU box (install be-conductor there too)
 be-conductor run <agent> train
 ```
 
@@ -305,26 +305,26 @@ Added machines are saved in your browser's localStorage. Refresh the page or clo
 
 ### Session resume
 
-When an agent exits and prints a resume token — like Claude Code's `--resume <session-id>` — Be-Conductor captures it from the terminal output automatically. The session stays in the sidebar as **resumable** with a play button. Click it (or run `be-conductor resume <name>` from the terminal) and Be-Conductor starts a new session with the original command plus the resume flag, picking up where you left off.
+When an agent exits and prints a resume token — like Claude Code's `--resume <session-id>` — be-conductor captures it from the terminal output automatically. The session stays in the sidebar as **resumable** with a play button. Click it (or run `be-conductor resume <name>` from the terminal) and be-conductor starts a new session with the original command plus the resume flag, picking up where you left off.
 
 Agents that manage their own session history — like Codex (`codex resume`) and Copilot (`copilot --resume`) — are always marked as resumable when they exit. Clicking the play button launches the agent's built-in resume command.
 
-Resume tokens are persisted to disk (`~/.be-conductor/sessions/`), so they survive server restarts and machine reboots. Power-cycle your laptop, start Be-Conductor again, and the resumable session is still there.
+Resume tokens are persisted to disk (`~/.be-conductor/sessions/`), so they survive server restarts and machine reboots. Power-cycle your laptop, start be-conductor again, and the resumable session is still there.
 
 If you don't need a resumable session, dismiss it with the **×** button — a confirmation dialog prevents accidental deletion.
 
 ### Discover and observe external sessions
 
-AI agent sessions started outside Be-Conductor — in IDEs, other terminals, or standalone tools — are automatically discovered and shown in the Resume tab's browse list.
+AI agent sessions started outside be-conductor — in IDEs, other terminals, or standalone tools — are automatically discovered and shown in the Resume tab's browse list.
 
-Be-Conductor scans local session stores for **Claude Code**, **Codex**, **Copilot CLI**, **Gemini CLI**, and **Goose**. Each session shows its name/slug, project path, branch, agent badge, and recency. Sessions running in an IDE are marked with a live badge. Use the **agent filter dropdown** to narrow the list to a specific agent.
+be-conductor scans local session stores for **Claude Code**, **Codex**, **Copilot CLI**, **Gemini CLI**, and **Goose**. Each session shows its name/slug, project path, branch, agent badge, and recency. Sessions running in an IDE are marked with a live badge. Use the **agent filter dropdown** to narrow the list to a specific agent.
 
-- **Resume a closed session** — select it from the list, give it a name, and click **Resume**. Be-Conductor launches the agent-specific resume command (e.g. `claude --resume`, `codex resume`, `copilot --resume`) in a PTY.
+- **Resume a closed session** — select it from the list, give it a name, and click **Resume**. be-conductor launches the agent-specific resume command (e.g. `claude --resume`, `codex resume`, `copilot --resume`) in a PTY.
 - **Observe a live session** — select a running session and click **Observe**. A read-only panel opens showing the conversation in real time with agent-specific formatting (user messages, assistant responses, tool calls — all color-coded). The Observe button is hidden for agents whose sessions aren't observable (Gemini, Goose).
 
 Liveness is detected via IDE lock files (`~/.claude/ide/*.lock`, `~/.copilot/ide/*.lock`).
 
-> **Warning:** Do not resume a session that is still active in an IDE. Session files are single-writer — resuming in Be-Conductor while the IDE is still using it can cause corruption. Be-Conductor blocks resume for sessions it detects as live, but the guard is best-effort. When in doubt, close the IDE session first.
+> **Warning:** Do not resume a session that is still active in an IDE. Session files are single-writer — resuming in be-conductor while the IDE is still using it can cause corruption. be-conductor blocks resume for sessions it detects as live, but the guard is best-effort. When in doubt, close the IDE session first.
 
 **Creating sessions on remote machines:**
 
@@ -338,7 +338,7 @@ When only one server is configured (the default), the dashboard looks and works 
 
 This requires [Tailscale](https://tailscale.com/) on both your workstation and your phone, tablet, or laptop.
 
-**1. Start Be-Conductor on your workstation** (if not already running):
+**1. Start be-conductor on your workstation** (if not already running):
 
 ```bash
 be-conductor run <agent> research
@@ -377,18 +377,18 @@ To find your machine's name:
 
 ```bash
 tailscale status
-# or check the Be-Conductor dashboard: hamburger menu → Servers → "This server"
+# or check the be-conductor dashboard: hamburger menu → Servers → "This server"
 ```
 
 The Servers dialog shows your machine's MagicDNS name, Tailscale IP, and hostname — all fetched from the `/info` endpoint. MagicDNS names are easier to remember and don't change when IPs rotate.
 
 ### Why remote access works
 
-Tailscale creates a private network between your devices using WireGuard. Only your devices can reach the server. No ports exposed to the internet, no passwords, no setup beyond installing Tailscale. Be-Conductor binds to `0.0.0.0` so it's reachable on your Tailscale network without any extra configuration.
+Tailscale creates a private network between your devices using WireGuard. Only your devices can reach the server. No ports exposed to the internet, no passwords, no setup beyond installing Tailscale. be-conductor binds to `0.0.0.0` so it's reachable on your Tailscale network without any extra configuration.
 
 ## Is It Safe?
 
-Yes. Be-Conductor runs entirely on your machines — no cloud backend, no vendor account, no external service required. Output stays local; commands run locally; nothing is logged, queued, or controlled through any third-party service.
+Yes. be-conductor runs entirely on your machines — no cloud backend, no vendor account, no external service required. Output stays local; commands run locally; nothing is logged, queued, or controlled through any third-party service.
 
 - **No cloud dependency** — runs on your workstation, GPU box, or air-gapped network. No API keys, no SaaS backend, zero cloud costs.
 - **Local only** — the server binds to your machine. Without Tailscale (or another VPN), it is not reachable from outside your local network.
@@ -396,17 +396,17 @@ Yes. Be-Conductor runs entirely on your machines — no cloud backend, no vendor
 - **No data leaves your machine** — session output stays in an in-memory buffer on localhost. Nothing is logged to external services.
 - **Restricted dashboard commands** — the web dashboard can only launch commands from a predefined allowlist. The CLI is unrestricted, but the browser cannot start arbitrary processes.
 - **Localhost-only admin** — the Settings panel and admin API (`/admin/settings`) are only accessible from `127.0.0.1`. Remote clients cannot view or modify server configuration.
-- **No shell injection** — session input is sent through the PTY as keystrokes, not evaluated as shell commands by Be-Conductor itself.
+- **No shell injection** — session input is sent through the PTY as keystrokes, not evaluated as shell commands by be-conductor itself.
 - **Sanitized session names** — names are validated against a strict allowlist (alphanumeric, hyphens, underscores, max 64 chars) on both the frontend and backend to prevent path traversal or injection via crafted names.
 - **Open source (MIT)** — the entire codebase is a single Python package and a single HTML file. Read it, audit it, fork it.
 
-If you're running Be-Conductor on a shared network without Tailscale, anyone on that network can reach port 7777. In that case, use a firewall rule or bind to `127.0.0.1` instead of `0.0.0.0`.
+If you're running be-conductor on a shared network without Tailscale, anyone on that network can reach port 7777. In that case, use a firewall rule or bind to `127.0.0.1` instead of `0.0.0.0`.
 
 ## Dashboard
 
 The web dashboard provides:
 
-- **Multi-machine view** — connect to multiple Be-Conductor servers, sessions grouped by machine
+- **Multi-machine view** — connect to multiple be-conductor servers, sessions grouped by machine
 - **Tailscale device picker** — discover and add machines from your Tailscale network
 - **Session sidebar** — all sessions with focus tracking, grouped by machine in multi-server mode
 - **Terminal panels** — full xterm.js rendering with colors, cursor, scrollback
@@ -437,7 +437,7 @@ The web dashboard provides:
 
 | Command | Description |
 |---|---|
-| `be-conductor serve` | Start the server (foreground) |
+| `be-conductor serve` (or `up`) | Start the server (foreground) |
 | `be-conductor serve --host 0.0.0.0 --port 8888` | Custom host/port |
 | `be-conductor run COMMAND [NAME]` | Start session and attach (see output in terminal) |
 | `be-conductor run -w COMMAND [NAME]` | Start session in an isolated git worktree |
@@ -445,7 +445,7 @@ The web dashboard provides:
 | `be-conductor run --json COMMAND [NAME]` | Start session and print JSON (implies detach) |
 | `be-conductor attach NAME` | Attach to a running session |
 | `be-conductor resume NAME` | Resume an exited session (relaunch with resume token) |
-| `be-conductor resume NAME -t TOKEN` | Resume an external agent session inside Be-Conductor |
+| `be-conductor resume NAME -t TOKEN` | Resume an external agent session inside be-conductor |
 | `be-conductor resume NAME -t TOKEN -c aider` | Resume with a specific agent (default: claude) |
 | `be-conductor list` | List active sessions |
 | `be-conductor list --json` | List sessions as JSON |
@@ -460,6 +460,7 @@ The web dashboard provides:
 | `be-conductor restart` | Restart the server (picks up config changes) |
 | `be-conductor open` | Open the dashboard in the default browser |
 | `be-conductor qr` | Show QR code (terminal + opens SVG in browser) |
+| `be-conductor --help` | Show all commands |
 
 `be-conductor run`, `be-conductor resume`, and `be-conductor open` auto-start the server as a background daemon if it isn't already running. If no name is given, the command name is used. Press `Ctrl+]` to detach from a session without stopping it.
 
@@ -488,7 +489,7 @@ Default port `7777`. All endpoints relative to your host. OpenAPI spec at `/open
 | `DELETE` | `/worktrees/{name}` | Discard worktree and branch |
 | `POST` | `/worktrees/gc` | Clean up stale/orphaned worktrees |
 | `GET` | `/external/sessions` | Discover external agent sessions (optional `?project=` and `?agent=` filters) |
-| `POST` | `/external/sessions/{file_id}/resume` | Resume a closed external session as a Be-Conductor PTY |
+| `POST` | `/external/sessions/{file_id}/resume` | Resume a closed external session as a be-conductor PTY |
 | `WS` | `/external/sessions/{file_id}/observe` | Read-only stream of an external session (tails JSONL, agent-aware formatting) |
 | `GET` | `/worktrees/health` | Worktree health warnings |
 | `GET` | `/notifications/webhook` | Get global webhook settings |
@@ -505,7 +506,7 @@ Default port `7777`. All endpoints relative to your host. OpenAPI spec at `/open
 
 ## Agent Integration
 
-Be-Conductor exposes a stable API that AI agents and automation tools can use to start, monitor, and interact with terminal sessions programmatically.
+be-conductor exposes a stable API that AI agents and automation tools can use to start, monitor, and interact with terminal sessions programmatically.
 
 ### Discovery
 
@@ -514,11 +515,11 @@ Check if the server is running and get connection details:
 ```bash
 # CLI
 be-conductor status --json
-# → {"ok": true, "version": "0.3.7", "base_url": "http://127.0.0.1:7777", ...}
+# → {"ok": true, "version": "0.3.18", "base_url": "http://127.0.0.1:7777", ...}
 
 # HTTP
 curl http://127.0.0.1:7777/health
-# → {"ok": true, "version": "0.3.7"}
+# → {"ok": true, "version": "0.3.18"}
 ```
 
 The full OpenAPI spec is at `http://127.0.0.1:7777/openapi.json`.
