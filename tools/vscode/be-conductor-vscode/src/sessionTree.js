@@ -164,11 +164,11 @@ function registerSessionCommands(context, provider) {
                 name: session.name,
                 cwd: workDir,
                 isTransient: true,
-                env: { VIRTUAL_ENV: '', CONDA_PREFIX: '' },
+                env: { VIRTUAL_ENV: null, CONDA_PREFIX: null, CONDA_DEFAULT_ENV: null },
             });
             terminal.show();
             await new Promise(resolve => setTimeout(resolve, 500));
-            terminal.sendText(`be-conductor resume "${session.name}" ; exit`);
+            terminal.sendText('\x15' + `be-conductor resume "${session.name}" ; exit`);
             terminalMap.set(session.name, terminal);
             trackSession(session.name);
             vscode.window.showInformationMessage(`Resuming "${session.name}"...`);

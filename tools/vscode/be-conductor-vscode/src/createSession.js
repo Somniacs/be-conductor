@@ -195,8 +195,9 @@ async function createSessionFlow(callbacks) {
         name: `${trimmed} (${agent.label})`,
         cwd: selectedCwd,
         isTransient: true,
-        // Prevent VSCode Python extension from auto-activating a venv
-        env: { VIRTUAL_ENV: '', CONDA_PREFIX: '' },
+        // Prevent VSCode Python extension from auto-activating a venv.
+        // null = unset the variable entirely (empty string is not enough).
+        env: { VIRTUAL_ENV: null, CONDA_PREFIX: null, CONDA_DEFAULT_ENV: null },
     });
     terminal.show();
 
@@ -207,7 +208,7 @@ async function createSessionFlow(callbacks) {
     const cmd = useWorktree
         ? `be-conductor run -w "${agent.command}" "${trimmed}"`
         : `be-conductor run "${agent.command}" "${trimmed}"`;
-    terminal.sendText(cmd);
+    terminal.sendText('\x15' + cmd);
     terminalMap.set(trimmed, terminal);
     trackSession(trimmed);
 
@@ -240,7 +241,7 @@ function attachSession(name, cwd) {
         env: { VIRTUAL_ENV: '', CONDA_PREFIX: '' },
     });
     terminal.show();
-    terminal.sendText(`be-conductor attach "${name}" ; exit`);
+    terminal.sendText('\x15' + `be-conductor attach "${name}" ; exit`);
     terminalMap.set(name, terminal);
     trackSession(name);
 }

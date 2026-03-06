@@ -749,9 +749,11 @@ async def stop_session(session_id: str, req: StopRequest | None = None):
         await registry.remove(session_id)
         return {"status": "stopped"}
 
+    # Session already exited and is kept for resume — don't dismiss it.
+    # This prevents the CLI's stop-on-exit from accidentally deleting a
+    # session that was saved for later.
     if session_id in registry.resumable:
-        registry.dismiss_resumable(session_id)
-        return {"status": "dismissed"}
+        return {"status": "stopped"}
 
     raise HTTPException(status_code=404, detail="Session not found")
 

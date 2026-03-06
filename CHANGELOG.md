@@ -2,6 +2,20 @@
 
 All notable changes to be-conductor are documented here.
 
+## v0.3.20
+
+### Bug fixes
+
+- **Fix session lost after stop in VSCode** — the CLI's `stop_on_exit` was sending a second stop request after a session was already saved as resumable, which accidentally deleted it. The stop endpoint now treats already-resumable sessions as a no-op
+- **Keep gracefully stopped sessions** — sessions stopped via "Stop & keep for later" are now always kept as resumable, even if no resume token was extracted
+- **VSCode venv activation** — the Python extension was still activating a virtual environment in be-conductor terminals. Terminal env vars are now fully unset (`null`) instead of set to empty strings
+- **VSCode terminal input mixing** — commands sent to terminals (run, attach, resume) now clear any partial user input first, preventing garbled commands
+
+### Platform
+
+- **Windows: windowless server process** — the server subprocess now uses `CREATE_NO_WINDOW` so no console window appears at startup or when triggered by the scheduled task
+- **Windows: scheduled task autostart** — replaced the `.lnk` shortcut with a scheduled task for truly hidden startup (no window flash). Legacy VBS and shortcut files are cleaned up automatically
+
 ## v0.3.19
 
 ### Settings consolidation

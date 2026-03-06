@@ -112,9 +112,12 @@ class SessionRegistry:
         # Worktree stays active on exit — user must explicitly finalize.
         # No auto-commit here; the worktree is just a working directory.
 
-        if session.resume_id or session.worktree:
-            # Keep the metadata so the user can resume or merge the worktree.
+        # Keep session as resumable when it has a resume token, a worktree,
+        # or was explicitly stopped via graceful stop ("Stop & keep for later").
+        was_graceful = session.status == "stopping"
+        if session.resume_id or session.worktree or was_graceful:
             meta = session.to_dict()
+            meta["status"] = "exited"
             self.resumable[session_id] = meta
             self._save_metadata_dict(meta)
         else:
