@@ -197,12 +197,11 @@ if ($installed) {
                 -Trigger $trigger -Settings $settings `
                 -Description "be-conductor Server" -Force | Out-Null
 
-            # Start the server right away as a background process
-            # (Start-ScheduledTask can be unreliable for immediate starts)
-            Start-Process -FilePath $conductorPath -ArgumentList "serve" -WindowStyle Hidden
-
-            Write-Host "  Scheduled task registered and server started" -NoNewline
+            Write-Host "  Scheduled task registered" -NoNewline
             Write-Host " OK" -ForegroundColor Green
+
+            # Start the server right away
+            & $conductorPath up
         } catch {
             Write-Host "  Warning: could not create scheduled task: $_" -ForegroundColor Yellow
             Write-Host "  See docs -> Auto-Start on Boot for manual setup."

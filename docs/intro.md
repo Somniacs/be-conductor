@@ -75,14 +75,14 @@ Restart your terminal after install if the `be-conductor` command is not found.
 ## 3. Start the server
 
 ```bash
-be-conductor serve
+be-conductor up
 ```
 
-This starts the be-conductor server in the foreground. The dashboard is now reachable at `http://127.0.0.1:7777`.
+This starts the server in the background. The dashboard is now reachable at `http://127.0.0.1:7777`. Use `be-conductor serve` instead if you want foreground output (useful for debugging).
 
-> **Tip:** You don't have to start the server manually every time — `be-conductor run` auto-starts it if it isn't running. But if you want the dashboard available before launching any agents, run `be-conductor serve` first.
+> **Tip:** You don't have to start the server manually every time — `be-conductor run` auto-starts it if it isn't running. But if you want the dashboard available before launching any agents, run `be-conductor up` first.
 
-To start the server automatically on boot, see [Auto-Start on Boot](autostart.md). The autostart setup also starts the server right away, so you don't need to run `be-conductor serve` separately.
+To start the server automatically on boot, see [Auto-Start on Boot](autostart.md). The autostart setup also starts the server right away, so you don't need to run `be-conductor up` separately.
 
 ## 4. Run an agent
 
@@ -145,7 +145,8 @@ The be-conductor server starts automatically when you run your first agent and s
 
 | Do this | Command |
 |---|---|
-| Start the server | `be-conductor serve` (or `up`) |
+| Start the server (background) | `be-conductor up` |
+| Start the server (foreground) | `be-conductor serve` |
 | Start an agent | `be-conductor run claude research` |
 | Start in a worktree | `be-conductor run -w claude research` |
 | Start in background | `be-conductor run -d claude research` |

@@ -6,7 +6,7 @@ All notable changes to be-conductor are documented here.
 
 ### CLI
 
-- **`be-conductor up`** — added `up` as an alias for `serve`
+- **`be-conductor up`** — starts the server in the background (daemon mode), while `serve` remains the foreground command
 
 ### Packaging
 

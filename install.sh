@@ -263,8 +263,7 @@ setup_autostart_cron() {
     fi
 
     # Start the server right away
-    nohup "$conductor_path" serve >> /tmp/$PROJECT.log 2>&1 &
-    echo "  server started ✓"
+    "$conductor_path" up
 }
 
 setup_autostart_macos() {

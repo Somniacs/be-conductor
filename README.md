@@ -437,7 +437,8 @@ The web dashboard provides:
 
 | Command | Description |
 |---|---|
-| `be-conductor serve` (or `up`) | Start the server (foreground) |
+| `be-conductor up` | Start the server (background daemon) |
+| `be-conductor serve` | Start the server (foreground) |
 | `be-conductor serve --host 0.0.0.0 --port 8888` | Custom host/port |
 | `be-conductor run COMMAND [NAME]` | Start session and attach (see output in terminal) |
 | `be-conductor run -w COMMAND [NAME]` | Start session in an isolated git worktree |
