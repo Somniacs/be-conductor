@@ -8,6 +8,10 @@ All notable changes to be-conductor are documented here.
 
 - **`be-conductor up`** — added `up` as an alias for `serve`
 
+### Packaging
+
+- **Fixed non-editable install** — the `cli` package was missing from the wheel build, causing `ModuleNotFoundError: No module named 'cli'` on fresh installs (all platforms). Added explicit package list to `pyproject.toml`
+
 ### Installer
 
 - **Upgrade-safe** — the installer now stops the running server before upgrading and restarts it after, so upgrades pick up the new code immediately
