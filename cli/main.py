@@ -56,13 +56,16 @@ def start_server_daemon() -> bool:
 
     log = log_path.open("a")
     popen_kwargs = dict(
+        stdin=subprocess.DEVNULL,
         stdout=log,
         stderr=subprocess.STDOUT,
         cwd=str(project_root),
         env=env,
     )
     if sys.platform == "win32":
-        popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+        popen_kwargs["creationflags"] = (
+            subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+        )
     else:
         popen_kwargs["start_new_session"] = True
 
