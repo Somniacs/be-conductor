@@ -187,7 +187,13 @@ else
     tmpdir=$(mktemp -d)
     trap 'rm -rf "$tmpdir"' EXIT
 
-    download "$RELEASE_URL/$PROJECT.tar.gz" "$tmpdir/$PROJECT.tar.gz"
+    if ! download "$RELEASE_URL/$PROJECT.tar.gz" "$tmpdir/$PROJECT.tar.gz"; then
+        echo ""
+        echo "Error: could not download the release archive."
+        echo "If a new version was just published, the build may still be in progress."
+        echo "Wait a minute and try again."
+        exit 1
+    fi
     tar xzf "$tmpdir/$PROJECT.tar.gz" -C "$tmpdir"
 
     echo "Installing $PROJECT..."

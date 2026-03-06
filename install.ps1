@@ -140,7 +140,15 @@ if ($scriptDir -and (Test-Path (Join-Path $scriptDir "pyproject.toml"))) {
 
     try {
         $zipPath = Join-Path $tmpDir "$Project.zip"
-        Invoke-WebRequest -Uri "$ReleaseUrl/$Project.zip" -OutFile $zipPath -UseBasicParsing
+        try {
+            Invoke-WebRequest -Uri "$ReleaseUrl/$Project.zip" -OutFile $zipPath -UseBasicParsing
+        } catch {
+            Write-Host ""
+            Write-Host "Error: could not download the release archive." -ForegroundColor Red
+            Write-Host "If a new version was just published, the build may still be in progress."
+            Write-Host "Wait a minute and try again."
+            exit 1
+        }
         Expand-Archive -Path $zipPath -DestinationPath $tmpDir -Force
 
         Write-Host "Installing $Project..."
