@@ -120,7 +120,7 @@ if [ -n "$OLD_PROJECT" ] && [ "$OLD_PROJECT" != "$PROJECT" ]; then
     # Stop old server
     if command -v "$OLD_PROJECT" &>/dev/null; then
         echo "Migrating from $OLD_PROJECT..."
-        "$OLD_PROJECT" shutdown 2>/dev/null || true
+        "$OLD_PROJECT" shutdown -f 2>/dev/null || true
     fi
 
     # Remove old autostart
@@ -166,7 +166,7 @@ fi
 
 if command -v "$PROJECT" &>/dev/null; then
     echo "Stopping running server..."
-    "$PROJECT" shutdown 2>/dev/null || true
+    "$PROJECT" shutdown -f 2>/dev/null || true
 fi
 
 # ── Detect mode: local vs remote ─────────────────────────────────────

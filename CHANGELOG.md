@@ -19,6 +19,11 @@ All notable changes to be-conductor are documented here.
 
 - **Update check with desktop dialog** — `be-conductor up` and `be-conductor status` check GitHub for newer releases. On `up` (which autostart calls at boot), a native desktop dialog pops up offering to update with one click (zenity/kdialog on Linux, osascript on macOS, MessageBox on Windows). The CLI also prints a text hint
 
+### Installer fixes
+
+- **Force-shutdown during install/upgrade** — the install scripts (`install.sh`, `install.ps1`) now pass `-f` to `shutdown`, so upgrades don't stall when active sessions are running (e.g. when piped via `curl | bash` or `irm | iex`)
+- **Windows VBS autostart quoting** — fixed a PowerShell string-escaping bug in `install.ps1` that caused a parse error when the script was piped via `irm | iex`
+
 ## v0.3.18
 
 ### CLI

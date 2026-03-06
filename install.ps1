@@ -83,7 +83,7 @@ if ($OldProject -and $OldProject -ne $Project) {
     $oldDataDir = "$env:USERPROFILE\.$OldProject"
 
     # Stop old server
-    try { & $OldProject shutdown 2>&1 | Out-Null } catch {}
+    try { & $OldProject shutdown -f 2>&1 | Out-Null } catch {}
 
     # Remove old scheduled task
     $oldTaskNames = @($OldProject)
@@ -117,7 +117,7 @@ if ($OldProject -and $OldProject -ne $Project) {
 
 # ── Stop running server before upgrade ────────────────────────────────
 
-try { & $Project shutdown 2>&1 | Out-Null } catch {}
+try { & $Project shutdown -f 2>&1 | Out-Null } catch {}
 
 # ── Detect mode: local vs remote ─────────────────────────────────────
 
@@ -199,7 +199,9 @@ if ($installed) {
         # Place a VBS script in the Startup folder (no admin needed, no window flash)
         $startupDir = [System.Environment]::GetFolderPath("Startup")
         $vbsPath = Join-Path $startupDir "$Project.vbs"
-        $vbsContent = "Set WshShell = CreateObject(""WScript.Shell"")`r`nWshShell.Run """""$conductorPath"" up"", 0, False"
+        $vbsLine1 = 'Set WshShell = CreateObject("WScript.Shell")'
+        $vbsLine2 = "WshShell.Run """"""$conductorPath"" up"", 0, False"
+        $vbsContent = "$vbsLine1`r`n$vbsLine2"
         Set-Content -Path $vbsPath -Value $vbsContent -Encoding ASCII
 
         Write-Host "  Autostart configured (Startup folder)" -NoNewline
