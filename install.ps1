@@ -183,8 +183,13 @@ Write-Host ""
 if ($installed) {
     $answer = Read-Host "Start $Project automatically on boot? [Y/n]"
     if ($answer -eq "" -or $answer -match "^[Yy]") {
+        $conductorPath = (Get-Command $Project -ErrorAction SilentlyContinue).Source
+        if (-not $conductorPath) {
+            $conductorPath = "$env:USERPROFILE\.local\bin\$Project.exe"
+        }
+
+        # Register scheduled task (requires admin — may fail)
         try {
-            $conductorPath = (Get-Command $Project -ErrorAction Stop).Source
             $action = New-ScheduledTaskAction -Execute $conductorPath -Argument "serve"
             $trigger = New-ScheduledTaskTrigger -AtLogOn
             $settings = New-ScheduledTaskSettingsSet `
@@ -199,13 +204,13 @@ if ($installed) {
 
             Write-Host "  Scheduled task registered" -NoNewline
             Write-Host " OK" -ForegroundColor Green
-
-            # Start the server right away
-            & $conductorPath up
         } catch {
-            Write-Host "  Warning: could not create scheduled task: $_" -ForegroundColor Yellow
-            Write-Host "  See docs -> Auto-Start on Boot for manual setup."
+            Write-Host "  Warning: could not create scheduled task (needs admin): $_" -ForegroundColor Yellow
+            Write-Host "  Run PowerShell as Administrator to enable autostart, or see docs -> Auto-Start on Boot."
         }
+
+        # Start the server now regardless
+        & $conductorPath up
     } else {
         Write-Host "  Skipped. See docs -> Auto-Start on Boot"
     }
