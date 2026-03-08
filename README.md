@@ -96,9 +96,14 @@ be-conductor works with any interactive terminal process. The dashboard ships wi
 
 The dashboard can only launch commands from the allowlist. The CLI is unrestricted.
 
-**From the dashboard (recommended):** Open the hamburger menu → **Settings**. The dialog is organized into tabs — **General** (server info, auth token, limits), **Agents** (command allowlist), **Directories** (default paths), **Servers** (multi-machine management), and **Notifications** (browser/webhook alerts). Admin tabs (General, Agents, Directories) are visible on localhost or when `BE_CONDUCTOR_TOKEN` is set. Add, edit, or remove commands and click **Save**. Changes take effect immediately on all connected clients — no restart needed. Settings are stored in `~/.be-conductor/config.yaml`.
+Open the hamburger menu → **Settings** → **Agents** tab. Add, edit, or remove commands and click **Save**. Changes take effect immediately on all connected clients — no restart needed. Each command has a label (shown in the UI) and optional resume/stop settings for agent-specific behavior.
 
-**From the config file:** Edit `~/.be-conductor/config.yaml` directly (created on first save from Settings):
+The other Settings tabs — **General** (server info, auth token, limits), **Directories** (default paths), **Servers** (multi-machine management), and **Notifications** (browser/webhook alerts) — are also managed from here. Admin tabs (General, Agents, Directories) are visible on localhost or when `BE_CONDUCTOR_TOKEN` is set.
+
+<details>
+<summary>Alternative: edit the config file directly</summary>
+
+Edit `~/.be-conductor/config.yaml` (created on first save from Settings):
 
 ```yaml
 allowed_commands:
@@ -122,6 +127,8 @@ Optional fields for advanced behavior:
 Use `resume_pattern` + `resume_flag` for agents that print a resume token on exit (e.g. Claude Code). Use `resume_command` for agents that manage their own session history (e.g. Gemini, OpenCode, Goose). Don't set both.
 
 After editing the file, restart the server: `be-conductor restart`.
+
+</details>
 
 ## Prerequisites
 
@@ -290,7 +297,7 @@ be-conductor run <agent> train
 
 **2. Add machines to the dashboard:**
 
-Open the dashboard on any device, then hamburger menu → **Servers**.
+Open the dashboard on any device, then hamburger menu → **Settings** → **Servers** tab.
 
 - **Tailscale device picker** — your online Tailscale devices appear in a dropdown. Select one and click Add. This is the easiest way.
 - **Manual URL** — paste `http://100.x.x.x:7777` (or a MagicDNS name) for any machine on your network.
@@ -367,7 +374,7 @@ Option A — run `be-conductor qr` to show a scannable QR code:
 be-conductor qr
 ```
 
-Option B — use the dashboard's **Servers** dialog (hamburger menu → Servers) to see Tailscale devices and add them.
+Option B — use the dashboard's **Settings** → **Servers** tab to see Tailscale devices and add them.
 
 Option C — find your Tailscale IP and type the URL:
 
