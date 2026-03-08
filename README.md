@@ -78,6 +78,7 @@ Each process runs in a PTY on your machine. Output goes into a rolling in-memory
 - **Session resume** — exited sessions with resume tokens are saved and can be relaunched with one click or from the CLI.
 - **External session discovery** — find and resume sessions started in IDEs or other terminals (Claude Code, Codex, Copilot, Gemini, Goose).
 - **Notifications** — get alerted on Slack, Telegram, Discord, or custom webhooks when a session stalls or finishes.
+- **Notes** — scoped scratchpad for capturing ideas. Notes can be global, project-scoped, or session-scoped. Push a note directly into a terminal session, filter by project or session, and sync across all connected dashboards.
 - **File viewer** — browse project files, view text with line numbers, render Markdown, display images and SVGs, preview PDFs, and download files — all from the dashboard.
 - **File upload** — drag-and-drop, paste, or tap to upload files into a session; insert the path or copy it to clipboard.
 - **IDE plugins** — VS Code and JetBrains plugins for managing sessions without leaving your editor.
@@ -434,6 +435,7 @@ The web dashboard is a single HTML file served by the be-conductor server. See [
 - **Font size controls** — per-panel `+` / `−` buttons, adaptive defaults for desktop and mobile
 - **Notifications** — browser notifications and webhooks (Telegram, Discord, Slack, custom). Includes deep links to the stalled session. Smart suppression: only fires when you're not looking at the dashboard. Setup guides: [Telegram](docs/notification_telegram.md), [Slack](docs/notification_slack.md)
 - **Cross-server notification sync** — push webhook config to all connected machines in one click
+- **Notes** — scoped scratchpad (global, project, session). Scope combo box with icons, filter chips for quick toggling, push notes into terminal sessions, inline editing, markdown export, multi-client sync via WebSocket
 - **File viewer** — browse project files, view text with line numbers, render Markdown and SVG, display images, preview PDFs, download files. Clickable file paths in console output open the viewer directly
 - **File upload** — drag-and-drop, clipboard paste (Ctrl+V), or attachment button (mobile). Progress dialog, path insertion, auto-cleanup on session end
 - **Session discovery** — Resume tab finds external sessions from Claude Code, Codex, Copilot, Gemini, and Goose. Filter by agent, resume closed sessions, or observe live ones with agent-specific formatting

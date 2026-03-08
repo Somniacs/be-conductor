@@ -34,6 +34,8 @@ _SAFE_NAME = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9 _.~-]{0,63}$")
 
 from be_conductor.external.observer import SessionObserver
 from be_conductor.external.scanner import ExternalSessionScanner
+from be_conductor.notes import store as notes_store
+from be_conductor.notes import export as notes_export
 from be_conductor.notifications.manager import NotificationEvent
 from urllib.parse import quote
 
@@ -970,11 +972,13 @@ async def kill_session(session_id: str):
     session = registry.get(session_id)
     if session:
         await registry.remove(session_id)
+        notes_store.delete_by_session(session_id)
         return {"status": "killed"}
 
     # Maybe it's a resumable entry — dismiss it.
     if session_id in registry.resumable:
         registry.dismiss_resumable(session_id)
+        notes_store.delete_by_session(session_id)
         return {"status": "dismissed"}
 
     raise HTTPException(status_code=404, detail="Session not found")
@@ -1604,3 +1608,121 @@ async def _stream_typed(ws: WebSocket, session: Any):
             task.cancel()
     finally:
         session.unsubscribe(queue)
+
+
+# ---------------------------------------------------------------------------
+# Notes endpoints
+# ---------------------------------------------------------------------------
+
+class NoteCreate(BaseModel):
+    content: str
+    scope: str = "global"
+    project_id: str | None = None
+    session_id: str | None = None
+
+
+class NoteUpdate(BaseModel):
+    content: str | None = None
+    scope: str | None = None
+    project_id: str | None = None
+    session_id: str | None = None
+
+
+class NoteReorder(BaseModel):
+    order: list[str]
+
+
+async def _broadcast_notes_event(
+    action: str,
+    note: dict | None = None,
+    note_id: str | None = None,
+):
+    """Push note changes to all connected WebSocket clients."""
+    msg = json.dumps({"type": "notes", "action": action, "note": note, "noteId": note_id})
+    dead: list[WebSocket] = []
+    for ws in list(_notification_ws):
+        try:
+            await ws.send_text(msg)
+        except Exception:
+            dead.append(ws)
+    for ws in dead:
+        _notification_ws.pop(ws, None)
+
+
+@router.get("/notes")
+async def list_notes(
+    scope: str | None = None,
+    projectId: str | None = None,
+    sessionId: str | None = None,
+    q: str | None = None,
+):
+    notes = notes_store.list_notes(
+        scope=scope, project_id=projectId, session_id=sessionId, q=q,
+    )
+    return {"notes": notes}
+
+
+@router.post("/notes")
+async def create_note(body: NoteCreate):
+    note = notes_store.create_note(
+        content=body.content,
+        scope=body.scope,
+        project_id=body.project_id,
+        session_id=body.session_id,
+    )
+    await _broadcast_notes_event("created", note=note)
+    return note
+
+
+@router.patch("/notes/reorder")
+async def reorder_notes(body: NoteReorder):
+    notes_store.reorder(body.order)
+    await _broadcast_notes_event("reordered")
+    return {"status": "ok"}
+
+
+@router.patch("/notes/{note_id}")
+async def update_note(note_id: str, body: NoteUpdate):
+    fields = {k: v for k, v in body.model_dump().items() if v is not None}
+    note = notes_store.update_note(note_id, **fields)
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+    await _broadcast_notes_event("updated", note=note)
+    return note
+
+
+@router.delete("/notes/{note_id}")
+async def delete_note(note_id: str):
+    if not notes_store.delete_note(note_id):
+        raise HTTPException(status_code=404, detail="Note not found")
+    await _broadcast_notes_event("deleted", note_id=note_id)
+    return {"status": "deleted"}
+
+
+@router.delete("/notes")
+async def bulk_delete_notes(
+    sessionId: str | None = None,
+    projectId: str | None = None,
+    scope: str | None = None,
+    confirm: bool = False,
+):
+    if sessionId:
+        count = notes_store.delete_by_session(sessionId)
+    elif projectId:
+        count = notes_store.delete_by_project(projectId)
+    elif confirm:
+        count = notes_store.delete_all()
+    else:
+        raise HTTPException(status_code=400, detail="Pass confirm=true to delete all notes")
+    await _broadcast_notes_event("cleared")
+    return {"status": "cleared", "count": count}
+
+
+@router.get("/notes/export")
+async def export_notes(
+    scope: str | None = None,
+    projectId: str | None = None,
+):
+    from fastapi.responses import PlainTextResponse
+    md = notes_export.export_markdown(scope=scope, project_id=projectId)
+    return PlainTextResponse(md, media_type="text/markdown")

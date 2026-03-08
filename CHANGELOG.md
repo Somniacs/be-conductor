@@ -2,6 +2,31 @@
 
 All notable changes to be-conductor are documented here.
 
+## v0.3.22
+
+### Notes (new)
+
+A lightweight scratchpad for capturing ideas during development sessions. Open it via the lightbulb icon in the sidebar or the hamburger menu.
+
+- **Scoped notes** — notes can be global, project-scoped, or session-scoped. The scope combo box shows concrete projects and sessions with icons (🌐 global, 📁 project, 🖵 session)
+- **Filter chips** — toggle visibility per project or session. Only items with existing notes appear as chips. The focused session and its project are preselected and highlighted with bold text and a blue border
+- **Context bar** — shows the currently focused session and project at the top of the drawer
+- **Push to session** — send a note's content directly into the focused terminal session (← button). Warns if the note belongs to a different session/project. After sending, the drawer closes and the target session is focused
+- **Session scope pills** — session notes show "project / session" in the pill for clarity
+- **Copy to clipboard** — copy note content with one click
+- **Inline editing** — click a note to edit it in place
+- **Draggable divider** — resize the input area by dragging the handle between the notes list and textarea
+- **Clear button** — quickly discard typed text with a × button in the input area
+- **Markdown export** — export all notes as a formatted `.md` file
+- **Session cascade** — deleting a session automatically removes its scoped notes
+- **Multi-client sync** — notes changes broadcast via WebSocket to all connected dashboards. New scopes from remote clients are auto-activated in filter chips
+- **SQLite storage** — notes persist in `~/.be-conductor/notes.db` using Python stdlib `sqlite3`
+
+### Improvements
+
+- **Active panel indicator** — focused session panel now shows a blue left-edge accent bar with a subtle glow, making it immediately clear which panel is active
+- **Terminal focus on click** — clicking anywhere on a panel (including the title bar) sets both visual focus and terminal cursor on desktop. On mobile/tablet, only visual focus is set to avoid unwanted keyboard popups
+
 ## v0.3.21
 
 ### File viewer (new)

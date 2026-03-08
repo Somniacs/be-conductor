@@ -38,6 +38,7 @@ PID_FILE = CONDUCTOR_DIR / "server.pid"
 TOKEN_FILE = CONDUCTOR_DIR / "token"
 USER_CONFIG_FILE = CONDUCTOR_DIR / "config.yaml"
 WORKTREES_FILE = CONDUCTOR_DIR / "worktrees.json"
+NOTES_DB = CONDUCTOR_DIR / "notes.db"
 
 # ── Defaults (overridden by ~/.be-conductor/config.yaml if it exists) ───────
 

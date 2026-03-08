@@ -696,13 +696,180 @@
             .file-sidebar { display: none; }
         }
 
+        /* Notes drawer */
+        #notes-drawer {
+            display: none; position: fixed; top: 0; right: 0; bottom: 0;
+            width: 360px; max-width: 100vw; background: #0e0e22;
+            border-left: 1px solid #2a2a5a; z-index: 10000;
+            flex-direction: column; transform: translateX(100%);
+            transition: transform 0.2s ease;
+        }
+        #notes-drawer.open { display: flex; transform: translateX(0); }
+        .notes-header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 12px 16px; border-bottom: 1px solid #2a2a5a;
+            font-size: 15px; font-weight: 600; color: #d0d0e8;
+        }
+        .notes-header button {
+            background: none; border: none; color: #8080a0; font-size: 20px;
+            cursor: pointer; padding: 0 4px; line-height: 1;
+        }
+        .notes-header button:hover { color: #e0e0f0; }
+        .notes-context-bar {
+            padding: 4px 12px; font-size: 11px; color: #5a5a8a;
+            background: #0c0c20; border-bottom: 1px solid #1a1a3a;
+            display: flex; align-items: center; gap: 6px;
+        }
+        .notes-context-bar .ctx-label { color: #6060ff; font-weight: 600; }
+        .notes-scope-tabs {
+            display: flex; gap: 0; border-bottom: 1px solid #2a2a5a;
+            padding: 0 12px;
+        }
+        .notes-scope-tabs button {
+            background: none; border: none; border-bottom: 2px solid transparent;
+            color: #7878a0; font-size: 12px; padding: 8px 10px; cursor: pointer;
+            transition: color 0.15s, border-color 0.15s;
+        }
+        .notes-scope-tabs button:hover { color: #b0b0d0; }
+        .notes-scope-tabs button.active { color: #d0d0e8; border-bottom-color: #6060ff; }
+        .notes-filters {
+            display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 12px;
+            border-bottom: 1px solid #1a1a3a; min-height: 0;
+        }
+        .notes-filters:empty { display: none; }
+        .notes-filter-chip {
+            background: #1e1e4a; color: #7878b8; border: 1px solid #2a2a5a;
+            border-radius: 12px; padding: 2px 8px; font-size: 10px; cursor: pointer;
+            user-select: none; transition: opacity 0.15s, background 0.15s;
+        }
+        .notes-filter-chip.active { background: #2a2a6a; color: #d0d0e8; border-color: #4a4a8a; }
+        .notes-filter-chip:not(.active) { opacity: 0.45; }
+        .notes-filter-chip:hover { opacity: 1; }
+        .notes-filter-chip.current { border-color: #6060ff; background: #2a2a6a; color: #d0d0ff; box-shadow: 0 0 6px rgba(96,96,255,0.4); opacity: 1; font-weight: 700; }
+        .notes-list {
+            flex: 1; overflow-y: auto; padding: 8px 12px;
+        }
+        .notes-empty {
+            color: #5a5a7a; font-size: 13px; text-align: center;
+            padding: 40px 20px; line-height: 1.5;
+        }
+        .note-card {
+            background: #16163a; border: 1px solid #2a2a5a; border-radius: 6px;
+            padding: 10px 12px; margin-bottom: 8px; position: relative;
+        }
+        .note-card:hover { border-color: #3a3a6a; }
+        .note-content {
+            color: #d0d0e0; font-size: 13px; line-height: 1.5;
+            white-space: pre-wrap; word-break: break-word; cursor: text;
+        }
+        .note-content:empty::before {
+            content: 'Empty note'; color: #5a5a7a; font-style: italic;
+        }
+        .note-meta {
+            display: flex; align-items: center; gap: 8px;
+            margin-top: 8px; font-size: 11px; color: #5a5a7a;
+        }
+        .note-scope-pill {
+            background: #1e1e4a; color: #7878b8; border-radius: 3px;
+            padding: 1px 6px; font-size: 10px;
+        }
+        .note-send {
+            background: #1e1e4a; border: 1px solid #3a3a6a; color: #8080c0; cursor: pointer;
+            padding: 1px 6px; font-size: 13px; border-radius: 3px; font-weight: 700;
+            line-height: 1; flex: 0 0 auto;
+        }
+        .note-send:hover { color: #d0d0ff; background: #2a2a6a; border-color: #6060ff; }
+        .note-send:disabled { opacity: 0.3; cursor: default; }
+        .note-actions {
+            display: flex; gap: 4px; margin-left: auto;
+        }
+        .note-actions button {
+            background: none; border: none; color: #5a5a7a; cursor: pointer;
+            padding: 2px 5px; font-size: 13px; border-radius: 3px;
+        }
+        .note-actions button:hover { color: #b0b0d0; background: #1e1e4a; }
+        .note-actions button.note-del:hover { color: #ff6060; }
+        .notes-input-area {
+            border-top: 1px solid #2a2a5a; padding: 12px;
+            flex: 0 0 auto; display: flex; flex-direction: column;
+        }
+        .notes-input-area textarea {
+            width: 100%; background: #0a0a1a; border: 1px solid #2a2a5a;
+            border-radius: 6px; color: #d0d0e0; font-size: 13px; padding: 8px 10px;
+            resize: none; font-family: inherit; box-sizing: border-box;
+            flex: 1; min-height: 40px;
+        }
+        .notes-input-area textarea:focus { outline: none; border-color: #4a4a8a; }
+        .notes-input-actions {
+            display: flex; align-items: center; gap: 8px; margin-top: 8px;
+        }
+        .notes-scope-select {
+            background: #1e1e4a; color: #7878b8; border: 1px solid #2a2a5a;
+            border-radius: 3px; padding: 2px 6px; font-size: 11px; cursor: pointer;
+            outline: none; font-family: inherit;
+        }
+        .notes-scope-select:focus { border-color: #4a4a8a; }
+        .notes-scope-select option { background: #0e0e22; color: #d0d0e0; }
+        .notes-input-clear {
+            background: none !important; border: none; color: #5a5a7a; cursor: pointer;
+            padding: 4px 6px !important; font-size: 13px; margin-left: auto !important;
+            border-radius: 3px;
+        }
+        .notes-input-clear:hover { color: #ff6060 !important; background: #1e1e4a !important; }
+        .notes-input-actions button:not(.notes-input-clear) {
+            background: #2a2a6a; border: none; color: #d0d0e8;
+            padding: 5px 16px; border-radius: 4px; cursor: pointer; font-size: 13px;
+        }
+        .notes-input-actions button:hover { background: #3a3a8a; }
+        .notes-export-btn {
+            background: none; border: none; color: #5a5a7a; cursor: pointer;
+            font-size: 12px; padding: 4px 8px;
+        }
+        .notes-export-btn:hover { color: #b0b0d0; text-decoration: underline; }
+        .notes-resize-handle {
+            height: 6px; cursor: row-resize; background: transparent;
+            display: flex; align-items: center; justify-content: center;
+            flex: 0 0 6px; user-select: none; -webkit-user-select: none;
+        }
+        .notes-resize-handle::after {
+            content: ''; display: block; width: 32px; height: 2px;
+            background: #2a2a5a; border-radius: 1px;
+        }
+        .notes-resize-handle:hover::after,
+        .notes-resize-handle.active::after { background: #5a5a8a; }
+        .notes-footer {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 0 12px 8px;
+        }
+        .notes-clear-btn {
+            background: none; border: none; color: #5a5a7a; cursor: pointer;
+            font-size: 12px; padding: 4px 8px;
+        }
+        .notes-clear-btn:hover { color: #ff6060; }
+        .notes-backdrop {
+            display: none; position: fixed; inset: 0; z-index: 9999;
+            background: rgba(0,0,0,0.3);
+        }
+        .notes-backdrop.open { display: block; }
+        @media (max-width: 700px) {
+            #notes-drawer { width: 100vw; max-width: 100vw; }
+        }
+
+        /* Notes lightbulb icon in sidebar-actions */
+        .sidebar-actions .notes-toggle-btn {
+            flex: 0 0 auto !important; padding: 7px 8px;
+            color: #7878a0; display: inline-flex; align-items: center; justify-content: center;
+        }
+        .sidebar-actions .notes-toggle-btn:hover { color: #d0d0e8; }
+        .sidebar-actions .notes-toggle-btn svg { width: 14px; height: 14px; }
+
         /* Confirm dialog */
         .confirm-overlay {
             display: none;
             position: fixed;
             inset: 0;
             background: rgba(0,0,0,0.5);
-            z-index: 1000;
+            z-index: 20000;
             align-items: center;
             justify-content: center;
         }
@@ -1122,6 +1289,7 @@
             user-select: none;
             -webkit-user-select: none;
         }
+        .panel-focused { box-shadow: inset 4px 0 0 #6060ff, inset 8px 0 6px -4px rgba(96,96,255,0.15); }
         .panel-focused .panel-header { background: #1a1a48; border-bottom: 1px solid #4040aa; }
         .panel-focused .panel-header .panel-title { color: #d0d0ff; }
         .panel-header-actions {
@@ -2298,20 +2466,19 @@
                 <div class="menu-wrapper">
                     <button class="menu-btn" onclick="toggleMenu()" title="Menu">&#9776;</button>
                     <div class="menu-dropdown" id="hamburger-menu">
+                        <a onclick="toggleMenu();toggleNotesDrawer()">Notes</a>
                         <a id="settings-menu-item" style="display:none" onclick="toggleMenu();toggleSettingsDialog()">Settings</a>
-                        <div class="menu-sep"></div>
-                        <a onclick="toggleMenu();openFileViewer('~')">Files</a>
                         <div class="menu-sep"></div>
                         <a onclick="toggleMenu();toggleQR()">Link Device</a>
                         <div class="menu-sep"></div>
                         <a href="https://github.com/somniacs/be-conductor/blob/master/README.md" target="_blank" onclick="toggleMenu()">Help</a>
-                        <div class="menu-sep"></div>
                         <a onclick="toggleMenu();toggleAbout()">About</a>
                     </div>
                 </div>
             </div>
             <div class="sidebar-actions">
                 <button onclick="toggleNewSession()">+ New</button>
+                <button class="notes-toggle-btn" onclick="toggleNotesDrawer()" title="Notes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/></svg></button>
             </div>
             <div class="server-status" id="server-status"><span class="spinner"></span>Server disconnected</div>
             <div id="session-list"></div>
@@ -2513,6 +2680,41 @@
             <div class="file-sidebar" id="file-sidebar"></div>
             <div class="file-content" id="file-content">
                 <div class="file-empty">Select a file to view its contents</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="notes-backdrop" id="notes-backdrop" onclick="closeNotesDrawer()"></div>
+    <div id="notes-drawer">
+        <div class="notes-header">
+            <span>Notes</span>
+            <button onclick="closeNotesDrawer()" title="Close">&times;</button>
+        </div>
+        <div class="notes-context-bar" id="notes-context-bar"></div>
+        <div class="notes-scope-tabs" id="notes-scope-tabs">
+            <button class="active" data-scope="all" onclick="setNotesFilter('all')">All</button>
+            <button data-scope="global" onclick="setNotesFilter('global')"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-1px;margin-right:2px;opacity:0.6"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>Global</button>
+            <button data-scope="project" onclick="setNotesFilter('project')"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:-1px;margin-right:2px;opacity:0.6"><path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>Project</button>
+            <button data-scope="session" onclick="setNotesFilter('session')"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-1px;margin-right:2px;opacity:0.6"><rect x="2" y="3" width="20" height="18" rx="2"/><line x1="2" y1="7" x2="22" y2="7"/></svg>Session</button>
+        </div>
+        <div class="notes-filters" id="notes-filters"></div>
+        <div class="notes-list" id="notes-list">
+            <div class="notes-empty">No notes yet. Jot down an idea below.</div>
+        </div>
+        <div class="notes-resize-handle" id="notes-resize-handle"></div>
+        <div class="notes-footer">
+            <button class="notes-export-btn" onclick="exportNotes()" title="Export as Markdown">Export</button>
+            <button class="notes-clear-btn" onclick="clearAllNotes()" title="Delete all notes">Clear all</button>
+        </div>
+        <div class="notes-input-area">
+            <textarea id="notes-input" placeholder="Jot a note..." rows="2"></textarea>
+            <div class="notes-input-actions">
+                <select class="notes-scope-select" id="notes-scope-select" onchange="onNoteScopeChange(this.value)">
+                    <option value="global">global</option>
+                    <option value="project">project</option>
+                </select>
+                <button class="notes-input-clear" onclick="document.getElementById('notes-input').value=''" title="Clear">✕</button>
+                <button onclick="addNote()">Add</button>
             </div>
         </div>
     </div>
@@ -3304,6 +3506,10 @@
                     });
                 }
             }
+            // Update notes drawer context if open (don't reset filter preselection)
+            if (document.getElementById('notes-drawer').classList.contains('open')) {
+                _updateNotesContext();
+            }
         }
 
         // Double-click title bar to maximize/restore a panel
@@ -3794,12 +4000,17 @@
                 }
             });
 
-            // Clicking anywhere on the panel sets focus (but not from header buttons)
+            // Clicking anywhere on the panel sets focus; on desktop also activate terminal
             div.addEventListener('mousedown', (e) => {
-                if (!e.target.closest('.panel-header-actions')) setFocus(panel.id);
+                if (!e.target.closest('.panel-header-actions')) {
+                    setFocus(panel.id);
+                    if (panel.terminal && !('ontouchstart' in window)) panel.terminal.focus();
+                }
             });
             div.addEventListener('touchstart', (e) => {
-                if (!e.target.closest('.panel-header-actions')) setFocus(panel.id);
+                if (!e.target.closest('.panel-header-actions')) {
+                    setFocus(panel.id);
+                }
             }, { passive: true });
         }
 
@@ -5018,6 +5229,10 @@
                             _handleServerNotification(msg, panel);
                             return;
                         }
+                        if (msg.type === 'notes') {
+                            if (_notesLoaded) fetchNotes();
+                            return;
+                        }
                         if (msg.type === 'resize') {
                             // Another client resized — match their size
                             if (msg.owner && msg.owner !== panel._clientId && msg.rows && msg.cols) {
@@ -5212,12 +5427,17 @@
                 });
             }
 
-            // Clicking sets focus
+            // Clicking sets focus; on desktop also activate terminal
             div.addEventListener('mousedown', (e) => {
-                if (!e.target.closest('.panel-header-actions')) setFocus(panel.id);
+                if (!e.target.closest('.panel-header-actions')) {
+                    setFocus(panel.id);
+                    if (panel.terminal && !('ontouchstart' in window)) panel.terminal.focus();
+                }
             });
             div.addEventListener('touchstart', (e) => {
-                if (!e.target.closest('.panel-header-actions')) setFocus(panel.id);
+                if (!e.target.closest('.panel-header-actions')) {
+                    setFocus(panel.id);
+                }
             }, { passive: true });
         }
 
@@ -8751,6 +8971,620 @@
             a.click();
             document.body.removeChild(a);
         }
+
+        // -----------------------------------------------------------------
+        // Notes drawer
+        // -----------------------------------------------------------------
+
+        let _notes = [];
+        let _notesFilter = 'all';
+        let _noteInputScope = 'global';
+        let _notesLoaded = false;
+        let _notesActiveFilters = new Set(); // tracks active filter chip keys
+
+        async function toggleNotesDrawer() {
+            const d = document.getElementById('notes-drawer');
+            if (d.classList.contains('open')) {
+                closeNotesDrawer();
+            } else {
+                await openNotesDrawer();
+            }
+        }
+        async function openNotesDrawer() {
+            document.getElementById('notes-drawer').classList.add('open');
+            document.getElementById('notes-backdrop').classList.add('open');
+            if (!_notesLoaded) await fetchNotes();
+            _autoDetectNoteScope();
+        }
+        function closeNotesDrawer() {
+            document.getElementById('notes-drawer').classList.remove('open');
+            document.getElementById('notes-backdrop').classList.remove('open');
+        }
+
+        // --- Notes resize handle ---
+        (function() {
+            const handle = document.getElementById('notes-resize-handle');
+            const drawer = document.getElementById('notes-drawer');
+            const inputArea = drawer.querySelector('.notes-input-area');
+            let dragging = false, startY = 0, startH = 0;
+            function onStart(y) {
+                dragging = true; startY = y;
+                startH = inputArea.offsetHeight;
+                handle.classList.add('active');
+                document.body.style.cursor = 'row-resize';
+                document.body.style.userSelect = 'none';
+            }
+            function onMove(y) {
+                if (!dragging) return;
+                const delta = startY - y;
+                const newH = Math.max(60, Math.min(startH + delta, drawer.offsetHeight * 0.7));
+                inputArea.style.height = newH + 'px';
+                inputArea.style.flex = '0 0 ' + newH + 'px';
+            }
+            function onEnd() {
+                if (!dragging) return;
+                dragging = false;
+                handle.classList.remove('active');
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+            }
+            handle.addEventListener('mousedown', e => { e.preventDefault(); onStart(e.clientY); });
+            document.addEventListener('mousemove', e => onMove(e.clientY));
+            document.addEventListener('mouseup', onEnd);
+            handle.addEventListener('touchstart', e => { e.preventDefault(); onStart(e.touches[0].clientY); }, {passive: false});
+            document.addEventListener('touchmove', e => { if (dragging) onMove(e.touches[0].clientY); }, {passive: true});
+            document.addEventListener('touchend', onEnd);
+        })();
+
+        function _updateNoteScopeSelect() {
+            const sel = document.getElementById('notes-scope-select');
+            if (!sel) return;
+            const prev = sel.value;
+            let html = '<option value="global">\u{1F310} Global</option>';
+            // Collect unique projects from open panels
+            const projects = new Map();
+            panels.forEach(p => {
+                if (p.cwd && !projects.has(p.cwd)) {
+                    projects.set(p.cwd, p.cwd.split('/').pop() || p.cwd);
+                }
+            });
+            // Also include projects from notes (closed sessions)
+            _notes.forEach(n => {
+                if (n.scope === 'project' && n.project_id && !projects.has(n.project_id)) {
+                    projects.set(n.project_id, n.project_id.split('/').pop() || n.project_id);
+                }
+            });
+            for (const [cwd, name] of projects) {
+                html += `<option value="project:${cwd}">\u{1F4C1} ${escHtml(name)}</option>`;
+            }
+            // Add each open session
+            const seen = new Set();
+            panels.forEach(p => {
+                if (p.sessionId && !seen.has(p.sessionId)) {
+                    seen.add(p.sessionId);
+                    const label = p.name || p.sessionId;
+                    html += `<option value="session:${p.sessionId}">\u{1F5B5} ${escHtml(label)}</option>`;
+                }
+            });
+            // Also include sessions from notes (closed sessions)
+            _notes.forEach(n => {
+                if (n.scope === 'session' && n.session_id && !seen.has(n.session_id)) {
+                    seen.add(n.session_id);
+                    html += `<option value="session:${n.session_id}">\u{1F5B5} ${escHtml(n.session_id)}</option>`;
+                }
+            });
+            sel.innerHTML = html;
+            if ([...sel.options].some(o => o.value === prev)) {
+                sel.value = prev;
+            }
+        }
+
+        function _autoDetectNoteScope() {
+            const ctx = _notesCurrentContext();
+            _updateNoteScopeSelect();
+            const sel = document.getElementById('notes-scope-select');
+            if (!sel) return;
+            if (ctx.sessionId) {
+                const val = 'session:' + ctx.sessionId;
+                if ([...sel.options].some(o => o.value === val)) {
+                    sel.value = val;
+                    _noteInputScope = val;
+                } else {
+                    sel.value = 'global';
+                    _noteInputScope = 'global';
+                }
+                _setNotesTab('session');
+            } else if (ctx.projectId) {
+                const val = 'project:' + ctx.projectId;
+                if ([...sel.options].some(o => o.value === val)) {
+                    sel.value = val;
+                    _noteInputScope = val;
+                } else {
+                    sel.value = 'global';
+                    _noteInputScope = 'global';
+                }
+                _setNotesTab('project');
+            } else {
+                sel.value = 'global';
+                _noteInputScope = 'global';
+                _setNotesTab('all');
+            }
+            // Preselect filters: only the focused session + its project
+            const newFilters = new Set();
+            // Keep _seen_ keys so new items don't reset everything
+            for (const k of _notesActiveFilters) {
+                if (k.startsWith('_seen_')) newFilters.add(k);
+            }
+            if (ctx.sessionId) {
+                newFilters.add('session:' + ctx.sessionId);
+            }
+            if (ctx.projectId) {
+                newFilters.add('project:' + ctx.projectId);
+            }
+            // If no context, activate all
+            if (!ctx.sessionId && !ctx.projectId) {
+                for (const k of _notesActiveFilters) {
+                    if (!k.startsWith('_seen_')) newFilters.add(k);
+                }
+            }
+            _notesActiveFilters = newFilters;
+
+            // Update context bar
+            const bar = document.getElementById('notes-context-bar');
+            if (bar) {
+                const fp = panels.find(p => p.id === focusedPanelId);
+                if (fp && fp.sessionId) {
+                    const proj = fp.cwd ? fp.cwd.split('/').pop() : '';
+                    bar.innerHTML = '<span class="ctx-label">▸ ' + escHtml(fp.name || fp.sessionId) + '</span>'
+                        + (proj ? ' <span style="color:#4a4a7a">·</span> ' + escHtml(proj) : '');
+                } else {
+                    bar.innerHTML = '<span style="color:#4a4a7a">No session focused</span>';
+                }
+            }
+        }
+
+        function _updateNotesContext() {
+            const ctx = _notesCurrentContext();
+            _updateNoteScopeSelect();
+            const sel = document.getElementById('notes-scope-select');
+            if (sel && ctx.sessionId) {
+                const val = 'session:' + ctx.sessionId;
+                if ([...sel.options].some(o => o.value === val)) {
+                    sel.value = val; _noteInputScope = val;
+                }
+            } else if (sel && ctx.projectId) {
+                const val = 'project:' + ctx.projectId;
+                if ([...sel.options].some(o => o.value === val)) {
+                    sel.value = val; _noteInputScope = val;
+                }
+            }
+            // Update context bar
+            const bar = document.getElementById('notes-context-bar');
+            if (bar) {
+                const fp = panels.find(p => p.id === focusedPanelId);
+                if (fp && fp.sessionId) {
+                    const proj = fp.cwd ? fp.cwd.split('/').pop() : '';
+                    bar.innerHTML = '<span class="ctx-label">▸ ' + escHtml(fp.name || fp.sessionId) + '</span>'
+                        + (proj ? ' <span style="color:#4a4a7a">·</span> ' + escHtml(proj) : '');
+                } else {
+                    bar.innerHTML = '<span style="color:#4a4a7a">No session focused</span>';
+                }
+            }
+            renderNotes();
+        }
+
+        function _setNotesTab(scope) {
+            _notesFilter = scope;
+            document.querySelectorAll('#notes-scope-tabs button').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.scope === scope);
+            });
+            renderNotes();
+        }
+
+        function onNoteScopeChange(val) {
+            _noteInputScope = val;
+        }
+
+        function _buildNoteFilterChips() {
+            const container = document.getElementById('notes-filters');
+            if (!container) return;
+            // Only show chips for items that actually have notes
+            const projects = new Map();
+            const sessions = new Map();
+            _notes.forEach(n => {
+                if (n.scope === 'project' && n.project_id && !projects.has(n.project_id)) {
+                    const p = panels.find(pp => pp.cwd === n.project_id);
+                    projects.set(n.project_id, p ? (p.cwd.split('/').pop() || p.cwd) : (n.project_id.split('/').pop() || n.project_id));
+                }
+                if (n.scope === 'session' && n.session_id && !sessions.has(n.session_id)) {
+                    const p = panels.find(pp => pp.sessionId === n.session_id);
+                    sessions.set(n.session_id, p ? (p.name || p.sessionId) : n.session_id);
+                }
+            });
+            // Build all possible filter keys — only add new keys that haven't been seen
+            const allKeys = new Set();
+            for (const k of projects.keys()) allKeys.add('project:' + k);
+            for (const k of sessions.keys()) allKeys.add('session:' + k);
+            // Remove stale keys that no longer exist in notes
+            for (const k of [..._notesActiveFilters]) {
+                if (!k.startsWith('_seen_') && !allKeys.has(k)) _notesActiveFilters.delete(k);
+            }
+            // Auto-activate new keys not yet seen (e.g. note added from another client)
+            for (const k of allKeys) {
+                if (!_notesActiveFilters.has('_seen_' + k)) {
+                    _notesActiveFilters.add('_seen_' + k);
+                    _notesActiveFilters.add(k);
+                }
+            }
+            const ctx = _notesCurrentContext();
+            // Show only relevant chips for the active tab
+            const showProjects = _notesFilter === 'all' || _notesFilter === 'project';
+            const showSessions = _notesFilter === 'all' || _notesFilter === 'session';
+            let html = '';
+            if (showProjects && projects.size > 0) {
+                for (const [id, name] of projects) {
+                    const key = 'project:' + id;
+                    const active = _notesActiveFilters.has(key);
+                    const isCurrent = ctx.projectId === id;
+                    html += `<span class="notes-filter-chip${active ? ' active' : ''}${isCurrent ? ' current' : ''}" onclick="_toggleNoteFilter('${escHtml(key)}')"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:-1px;margin-right:3px;opacity:0.6"><path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>${escHtml(name)}</span>`;
+                }
+            }
+            if (showSessions && sessions.size > 0) {
+                for (const [id, name] of sessions) {
+                    const key = 'session:' + id;
+                    const active = _notesActiveFilters.has(key);
+                    const isCurrent = ctx.sessionId === id;
+                    html += `<span class="notes-filter-chip${active ? ' active' : ''}${isCurrent ? ' current' : ''}" onclick="_toggleNoteFilter('${escHtml(key)}')"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-1px;margin-right:3px;opacity:0.6"><rect x="2" y="3" width="20" height="18" rx="2"/><line x1="2" y1="7" x2="22" y2="7"/></svg>${escHtml(name)}</span>`;
+                }
+            }
+            container.innerHTML = html;
+        }
+
+        function _toggleNoteFilter(key) {
+            if (_notesActiveFilters.has(key)) {
+                _notesActiveFilters.delete(key);
+            } else {
+                _notesActiveFilters.add(key);
+            }
+            _buildNoteFilterChips();
+            renderNotes();
+        }
+
+        function _notesCurrentContext() {
+            const focused = panels.find(p => p.id === focusedPanelId);
+            if (!focused || !focused.sessionId) return {};
+            return {
+                sessionId: focused.sessionId,
+                projectId: focused.cwd || null,
+                server: focused.server || 'local',
+            };
+        }
+
+        function _notesApiUrl(path) {
+            // Notes are always on the local server
+            return serverUrl('local', path);
+        }
+
+        async function fetchNotes() {
+            try {
+                const resp = await fetch(_notesApiUrl('/notes'), {});
+                if (!resp.ok) return;
+                const data = await resp.json();
+                _notes = data.notes || [];
+                _notesLoaded = true;
+                renderNotes();
+            } catch (e) { /* ignore */ }
+        }
+
+        function renderNotes() {
+            const list = document.getElementById('notes-list');
+            if (!list) return;
+            _buildNoteFilterChips();
+            const ctx = _notesCurrentContext();
+            let filtered = _notes;
+            if (_notesFilter === 'global') {
+                filtered = _notes.filter(n => n.scope === 'global');
+            } else if (_notesFilter === 'project') {
+                filtered = _notes.filter(n => n.scope === 'project');
+            } else if (_notesFilter === 'session') {
+                filtered = _notes.filter(n => n.scope === 'session');
+            }
+            // Apply chip filters — hide deselected projects/sessions
+            filtered = filtered.filter(n => {
+                if (n.scope === 'project' && n.project_id) {
+                    return _notesActiveFilters.has('project:' + n.project_id);
+                }
+                if (n.scope === 'session' && n.session_id) {
+                    return _notesActiveFilters.has('session:' + n.session_id);
+                }
+                return true; // global notes always shown
+            });
+
+            if (filtered.length === 0) {
+                list.innerHTML = '<div class="notes-empty">No notes yet. Jot down an idea below.</div>';
+                return;
+            }
+
+            const focusedPanel = panels.find(p => p.id === focusedPanelId);
+            const targetName = focusedPanel ? focusedPanel.name : null;
+            list.innerHTML = filtered.map(n => {
+                const ts = _notesRelTime(n.created_at);
+                let scopeLabel = n.scope;
+                if (n.scope === 'session' && n.session_id) {
+                    const p = panels.find(pp => pp.sessionId === n.session_id);
+                    const sessionName = p ? p.name : n.session_id;
+                    const projectName = n.project_id ? n.project_id.split('/').pop() : null;
+                    scopeLabel = projectName ? projectName + ' / ' + sessionName : sessionName;
+                } else if (n.scope === 'project' && n.project_id) {
+                    scopeLabel = n.project_id.split('/').pop();
+                }
+                const sendTitle = targetName ? `Send to "${targetName}"` : 'No session focused';
+                return `<div class="note-card" data-id="${n.id}">
+                    <div class="note-content" onclick="editNoteInline('${n.id}')">${escHtml(n.content)}</div>
+                    <div class="note-meta">
+                        <button class="note-send" onclick="pushNoteToSession('${n.id}')" title="${sendTitle}"${targetName ? '' : ' disabled'}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></button>
+                        <span class="note-scope-pill">${_noteScopeIcon(n.scope)}${escHtml(scopeLabel)}</span>
+                        <span>${ts}</span>
+                        <div class="note-actions">
+                            <button onclick="copyNote('${n.id}')" title="Copy to clipboard">📋</button>
+                            <button class="note-del" onclick="deleteNote('${n.id}')" title="Delete">✕</button>
+                        </div>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        function _noteScopeIcon(scope) {
+            const s = 'width="9" height="9" style="vertical-align:-1px;margin-right:3px;opacity:0.6"';
+            if (scope === 'global') return `<svg ${s} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`;
+            if (scope === 'project') return `<svg ${s} viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>`;
+            if (scope === 'session') return `<svg ${s} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="18" rx="2"/><line x1="2" y1="7" x2="22" y2="7"/></svg>`;
+            return '';
+        }
+
+        function _notesRelTime(iso) {
+            try {
+                const d = new Date(iso);
+                if (isNaN(d.getTime())) return iso;
+                const diff = (Date.now() - d.getTime()) / 1000;
+                if (diff < 0) return 'just now';
+                if (diff < 60) return 'just now';
+                if (diff < 3600) return Math.floor(diff / 60) + ' min ago';
+                if (diff < 86400) return Math.floor(diff / 3600) + ' h ago';
+                if (diff < 604800) return Math.floor(diff / 86400) + ' d ago';
+                const mm = String(d.getMonth() + 1).padStart(2, '0');
+                const dd = String(d.getDate()).padStart(2, '0');
+                const hh = String(d.getHours()).padStart(2, '0');
+                const mi = String(d.getMinutes()).padStart(2, '0');
+                return mm + '-' + dd + ' ' + hh + ':' + mi;
+            } catch (e) { return ''; }
+        }
+
+        async function addNote() {
+            const input = document.getElementById('notes-input');
+            const text = (input.value || '').trim();
+            if (!text) return;
+            const ctx = _notesCurrentContext();
+            const body = { content: text };
+            if (_noteInputScope.startsWith('session:')) {
+                body.scope = 'session';
+                body.session_id = _noteInputScope.slice(8);
+                const panel = panels.find(p => p.sessionId === body.session_id);
+                if (panel && panel.cwd) body.project_id = panel.cwd;
+            } else if (_noteInputScope.startsWith('project:')) {
+                body.scope = 'project';
+                body.project_id = _noteInputScope.slice(8);
+            } else {
+                body.scope = 'global';
+            }
+            try {
+                const resp = await fetch(_notesApiUrl('/notes'), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', },
+                    body: JSON.stringify(body),
+                });
+                if (resp.ok) {
+                    input.value = '';
+                    // Ensure the filter chip for this note is active
+                    if (body.scope === 'session' && body.session_id) {
+                        _notesActiveFilters.add('session:' + body.session_id);
+                    } else if (body.scope === 'project' && body.project_id) {
+                        _notesActiveFilters.add('project:' + body.project_id);
+                    }
+                    // Switch tab to show the new note
+                    if (_notesFilter !== 'all' && _notesFilter !== body.scope) {
+                        _setNotesTab(body.scope);
+                    }
+                    await fetchNotes();
+                }
+            } catch (e) { /* ignore */ }
+        }
+
+        async function deleteNote(id) {
+            try {
+                await fetch(_notesApiUrl(`/notes/${id}`), {
+                    method: 'DELETE',
+                });
+                await fetchNotes();
+            } catch (e) { /* ignore */ }
+        }
+
+        function copyNote(id) {
+            const note = _notes.find(n => n.id === id);
+            if (!note) return;
+            navigator.clipboard.writeText(note.content).then(() => {
+                _showToast('Copied to clipboard');
+            }).catch(() => {});
+        }
+
+        async function pushNoteToSession(id) {
+            const note = _notes.find(n => n.id === id);
+            if (!note) return;
+            const ctx = _notesCurrentContext();
+            if (!ctx.sessionId) {
+                _showToast('No active session focused');
+                return;
+            }
+            // Warn if the note doesn't belong to the focused session/project
+            const targetPanel = panels.find(p => p.sessionId === ctx.sessionId);
+            const targetName = targetPanel ? targetPanel.name : ctx.sessionId;
+            let mismatch = false;
+            let mismatchMsg = '';
+            if (note.scope === 'session' && note.session_id && note.session_id !== ctx.sessionId) {
+                const srcPanel = panels.find(p => p.sessionId === note.session_id);
+                const srcName = srcPanel ? srcPanel.name : note.session_id;
+                mismatch = true;
+                mismatchMsg = `This note belongs to session "${srcName}". Send it to "${targetName}" instead?`;
+            } else if (note.scope === 'project' && note.project_id && note.project_id !== (targetPanel && targetPanel.cwd)) {
+                const srcProject = note.project_id.split('/').pop();
+                const dstProject = targetPanel && targetPanel.cwd ? targetPanel.cwd.split('/').pop() : targetName;
+                mismatch = true;
+                mismatchMsg = `This note belongs to project "${srcProject}". Send it to session "${targetName}" (${dstProject})?`;
+            }
+            if (mismatch) {
+                const ok = await showConfirm(mismatchMsg);
+                if (!ok) return;
+            }
+            const server = ctx.server || 'local';
+            const targetLabel = targetName;
+            try {
+                const resp = await fetch(serverUrl(server, `/sessions/${ctx.sessionId}/input`), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: note.content + '\n' }),
+                });
+                if (resp.ok) {
+                    _showToast('Sent to "' + targetLabel + '"');
+                    await deleteNote(id);
+                    closeNotesDrawer();
+                    if (targetPanel) {
+                        setFocus(targetPanel.id);
+                    }
+                } else {
+                    _showToast('Failed to send');
+                }
+            } catch (e) {
+                _showToast('Failed to send');
+            }
+        }
+
+        function editNoteInline(id) {
+            const card = document.querySelector(`.note-card[data-id="${id}"]`);
+            if (!card) return;
+            const contentDiv = card.querySelector('.note-content');
+            if (!contentDiv || contentDiv.querySelector('textarea')) return;
+            const note = _notes.find(n => n.id === id);
+            if (!note) return;
+            const ta = document.createElement('textarea');
+            ta.value = note.content;
+            ta.style.cssText = 'width:100%;background:#0a0a1a;border:1px solid #4a4a8a;border-radius:4px;color:#d0d0e0;font-size:13px;padding:6px 8px;resize:none;font-family:inherit;box-sizing:border-box;';
+            ta.rows = Math.max(2, note.content.split('\n').length);
+            contentDiv.innerHTML = '';
+            contentDiv.appendChild(ta);
+            ta.focus();
+
+            const save = async () => {
+                const newText = ta.value.trim();
+                if (newText && newText !== note.content) {
+                    try {
+                        await fetch(_notesApiUrl(`/notes/${id}`), {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json', },
+                            body: JSON.stringify({ content: newText }),
+                        });
+                    } catch (e) { /* ignore */ }
+                }
+                await fetchNotes();
+            };
+            ta.addEventListener('blur', save);
+            ta.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') { ta.removeEventListener('blur', save); fetchNotes(); }
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ta.blur(); }
+            });
+        }
+
+        function setNotesFilter(scope) {
+            _notesFilter = scope;
+            document.querySelectorAll('#notes-scope-tabs button').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.scope === scope);
+            });
+            // Sync the combo box with the tab
+            const sel = document.getElementById('notes-scope-select');
+            if (sel) {
+                const ctx = _notesCurrentContext();
+                if (scope === 'global') {
+                    sel.value = 'global'; _noteInputScope = 'global';
+                } else if (scope === 'project') {
+                    if (ctx.projectId) {
+                        const val = 'project:' + ctx.projectId;
+                        if ([...sel.options].some(o => o.value === val)) {
+                            sel.value = val; _noteInputScope = val;
+                        }
+                    }
+                } else if (scope === 'session') {
+                    if (ctx.sessionId) {
+                        const val = 'session:' + ctx.sessionId;
+                        if ([...sel.options].some(o => o.value === val)) {
+                            sel.value = val; _noteInputScope = val;
+                        }
+                    }
+                }
+                // 'all' keeps current selection
+            }
+            renderNotes();
+        }
+
+        async function exportNotes() {
+            try {
+                const resp = await fetch(_notesApiUrl('/notes/export'), {});
+                if (!resp.ok) return;
+                const text = await resp.text();
+                const blob = new Blob([text], { type: 'text/markdown' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'notes.md';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            } catch (e) { /* ignore */ }
+        }
+
+        async function clearAllNotes() {
+            if (_notes.length === 0) return;
+            const ok = await showConfirm(`Delete all ${_notes.length} notes?`, 'Delete');
+            if (!ok) return;
+            try {
+                await fetch(_notesApiUrl('/notes?confirm=true'), { method: 'DELETE' });
+                await fetchNotes();
+            } catch (e) { /* ignore */ }
+        }
+
+        function _showToast(msg) {
+            const el = document.createElement('div');
+            el.textContent = msg;
+            el.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#2a2a6a;color:#e0e0f0;padding:8px 20px;border-radius:6px;font-size:13px;z-index:20000;opacity:0;transition:opacity 0.3s;';
+            document.body.appendChild(el);
+            requestAnimationFrame(() => el.style.opacity = '1');
+            setTimeout(() => {
+                el.style.opacity = '0';
+                setTimeout(() => el.remove(), 300);
+            }, 2000);
+        }
+
+        // Handle Enter key in notes input
+        document.addEventListener('DOMContentLoaded', () => {
+            const input = document.getElementById('notes-input');
+            if (input) {
+                input.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        addNote();
+                    }
+                });
+            }
+        });
 
     </script>
 </body>
