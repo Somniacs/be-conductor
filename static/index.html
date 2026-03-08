@@ -804,13 +804,33 @@
         .notes-input-actions {
             display: flex; align-items: center; gap: 8px; margin-top: 8px;
         }
-        .notes-scope-select {
-            background: #1e1e4a; color: #7878b8; border: 1px solid #2a2a5a;
-            border-radius: 3px; padding: 2px 6px; font-size: 11px; cursor: pointer;
-            outline: none; font-family: inherit;
+        .notes-scope-dropdown {
+            position: relative; display: inline-block;
         }
-        .notes-scope-select:focus { border-color: #4a4a8a; }
-        .notes-scope-select option { background: #0e0e22; color: #d0d0e0; }
+        .notes-scope-dropdown-btn {
+            background: #1e1e4a; color: #7878b8; border: 1px solid #2a2a5a;
+            border-radius: 3px; padding: 2px 20px 2px 6px; font-size: 11px; cursor: pointer;
+            outline: none; font-family: inherit; display: inline-flex; align-items: center; gap: 3px;
+            white-space: nowrap; position: relative;
+        }
+        .notes-scope-dropdown-btn::after {
+            content: '\25BE'; position: absolute; right: 5px; top: 50%; transform: translateY(-50%);
+            font-size: 10px; pointer-events: none;
+        }
+        .notes-scope-dropdown-btn:hover { border-color: #4a4a8a; color: #b0b0e0; }
+        .notes-scope-dropdown-list {
+            display: none; position: absolute; bottom: 100%; left: 0; margin-bottom: 2px;
+            background: #0e0e22; border: 1px solid #2a2a5a; border-radius: 4px;
+            min-width: 160px; max-height: 200px; overflow-y: auto; z-index: 100;
+            box-shadow: 0 -4px 12px rgba(0,0,0,0.4);
+        }
+        .notes-scope-dropdown-list.open { display: block; }
+        .notes-scope-dropdown-item {
+            padding: 4px 8px; font-size: 11px; cursor: pointer; color: #b0b0e0;
+            display: flex; align-items: center; gap: 4px; white-space: nowrap;
+        }
+        .notes-scope-dropdown-item:hover { background: #1e1e4a; }
+        .notes-scope-dropdown-item.selected { background: #2a2a6a; color: #d0d0ff; }
         .notes-input-clear {
             background: none !important; border: none; color: #5a5a7a; cursor: pointer;
             padding: 4px 6px !important; font-size: 13px; margin-left: auto !important;
@@ -2710,10 +2730,10 @@
         <div class="notes-input-area">
             <textarea id="notes-input" placeholder="Jot a note..." rows="2"></textarea>
             <div class="notes-input-actions">
-                <select class="notes-scope-select" id="notes-scope-select" onchange="onNoteScopeChange(this.value)">
-                    <option value="global">global</option>
-                    <option value="project">project</option>
-                </select>
+                <div class="notes-scope-dropdown" id="notes-scope-dropdown">
+                    <button class="notes-scope-dropdown-btn" id="notes-scope-dropdown-btn" onclick="_toggleScopeDropdown()"></button>
+                    <div class="notes-scope-dropdown-list" id="notes-scope-dropdown-list"></div>
+                </div>
                 <button class="notes-input-clear" onclick="document.getElementById('notes-input').value=''" title="Clear">✕</button>
                 <button onclick="addNote()">Add</button>
             </div>
@@ -9037,77 +9057,100 @@
             document.addEventListener('touchend', onEnd);
         })();
 
+        // -- Custom scope dropdown --
+        let _scopeDropdownItems = []; // [{value, scope, label}]
+
         function _updateNoteScopeSelect() {
-            const sel = document.getElementById('notes-scope-select');
-            if (!sel) return;
-            const prev = sel.value;
-            let html = '<option value="global">\u{1F310} Global</option>';
-            // Collect unique projects from open panels
+            const list = document.getElementById('notes-scope-dropdown-list');
+            if (!list) return;
+            const items = [];
+            items.push({ value: 'global', scope: 'global', label: 'Global' });
+            // Collect unique projects from all sessions + panels + notes
             const projects = new Map();
+            const seenSessions = new Set();
+            const sessionItems = [];
+            // Only include local sessions/projects — notes are stored locally
+            sessions.forEach(s => {
+                if (s._server && s._server !== 'local') return;
+                if (s.cwd && !projects.has(s.cwd)) projects.set(s.cwd, s.cwd.split('/').pop() || s.cwd);
+                const sid = s.name || s.id;
+                if (sid && !seenSessions.has(sid)) { seenSessions.add(sid); sessionItems.push({ id: sid, label: s.name || sid }); }
+            });
             panels.forEach(p => {
-                if (p.cwd && !projects.has(p.cwd)) {
-                    projects.set(p.cwd, p.cwd.split('/').pop() || p.cwd);
-                }
+                if (p.server && p.server !== 'local') return;
+                if (p.cwd && !projects.has(p.cwd)) projects.set(p.cwd, p.cwd.split('/').pop() || p.cwd);
+                if (p.sessionId && !seenSessions.has(p.sessionId)) { seenSessions.add(p.sessionId); sessionItems.push({ id: p.sessionId, label: p.name || p.sessionId }); }
             });
-            // Also include projects from notes (closed sessions)
             _notes.forEach(n => {
-                if (n.scope === 'project' && n.project_id && !projects.has(n.project_id)) {
-                    projects.set(n.project_id, n.project_id.split('/').pop() || n.project_id);
-                }
+                if (n.scope === 'project' && n.project_id && !projects.has(n.project_id)) projects.set(n.project_id, n.project_id.split('/').pop() || n.project_id);
+                if (n.scope === 'session' && n.session_id && !seenSessions.has(n.session_id)) { seenSessions.add(n.session_id); sessionItems.push({ id: n.session_id, label: n.session_id }); }
             });
-            for (const [cwd, name] of projects) {
-                html += `<option value="project:${cwd}">\u{1F4C1} ${escHtml(name)}</option>`;
+            for (const [cwd, name] of projects) items.push({ value: 'project:' + cwd, scope: 'project', label: name });
+            for (const s of sessionItems) items.push({ value: 'session:' + s.id, scope: 'session', label: s.label });
+            _scopeDropdownItems = items;
+            let html = '';
+            for (const it of items) {
+                const sel = it.value === _noteInputScope ? ' selected' : '';
+                html += `<div class="notes-scope-dropdown-item${sel}" data-value="${escHtml(it.value)}" onclick="_selectScopeItem('${escHtml(it.value)}')">${_noteScopeIcon(it.scope)}${escHtml(it.label)}</div>`;
             }
-            // Add each open session
-            const seen = new Set();
-            panels.forEach(p => {
-                if (p.sessionId && !seen.has(p.sessionId)) {
-                    seen.add(p.sessionId);
-                    const label = p.name || p.sessionId;
-                    html += `<option value="session:${p.sessionId}">\u{1F5B5} ${escHtml(label)}</option>`;
-                }
-            });
-            // Also include sessions from notes (closed sessions)
-            _notes.forEach(n => {
-                if (n.scope === 'session' && n.session_id && !seen.has(n.session_id)) {
-                    seen.add(n.session_id);
-                    html += `<option value="session:${n.session_id}">\u{1F5B5} ${escHtml(n.session_id)}</option>`;
-                }
-            });
-            sel.innerHTML = html;
-            if ([...sel.options].some(o => o.value === prev)) {
-                sel.value = prev;
+            list.innerHTML = html;
+            _updateScopeBtn();
+        }
+
+        function _updateScopeBtn() {
+            const btn = document.getElementById('notes-scope-dropdown-btn');
+            if (!btn) return;
+            const item = _scopeDropdownItems.find(i => i.value === _noteInputScope) || _scopeDropdownItems[0];
+            if (item) btn.innerHTML = _noteScopeIcon(item.scope) + escHtml(item.label);
+        }
+
+        function _toggleScopeDropdown() {
+            const list = document.getElementById('notes-scope-dropdown-list');
+            if (!list) return;
+            list.classList.toggle('open');
+        }
+
+        function _selectScopeItem(value) {
+            _noteInputScope = value;
+            _updateScopeBtn();
+            // Highlight selected in list
+            const list = document.getElementById('notes-scope-dropdown-list');
+            if (list) {
+                list.querySelectorAll('.notes-scope-dropdown-item').forEach(el => {
+                    el.classList.toggle('selected', el.dataset.value === value);
+                });
+                list.classList.remove('open');
             }
         }
+
+        // Close dropdown on outside click
+        document.addEventListener('click', function(e) {
+            const dd = document.getElementById('notes-scope-dropdown');
+            const list = document.getElementById('notes-scope-dropdown-list');
+            if (dd && list && !dd.contains(e.target)) list.classList.remove('open');
+        });
 
         function _autoDetectNoteScope() {
             const ctx = _notesCurrentContext();
             _updateNoteScopeSelect();
-            const sel = document.getElementById('notes-scope-select');
-            if (!sel) return;
             if (ctx.sessionId) {
                 const val = 'session:' + ctx.sessionId;
-                if ([...sel.options].some(o => o.value === val)) {
-                    sel.value = val;
-                    _noteInputScope = val;
+                if (_scopeDropdownItems.some(i => i.value === val)) {
+                    _selectScopeItem(val);
                 } else {
-                    sel.value = 'global';
-                    _noteInputScope = 'global';
+                    _selectScopeItem('global');
                 }
                 _setNotesTab('session');
             } else if (ctx.projectId) {
                 const val = 'project:' + ctx.projectId;
-                if ([...sel.options].some(o => o.value === val)) {
-                    sel.value = val;
-                    _noteInputScope = val;
+                if (_scopeDropdownItems.some(i => i.value === val)) {
+                    _selectScopeItem(val);
                 } else {
-                    sel.value = 'global';
-                    _noteInputScope = 'global';
+                    _selectScopeItem('global');
                 }
                 _setNotesTab('project');
             } else {
-                sel.value = 'global';
-                _noteInputScope = 'global';
+                _selectScopeItem('global');
                 _setNotesTab('all');
             }
             // Preselect filters: only the focused session + its project
@@ -9130,48 +9173,46 @@
             }
             _notesActiveFilters = newFilters;
 
-            // Update context bar
-            const bar = document.getElementById('notes-context-bar');
-            if (bar) {
-                const fp = panels.find(p => p.id === focusedPanelId);
-                if (fp && fp.sessionId) {
-                    const proj = fp.cwd ? fp.cwd.split('/').pop() : '';
-                    bar.innerHTML = '<span class="ctx-label">▸ ' + escHtml(fp.name || fp.sessionId) + '</span>'
-                        + (proj ? ' <span style="color:#4a4a7a">·</span> ' + escHtml(proj) : '');
-                } else {
-                    bar.innerHTML = '<span style="color:#4a4a7a">No session focused</span>';
-                }
-            }
+            _updateNotesContextBar();
         }
 
         function _updateNotesContext() {
             const ctx = _notesCurrentContext();
             _updateNoteScopeSelect();
-            const sel = document.getElementById('notes-scope-select');
-            if (sel && ctx.sessionId) {
+            if (ctx.sessionId) {
                 const val = 'session:' + ctx.sessionId;
-                if ([...sel.options].some(o => o.value === val)) {
-                    sel.value = val; _noteInputScope = val;
-                }
-            } else if (sel && ctx.projectId) {
+                if (_scopeDropdownItems.some(i => i.value === val)) _selectScopeItem(val);
+            } else if (ctx.projectId) {
                 const val = 'project:' + ctx.projectId;
-                if ([...sel.options].some(o => o.value === val)) {
-                    sel.value = val; _noteInputScope = val;
-                }
+                if (_scopeDropdownItems.some(i => i.value === val)) _selectScopeItem(val);
             }
-            // Update context bar
-            const bar = document.getElementById('notes-context-bar');
-            if (bar) {
-                const fp = panels.find(p => p.id === focusedPanelId);
-                if (fp && fp.sessionId) {
-                    const proj = fp.cwd ? fp.cwd.split('/').pop() : '';
-                    bar.innerHTML = '<span class="ctx-label">▸ ' + escHtml(fp.name || fp.sessionId) + '</span>'
-                        + (proj ? ' <span style="color:#4a4a7a">·</span> ' + escHtml(proj) : '');
-                } else {
-                    bar.innerHTML = '<span style="color:#4a4a7a">No session focused</span>';
-                }
-            }
+            _updateNotesContextBar();
             renderNotes();
+        }
+
+        function _updateNotesContextBar() {
+            const bar = document.getElementById('notes-context-bar');
+            if (!bar) return;
+            const fp = panels.find(p => p.id === focusedPanelId);
+            if (fp && fp.sessionId) {
+                const proj = fp.cwd ? fp.cwd.split('/').pop() : '';
+                let html = '<span class="ctx-label">▸ ' + escHtml(fp.name || fp.sessionId) + '</span>'
+                    + (proj ? ' <span style="color:#4a4a7a">·</span> ' + escHtml(proj) : '');
+                if (_isMultiServer()) {
+                    const srv = fp.server || 'local';
+                    html += ' <span style="color:#4a4a7a">·</span> <span style="color:#5a7a5a;font-size:10px">' + escHtml(getServerLabel(srv)) + '</span>';
+                    if (srv !== 'local') {
+                        html += ' <span style="color:#6a5a3a;font-size:10px;margin-left:4px">— notes stored locally</span>';
+                    }
+                }
+                bar.innerHTML = html;
+            } else {
+                let html = '<span style="color:#4a4a7a">No session focused</span>';
+                if (_isMultiServer()) {
+                    html += ' <span style="color:#5a7a5a;font-size:10px;margin-left:4px">· ' + escHtml(getServerLabel('local')) + '</span>';
+                }
+                bar.innerHTML = html;
+            }
         }
 
         function _setNotesTab(scope) {
@@ -9182,9 +9223,7 @@
             renderNotes();
         }
 
-        function onNoteScopeChange(val) {
-            _noteInputScope = val;
-        }
+
 
         function _buildNoteFilterChips() {
             const container = document.getElementById('notes-filters');
@@ -9509,29 +9548,19 @@
             document.querySelectorAll('#notes-scope-tabs button').forEach(btn => {
                 btn.classList.toggle('active', btn.dataset.scope === scope);
             });
-            // Sync the combo box with the tab
-            const sel = document.getElementById('notes-scope-select');
-            if (sel) {
-                const ctx = _notesCurrentContext();
-                if (scope === 'global') {
-                    sel.value = 'global'; _noteInputScope = 'global';
-                } else if (scope === 'project') {
-                    if (ctx.projectId) {
-                        const val = 'project:' + ctx.projectId;
-                        if ([...sel.options].some(o => o.value === val)) {
-                            sel.value = val; _noteInputScope = val;
-                        }
-                    }
-                } else if (scope === 'session') {
-                    if (ctx.sessionId) {
-                        const val = 'session:' + ctx.sessionId;
-                        if ([...sel.options].some(o => o.value === val)) {
-                            sel.value = val; _noteInputScope = val;
-                        }
-                    }
-                }
-                // 'all' keeps current selection
+            // Sync the scope buttons with the tab
+            const ctx = _notesCurrentContext();
+            if (scope === 'global') {
+                _noteInputScope = 'global';
+                _setNoteScopeBtn('global');
+            } else if (scope === 'project' && ctx.projectId) {
+                _noteInputScope = 'project:' + ctx.projectId;
+                _setNoteScopeBtn('project');
+            } else if (scope === 'session' && ctx.sessionId) {
+                _noteInputScope = 'session:' + ctx.sessionId;
+                _setNoteScopeBtn('session');
             }
+            // 'all' keeps current selection
             renderNotes();
         }
 

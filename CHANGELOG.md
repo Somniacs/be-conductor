@@ -2,6 +2,18 @@
 
 All notable changes to be-conductor are documented here.
 
+## v0.3.23
+
+### Notes improvements
+
+- **Custom scope dropdown** — replaced the native `<select>` with a custom dropdown that renders the same monochrome SVG icons used in the notes drawer tabs (globe, folder, terminal)
+- **Server label in context bar** — in multi-server setups the context bar now shows which machine the focused session belongs to, with a "notes stored locally" hint when a remote session is focused
+- **Combo box scoped to local sessions** — the scope dropdown only lists local sessions and projects since notes are stored in the local SQLite database
+- **Orphaned notes cleanup** — session-scoped notes whose sessions no longer exist are automatically cleaned up on server startup and every 10 minutes
+- **Filter chip deselect fix** — deselecting a filter chip that has the `.current` highlight now correctly dims the chip instead of keeping it visually active
+- **Monochrome clipboard icon** — replaced the colored emoji with a monochrome SVG matching the rest of the UI
+- **Hamburger menu cleanup** — reordered menu items into logical groups (Notes, Settings | Link Device | Help, About) with separators between groups only
+
 ## v0.3.22
 
 ### Notes (new)
