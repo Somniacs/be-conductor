@@ -10,7 +10,7 @@ be-conductor keeps them moving. Get notified on **Slack** or **Telegram** the mo
 
 ---
 
-**Contents:** [What It Looks Like](#what-it-looks-like) · [How It Works](#how-it-works) · [What You Can Run](#what-you-can-run) · [Prerequisites](#prerequisites) · [Install](#install) · [Usage](#usage) · [Is It Safe?](#is-it-safe) · [Dashboard](#dashboard) · [CLI Reference](#cli-reference) · [API](#api) · [Agent Integration](#agent-integration) · [Project Structure](#project-structure) · [Platform Support](#platform-support)
+**Contents:** [What It Looks Like](#what-it-looks-like) · [How It Works](#how-it-works) · [Features](#features) · [What You Can Run](#what-you-can-run) · [Prerequisites](#prerequisites) · [Install](#install) · [Usage](#usage) · [Is It Safe?](#is-it-safe) · [Dashboard](#dashboard) · [CLI Reference](#cli-reference) · [API](#api) · [Agent Integration](#agent-integration) · [Project Structure](#project-structure) · [Platform Support](#platform-support)
 
 ---
 
@@ -67,6 +67,21 @@ Sessions survive disconnects. Close the browser, reopen it later — everything 
 ```
 
 Each process runs in a PTY on your machine. Output goes into a rolling in-memory buffer. When a browser connects, it gets the full buffer first, then live output over WebSocket. The dashboard connects directly to each server — no proxy, no hub. Each server stays independent.
+
+## Features
+
+- **Run any terminal process** — AI coding agents, training jobs, builds, or any interactive command that runs in a terminal.
+- **Web dashboard** — full terminal rendering in the browser with split view, color themes, font controls, and keyboard input.
+- **Mobile-ready** — responsive layout with on-screen extra keys, touch scrolling, and auto-fullscreen when the keyboard opens.
+- **Multi-machine** — connect to multiple be-conductor servers from one dashboard; sessions are grouped by machine.
+- **Git worktree isolation** — run agents in isolated branches so parallel sessions never conflict with each other or your work.
+- **Session resume** — exited sessions with resume tokens are saved and can be relaunched with one click or from the CLI.
+- **External session discovery** — find and resume sessions started in IDEs or other terminals (Claude Code, Codex, Copilot, Gemini, Goose).
+- **Notifications** — get alerted on Slack, Telegram, Discord, or custom webhooks when a session stalls or finishes.
+- **File viewer** — browse project files, view text with line numbers, render Markdown, display images and SVGs, preview PDFs, and download files — all from the dashboard.
+- **File upload** — drag-and-drop, paste, or tap to upload files into a session; insert the path or copy it to clipboard.
+- **IDE plugins** — VS Code and JetBrains plugins for managing sessions without leaving your editor.
+- **Secure by default** — runs entirely on your machines with no cloud backend; pair with Tailscale for encrypted remote access.
 
 ## What You Can Run
 
@@ -404,34 +419,20 @@ If you're running be-conductor on a shared network without Tailscale, anyone on 
 
 ## Dashboard
 
-The web dashboard provides:
+The web dashboard is a single HTML file served by the be-conductor server. See [Features](#features) for the highlights. Technical details:
 
-- **Multi-machine view** — connect to multiple be-conductor servers, sessions grouped by machine
-- **Tailscale device picker** — discover and add machines from your Tailscale network
-- **Session sidebar** — all sessions with focus tracking, grouped by machine in multi-server mode
-- **Terminal panels** — full xterm.js rendering with colors, cursor, scrollback
-- **Split view** — place panels Left, Right, Top, or Bottom with arbitrary nesting and draggable dividers
-- **Keyboard input** — type directly into the terminal
-- **New session** — create sessions on any connected machine with directory picker
-- **Session resume** — exited sessions with a resume token show a play button; resume with one click
-- **Multi-agent session discovery** — Resume tab discovers external sessions from Claude Code, Codex, Copilot, Gemini, and Goose; filter by agent, resume closed sessions, or observe live ones in a read-only panel with agent-specific formatting
-- **Kill confirmation** — stop sessions with a confirmation dialog
+- **Terminal rendering** — xterm.js with colors, cursor, scrollback, minimum 80 columns (horizontal scroll on narrow panels)
+- **Split view** — arbitrary panel nesting (left/right/top/bottom) with draggable dividers; layout persisted to localStorage
 - **Color themes** — 6 presets per panel: Default, Dark, Mid, Bright, Bernstein, Green (retro CRT)
 - **Font size controls** — per-panel `+` / `−` buttons, adaptive defaults for desktop and mobile
-- **Idle notifications** — browser notification or webhook alert when a session is waiting for input. Supports Telegram, Discord, Slack, and custom webhooks. Webhook messages include a clickable deep link that opens the dashboard directly to the session. Smart suppression: webhooks only fire when you're not already looking at the dashboard (visibility-based, like read receipts). Setup guides: [Telegram](docs/notification_telegram.md), [Slack](docs/notification_slack.md)
-- **Link Device** — QR code in the hamburger menu for opening the dashboard on another device
-- **Git worktree isolation** — run any agent in an isolated git worktree; each gets its own branch and working copy, so parallel agents never conflict with each other or your work. Auto-commits before merge, non-destructive merge cycle (work → merge → resume → merge again → delete when done). Merge dialog with conflict detection, strategy picker (squash/merge/rebase), and fullscreen diff viewer with file sidebar, keyboard navigation (j/k, ↑/↓), and font zoom (+/−). Merge button only appears when there are commits to merge
-- **Layout persistence** — open panels, split layout, and focus are saved to localStorage and restored on page reload; only panels with running sessions are restored
-- **Settings panel** — tabbed dialog (General, Agents, Directories, Servers, Notifications) for managing auth tokens, allowed commands, directories, multi-server setup, webhook notifications, and more. Admin tabs visible on localhost or with token auth. Changes persist and propagate to all clients automatically
-- **Cross-server notification sync** — view and sync webhook configuration across all connected machines from the Notifications tab
-- **File upload** — drag and drop files onto the terminal (desktop), paste from clipboard (Ctrl+V), or tap the attachment button (mobile) to upload any file (images, PDFs, code, text, etc.); shows an upload dialog with progress, then lets you insert the file path into the terminal or copy it to clipboard. Uploaded files are auto-cleaned when the session ends
-- **Mobile extra keys** — on-screen toolbar with ESC, TAB, arrows, CTRL, ALT, Page Up/Down, Home/End, and attachment button; appears above the virtual keyboard on touch devices, with collapsible drawer (state persisted)
-- **Mobile touch scroll** — smooth native one-finger scrolling with hardware-accelerated momentum
-- **Collapsible sidebar** — chevron toggle, auto-reopens when all panels close
-- **Update notification** — on load, the dashboard checks GitHub for new releases. When a newer version exists, a small banner appears at the bottom of the sidebar. Click it to open the release page — no automatic download or install, you stay in full control
-- **Auto-reconnect** — WebSocket reconnects automatically on disconnect
-- **Minimum 80 columns** — narrow panels get horizontal scroll instead of reflow
-- **Mobile-friendly** — responsive drawer, touch targets, dynamic viewport height, adaptive font size and scrollback. When the keyboard opens with multiple panels, the focused panel automatically goes full-screen; the split layout restores when the keyboard closes
+- **Notifications** — browser notifications and webhooks (Telegram, Discord, Slack, custom). Includes deep links to the stalled session. Smart suppression: only fires when you're not looking at the dashboard. Setup guides: [Telegram](docs/notification_telegram.md), [Slack](docs/notification_slack.md)
+- **Cross-server notification sync** — push webhook config to all connected machines in one click
+- **File viewer** — browse project files, view text with line numbers, render Markdown and SVG, display images, preview PDFs, download files. Clickable file paths in console output open the viewer directly
+- **File upload** — drag-and-drop, clipboard paste (Ctrl+V), or attachment button (mobile). Progress dialog, path insertion, auto-cleanup on session end
+- **Session discovery** — Resume tab finds external sessions from Claude Code, Codex, Copilot, Gemini, and Goose. Filter by agent, resume closed sessions, or observe live ones with agent-specific formatting
+- **Settings** — tabbed dialog (General, Agents, Directories, Servers, Notifications). Admin tabs visible on localhost or with token auth. Changes propagate to all clients
+- **Mobile** — extra keys toolbar (ESC, TAB, arrows, CTRL, ALT), touch scrolling, auto-fullscreen on keyboard open, collapsible sidebar
+- **Auto-reconnect** — WebSocket reconnects on disconnect; update notification when a new release is available
 
 ## CLI Reference
 

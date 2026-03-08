@@ -87,14 +87,39 @@ class SessionRegistry:
         return {}
 
     def _load_resumable(self):
-        """Load persisted resumable-session metadata from disk on startup."""
+        """Load persisted resumable-session metadata from disk on startup.
+
+        Sessions with status ``exited`` and a resume token or worktree are
+        loaded normally.  Sessions still marked ``running`` or ``stopping``
+        represent a previous unclean shutdown — the process is long gone.
+        If the command contains a ``--resume <id>`` flag from a previous
+        resume, we recover the token so the session can be resumed again.
+        """
+        import re as _re
         for path in SESSIONS_DIR.glob("*.json"):
             try:
                 meta = json.loads(path.read_text())
-                if meta.get("status") == "exited" and (
+                status = meta.get("status", "")
+
+                # Recover sessions left in running/stopping state after a crash
+                if status in ("running", "starting", "stopping"):
+                    cmd = meta.get("command", "")
+                    flag = meta.get("resume_flag", "--resume")
+                    m = _re.search(rf'{_re.escape(flag)}\s+(\S+)', cmd)
+                    if m:
+                        meta["resume_id"] = m.group(1)
+                    meta["status"] = "exited"
+                    if meta.get("resume_id") or meta.get("worktree"):
+                        self.resumable[meta["id"]] = meta
+                        path.write_text(json.dumps(meta))
+                    else:
+                        path.unlink(missing_ok=True)
+                elif status == "exited" and (
                     meta.get("resume_id") or meta.get("worktree")
                 ):
                     self.resumable[meta["id"]] = meta
+                elif status == "exited":
+                    path.unlink(missing_ok=True)
             except Exception:
                 pass
 

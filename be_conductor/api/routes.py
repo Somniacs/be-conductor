@@ -447,6 +447,213 @@ async def browse_directory(path: str = "~"):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+# ---------------------------------------------------------------------------
+# File viewer — browse and read files from the dashboard
+# ---------------------------------------------------------------------------
+
+_TEXT_EXTENSIONS: set[str] = {
+    ".txt", ".md", ".markdown", ".rst", ".org",
+    ".py", ".pyw", ".pyi", ".pyx",
+    ".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx",
+    ".html", ".htm", ".css", ".scss", ".sass", ".less",
+    ".json", ".jsonl", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf",
+    ".xml", ".svg",
+    ".sh", ".bash", ".zsh", ".fish", ".bat", ".cmd", ".ps1",
+    ".c", ".h", ".cpp", ".hpp", ".cc", ".cxx", ".cs", ".java", ".kt", ".kts",
+    ".go", ".rs", ".rb", ".php", ".pl", ".pm", ".lua", ".r", ".R",
+    ".swift", ".m", ".mm", ".scala", ".clj", ".cljs", ".ex", ".exs",
+    ".hs", ".ml", ".mli", ".erl", ".hrl", ".elm", ".nim", ".zig", ".v",
+    ".sql", ".graphql", ".gql", ".proto",
+    ".env", ".env.example", ".env.local",
+    ".gitignore", ".gitattributes", ".gitmodules",
+    ".dockerignore", ".editorconfig", ".prettierrc", ".eslintrc",
+    ".log", ".csv", ".tsv",
+    ".tf", ".tfvars", ".hcl",
+    ".cmake", ".mk",
+    ".patch", ".diff",
+}
+
+_TEXT_NAMES: set[str] = {
+    "Makefile", "makefile", "GNUmakefile",
+    "Dockerfile", "Containerfile",
+    "Vagrantfile", "Procfile", "Gemfile", "Rakefile",
+    "LICENSE", "LICENCE", "COPYING", "NOTICE",
+    "README", "CHANGELOG", "CHANGES", "AUTHORS", "CONTRIBUTORS",
+    "CLAUDE.md",
+    ".gitignore", ".gitattributes", ".dockerignore", ".editorconfig",
+    "requirements.txt", "constraints.txt",
+    "go.mod", "go.sum", "Cargo.lock",
+    "pyproject.toml", "setup.py", "setup.cfg",
+    "package.json", "package-lock.json", "tsconfig.json",
+    "Pipfile", "Pipfile.lock", "poetry.lock",
+    "flake.nix", "flake.lock",
+}
+
+_PDF_EXTENSIONS: set[str] = {".pdf"}
+
+_IMAGE_EXTENSIONS: set[str] = {
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico", ".tiff", ".tif",
+}
+
+_IMAGE_MIME: dict[str, str] = {
+    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+    ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp",
+    ".ico": "image/x-icon", ".tiff": "image/tiff", ".tif": "image/tiff",
+}
+
+_MAX_FILE_BROWSE = 500
+_MAX_TEXT_SIZE = 1 * 1024 * 1024      # 1 MB
+_MAX_PDF_SIZE = 50 * 1024 * 1024      # 50 MB
+_MAX_IMAGE_SIZE = 50 * 1024 * 1024    # 50 MB
+
+
+def _classify_file(entry: Path) -> str:
+    """Return 'text', 'pdf', 'image', or 'binary' for a file entry."""
+    if entry.suffix.lower() in _PDF_EXTENSIONS:
+        return "pdf"
+    if entry.suffix.lower() in _IMAGE_EXTENSIONS:
+        return "image"
+    if entry.suffix.lower() in _TEXT_EXTENSIONS or entry.name in _TEXT_NAMES:
+        return "text"
+    # Heuristic: read first 8KB, check for null bytes + UTF-8 validity
+    try:
+        chunk = entry.read_bytes()[:8192]
+        if b"\x00" in chunk:
+            return "binary"
+        chunk.decode("utf-8")
+        return "text"
+    except (OSError, UnicodeDecodeError):
+        return "binary"
+
+
+@router.get("/files/browse")
+async def file_browse(path: str = "~", show_hidden: bool = False, root: str | None = None):
+    """List directories and files in a path for the file viewer."""
+    try:
+        resolved = Path(path).expanduser().resolve()
+        if not resolved.is_dir():
+            raise HTTPException(status_code=400, detail="Not a directory")
+
+        # Enforce root boundary — prevent browsing above the project root
+        root_resolved = None
+        if root:
+            root_resolved = Path(root).expanduser().resolve()
+            if not str(resolved).startswith(str(root_resolved)):
+                resolved = root_resolved
+
+        dirs: list[dict] = []
+        files: list[dict] = []
+        truncated = False
+        count = 0
+
+        try:
+            for entry in sorted(resolved.iterdir(), key=lambda e: e.name.lower()):
+                if not show_hidden and entry.name.startswith("."):
+                    continue
+                count += 1
+                if count > _MAX_FILE_BROWSE:
+                    truncated = True
+                    break
+                if entry.is_dir():
+                    dirs.append({"name": entry.name, "path": str(entry), "type": "directory"})
+                elif entry.is_file():
+                    try:
+                        size = entry.stat().st_size
+                    except OSError:
+                        size = 0
+                    ftype = _classify_file(entry)
+                    files.append({"name": entry.name, "path": str(entry), "size": size, "type": ftype})
+        except PermissionError:
+            pass
+
+        # Hide parent link when at the root boundary
+        show_parent = resolved != resolved.parent
+        if root_resolved and resolved == root_resolved:
+            show_parent = False
+
+        return {
+            "current": str(resolved),
+            "parent": str(resolved.parent) if show_parent else None,
+            "entries": dirs + files,
+            "truncated": truncated,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/files/read")
+async def file_read(path: str, request: Request, download: bool = False):
+    """Read file content — text as JSON, PDF as binary stream."""
+    from fastapi.responses import FileResponse as _FileResponse
+
+    resolved = Path(path).expanduser().resolve()
+    if not resolved.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    ftype = _classify_file(resolved)
+
+    # Download mode — return raw file as attachment
+    if download:
+        media = "application/pdf" if ftype == "pdf" else "application/octet-stream"
+        return _FileResponse(
+            str(resolved),
+            media_type=media,
+            headers={"Content-Disposition": f'attachment; filename="{resolved.name}"'},
+        )
+
+    if ftype == "text":
+        try:
+            size = resolved.stat().st_size
+        except OSError:
+            raise HTTPException(status_code=400, detail="Cannot stat file")
+        truncated = size > _MAX_TEXT_SIZE
+        try:
+            with open(resolved, "r", encoding="utf-8", errors="replace") as f:
+                content = f.read(_MAX_TEXT_SIZE)
+        except OSError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        result: dict[str, Any] = {
+            "content": content,
+            "path": str(resolved),
+            "size": min(size, _MAX_TEXT_SIZE),
+            "truncated": truncated,
+        }
+        if truncated:
+            result["total_size"] = size
+        return result
+
+    if ftype == "pdf":
+        try:
+            size = resolved.stat().st_size
+        except OSError:
+            raise HTTPException(status_code=400, detail="Cannot stat file")
+        if size > _MAX_PDF_SIZE:
+            raise HTTPException(status_code=413, detail=f"PDF too large ({size} bytes, max {_MAX_PDF_SIZE})")
+        return _FileResponse(
+            str(resolved),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'inline; filename="{resolved.name}"'},
+        )
+
+    if ftype == "image":
+        try:
+            size = resolved.stat().st_size
+        except OSError:
+            raise HTTPException(status_code=400, detail="Cannot stat file")
+        if size > _MAX_IMAGE_SIZE:
+            raise HTTPException(status_code=413, detail=f"Image too large ({size} bytes, max {_MAX_IMAGE_SIZE})")
+        mime = _IMAGE_MIME.get(resolved.suffix.lower(), "application/octet-stream")
+        return _FileResponse(
+            str(resolved),
+            media_type=mime,
+            headers={"Content-Disposition": f'inline; filename="{resolved.name}"'},
+        )
+
+    raise HTTPException(status_code=415, detail="Unsupported file type")
+
+
 def _require_admin(request: Request):
     """Raise 403 unless the request is from localhost or authenticated via token.
 

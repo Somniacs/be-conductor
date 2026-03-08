@@ -62,6 +62,13 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
         if auth == f"Bearer {token}":
             return await call_next(request)
 
+        # Query-param token fallback for paths that can't set headers
+        # (e.g. PDF iframes on /files/read)
+        if path == "/files/read":
+            qp_token = request.query_params.get("token")
+            if qp_token == token:
+                return await call_next(request)
+
         return JSONResponse(
             status_code=401,
             content={"detail": "Unauthorized"},

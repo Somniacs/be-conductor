@@ -2,6 +2,25 @@
 
 All notable changes to be-conductor are documented here.
 
+## v0.3.21
+
+### File viewer (new)
+
+The dashboard now includes a built-in file viewer. Click any file path in the console output — both absolute and relative paths are detected — or use the "Browse files" menu on a session panel to open the viewer.
+
+- **Sidebar browser** — navigate directories with a file tree sidebar, breadcrumb navigation, and hidden-file toggle. Browsing is scoped to the session's project directory
+- **Text files** — displayed with line numbers and monospace font. Zoom in/out (A+/A−) adjusts font size
+- **Markdown rendering** — `.md`, `.markdown`, and `.rst` files open in a rendered view by default. A Source/Rendered toggle switches between raw and formatted display
+- **Image support** — PNG, JPG, GIF, WebP, BMP, and other image formats are displayed inline with a checkerboard background. SVG files support both rendered preview and source view
+- **PDF support** — PDFs are embedded inline in the viewer
+- **Download** — toolbar button to download the currently viewed file
+- **Clickable paths in console** — file paths in terminal output (absolute, `~/…`, and relative like `src/main.py`) are detected and clickable. Relative paths are resolved against the session CWD
+- **Loading indicators** — centered spinner while loading directory listings, file content, and PDFs
+
+### Bug fixes
+
+- **Recover sessions after unclean shutdown** — if the server was killed or crashed while sessions were running, their metadata files were left with `status: running` and silently ignored on the next startup. The registry now detects these orphaned entries, recovers the resume token from the command string (e.g. `--resume <id>`), and makes them resumable again. Stale entries without a recoverable token are cleaned up automatically
+
 ## v0.3.20
 
 ### Bug fixes
