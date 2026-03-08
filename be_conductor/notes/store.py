@@ -166,3 +166,20 @@ def reorder(note_ids: list[str]) -> None:
         conn.execute("UPDATE notes SET sort_order = ? WHERE id = ?", (i, nid))
     conn.commit()
     conn.close()
+
+
+def cleanup_orphaned(valid_session_ids: set[str]) -> int:
+    """Delete session-scoped notes whose session_id is not in *valid_session_ids*."""
+    conn = _get_conn()
+    rows = conn.execute(
+        "SELECT id, session_id FROM notes WHERE scope = 'session' AND session_id IS NOT NULL"
+    ).fetchall()
+    orphaned = [r["id"] for r in rows if r["session_id"] not in valid_session_ids]
+    if not orphaned:
+        conn.close()
+        return 0
+    placeholders = ",".join("?" * len(orphaned))
+    cursor = conn.execute(f"DELETE FROM notes WHERE id IN ({placeholders})", orphaned)
+    conn.commit()
+    conn.close()
+    return cursor.rowcount

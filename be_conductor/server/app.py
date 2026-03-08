@@ -81,14 +81,40 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
 # ---------------------------------------------------------------------------
 
 @asynccontextmanager
+def _cleanup_orphaned_notes():
+    """Remove session-scoped notes whose session no longer exists."""
+    from be_conductor.notes import store as notes_store
+    valid = set(registry.sessions.keys()) | set(registry.resumable.keys())
+    count = notes_store.cleanup_orphaned(valid)
+    if count:
+        import logging
+        logging.getLogger("be_conductor.notes").info(
+            "Cleaned up %d orphaned session note(s)", count
+        )
+
+
+async def _notes_cleanup_loop():
+    """Periodically clean up orphaned notes (every 10 min)."""
+    import asyncio
+    loop = asyncio.get_event_loop()
+    while True:
+        await asyncio.sleep(600)
+        try:
+            await loop.run_in_executor(None, _cleanup_orphaned_notes)
+        except Exception:
+            pass
+
+
 async def lifespan(app: FastAPI):
+    import asyncio
+
     ensure_dirs()
     PID_FILE.write_text(str(os.getpid()))
 
+    loop = asyncio.get_event_loop()
+
     # Reconcile worktree state (crash recovery)
     try:
-        import asyncio
-        loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(
             None, registry.worktree_manager.reconcile
         )
@@ -99,7 +125,18 @@ async def lifespan(app: FastAPI):
     except Exception:
         pass
 
+    # Clean up orphaned notes on startup
+    try:
+        await loop.run_in_executor(None, _cleanup_orphaned_notes)
+    except Exception:
+        pass
+
+    # Start periodic notes cleanup
+    cleanup_task = asyncio.create_task(_notes_cleanup_loop())
+
     yield
+
+    cleanup_task.cancel()
     await registry.cleanup_all()
     PID_FILE.unlink(missing_ok=True)
 
