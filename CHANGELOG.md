@@ -20,6 +20,7 @@ The dashboard now includes a built-in file viewer. Click any file path in the co
 ### Bug fixes
 
 - **Recover sessions after unclean shutdown** — if the server was killed or crashed while sessions were running, their metadata files were left with `status: running` and silently ignored on the next startup. The registry now detects these orphaned entries, recovers the resume token from the command string (e.g. `--resume <id>`), and makes them resumable again. Stale entries without a recoverable token are cleaned up automatically
+- **Clickable file paths on mobile/tablet** — file links in console output now work on touch devices. Tapping a file path opens the file viewer, same as clicking on desktop
 
 ## v0.3.20
 

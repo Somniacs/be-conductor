@@ -3863,9 +3863,58 @@
 
                 target.addEventListener('touchend', () => {
                     if (!tapMoved) {
-                        panel.terminal.focus();
-                        const vp = target.querySelector('.xterm-viewport');
-                        if (vp) vp.scrollTop = vp.scrollHeight;
+                        // Check if the tap hit a file link
+                        let tappedLink = false;
+                        try {
+                            const term = panel.terminal;
+                            const screen = target.querySelector('.xterm-screen');
+                            if (screen && term.buffer && term.buffer.active) {
+                                const rect = screen.getBoundingClientRect();
+                                const d = term._core._renderService.dimensions;
+                                if (d && d.css && d.css.cell && d.css.cell.width > 0 && d.css.cell.height > 0) {
+                                    const col = Math.floor((tapX - rect.left) / d.css.cell.width);
+                                    const vp = target.querySelector('.xterm-viewport');
+                                    const scrollOffset = vp ? vp.scrollTop : 0;
+                                    const row = Math.floor((tapY - rect.top + scrollOffset) / d.css.cell.height);
+                                    const bufLine = term.buffer.active.getLine(row);
+                                    if (bufLine) {
+                                        const text = bufLine.translateToString(true);
+                                        let m;
+                                        _filePathRe.lastIndex = 0;
+                                        while ((m = _filePathRe.exec(text)) !== null) {
+                                            const path = m[1];
+                                            const isDir = path.endsWith('/');
+                                            if (!isDir && !_filePathExtRe.test(path)) continue;
+                                            if (col >= m.index && col < m.index + path.length) {
+                                                const link = _makeFileLink(m.index, path, row + 1, panel);
+                                                link.activate(null, link.text);
+                                                tappedLink = true;
+                                                break;
+                                            }
+                                        }
+                                        if (!tappedLink) {
+                                            _bareFileRe.lastIndex = 0;
+                                            while ((m = _bareFileRe.exec(text)) !== null) {
+                                                const path = m[1];
+                                                if (!_filePathExtRe.test(path)) continue;
+                                                const startIdx = m.index + m[0].indexOf(path);
+                                                if (col >= startIdx && col < startIdx + path.length) {
+                                                    const link = _makeFileLink(startIdx, path, row + 1, panel);
+                                                    link.activate(null, link.text);
+                                                    tappedLink = true;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (e) { /* ignore — fall through to normal tap */ }
+                        if (!tappedLink) {
+                            panel.terminal.focus();
+                            const vp = target.querySelector('.xterm-viewport');
+                            if (vp) vp.scrollTop = vp.scrollHeight;
+                        }
                     }
                     tapMoved = false;
                 }, { passive: true, capture: true });
@@ -8646,6 +8695,22 @@
             // Add token for iframe auth if configured
             if (_conductorToken) {
                 url += '&token=' + encodeURIComponent(_conductorToken);
+            }
+            // Mobile browsers don't render PDFs in iframes — open in new tab instead
+            if ('ontouchstart' in window) {
+                const dlUrl = serverUrl(_fileServerKey,
+                    `/files/read?path=${encodeURIComponent(path)}&download=1`);
+                if (_conductorToken) dlUrl += '&token=' + encodeURIComponent(_conductorToken);
+                const name = path.split('/').pop() || 'file.pdf';
+                content.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:16px;color:#c0c0e0;">
+                    <div style="font-size:48px;">📄</div>
+                    <div style="font-size:14px;color:#8888bb;">${name}</div>
+                    <a href="${url}" target="_blank" rel="noopener"
+                       style="display:inline-block;padding:12px 32px;background:#4a4a7a;color:#e0e0f0;border-radius:6px;text-decoration:none;font-size:15px;">Open PDF</a>
+                    <a href="${dlUrl}" download="${name}"
+                       style="color:#8888bb;font-size:13px;text-decoration:underline;">Download</a>
+                </div>`;
+                return;
             }
             const iframe = document.createElement('iframe');
             iframe.src = url;
