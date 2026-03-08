@@ -8,32 +8,53 @@ permissions:
   contents: write
 
 jobs:
-  upload-archives:
+  archives-and-vscode:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Create tarball
-        run: git archive --format=tar.gz --prefix=be-conductor/ -o be-conductor.tar.gz HEAD
+      - name: Create tarball and zip
+        run: |
+          git archive --format=tar.gz --prefix=be-conductor/ -o be-conductor.tar.gz HEAD
+          git archive --format=zip --prefix=be-conductor/ -o be-conductor.zip HEAD
 
-      - name: Create zip
-        run: git archive --format=zip --prefix=be-conductor/ -o be-conductor.zip HEAD
-
-      # ── VS Code extension ──────────────────────────────────
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
 
       - name: Build VS Code extension
         working-directory: tools/vscode/be-conductor-vscode
-        run: |
-          npx @vscode/vsce package -o ../../../be-conductor.vsix
+        run: npx @vscode/vsce package -o ../../../be-conductor.vsix
 
-      # ── JetBrains plugin ───────────────────────────────────
+      - name: Upload to release
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" \
+            be-conductor.tar.gz be-conductor.zip \
+            be-conductor.vsix \
+            install.sh uninstall.sh \
+            install.ps1 uninstall.ps1 --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  jetbrains:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            tools/jetbrains/be-conductor-plugin/.gradle
+            tools/jetbrains/be-conductor-plugin/build
+          key: gradle-${{ hashFiles('tools/jetbrains/be-conductor-plugin/**/*.gradle*', 'tools/jetbrains/be-conductor-plugin/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-
 
       - name: Build JetBrains plugin
         working-directory: tools/jetbrains/be-conductor-plugin
@@ -41,13 +62,9 @@ jobs:
           ./gradlew buildPlugin
           cp build/distributions/*.zip ../../../be-conductor-jetbrains.zip
 
-      # ── Upload everything ──────────────────────────────────
       - name: Upload to release
         run: |
           gh release upload "${{ github.event.release.tag_name }}" \
-            be-conductor.tar.gz be-conductor.zip \
-            be-conductor.vsix be-conductor-jetbrains.zip \
-            install.sh uninstall.sh \
-            install.ps1 uninstall.ps1 --clobber
+            be-conductor-jetbrains.zip --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
