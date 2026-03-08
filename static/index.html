@@ -9063,35 +9063,100 @@
         function _updateNoteScopeSelect() {
             const list = document.getElementById('notes-scope-dropdown-list');
             if (!list) return;
+            const multi = _isMultiServer();
             const items = [];
-            items.push({ value: 'global', scope: 'global', label: 'Global' });
-            // Collect unique projects from all sessions + panels + notes
-            const projects = new Map();
-            const seenSessions = new Set();
+            items.push({ value: 'global', scope: 'global', label: 'Global', server: 'local' });
+            // Collect projects and sessions from all servers
+            // Key: "server:id" to avoid cross-server collisions
+            const projectKeys = new Set();
+            const sessionKeys = new Set();
+            const projectItems = [];
             const sessionItems = [];
-            // Only include local sessions/projects — notes are stored locally
             sessions.forEach(s => {
-                if (s._server && s._server !== 'local') return;
-                if (s.cwd && !projects.has(s.cwd)) projects.set(s.cwd, s.cwd.split('/').pop() || s.cwd);
+                const srv = s._server || 'local';
+                if (s.cwd) {
+                    const pk = srv + ':' + s.cwd;
+                    if (!projectKeys.has(pk)) {
+                        projectKeys.add(pk);
+                        projectItems.push({ server: srv, id: s.cwd, label: s.cwd.split('/').pop() || s.cwd });
+                    }
+                }
                 const sid = s.name || s.id;
-                if (sid && !seenSessions.has(sid)) { seenSessions.add(sid); sessionItems.push({ id: sid, label: s.name || sid }); }
+                if (sid) {
+                    const sk = srv + ':' + sid;
+                    if (!sessionKeys.has(sk)) {
+                        sessionKeys.add(sk);
+                        sessionItems.push({ server: srv, id: sid, label: s.name || sid });
+                    }
+                }
             });
             panels.forEach(p => {
-                if (p.server && p.server !== 'local') return;
-                if (p.cwd && !projects.has(p.cwd)) projects.set(p.cwd, p.cwd.split('/').pop() || p.cwd);
-                if (p.sessionId && !seenSessions.has(p.sessionId)) { seenSessions.add(p.sessionId); sessionItems.push({ id: p.sessionId, label: p.name || p.sessionId }); }
+                const srv = p.server || 'local';
+                if (p.cwd) {
+                    const pk = srv + ':' + p.cwd;
+                    if (!projectKeys.has(pk)) {
+                        projectKeys.add(pk);
+                        projectItems.push({ server: srv, id: p.cwd, label: p.cwd.split('/').pop() || p.cwd });
+                    }
+                }
+                if (p.sessionId) {
+                    const sk = srv + ':' + p.sessionId;
+                    if (!sessionKeys.has(sk)) {
+                        sessionKeys.add(sk);
+                        sessionItems.push({ server: srv, id: p.sessionId, label: p.name || p.sessionId });
+                    }
+                }
             });
             _notes.forEach(n => {
-                if (n.scope === 'project' && n.project_id && !projects.has(n.project_id)) projects.set(n.project_id, n.project_id.split('/').pop() || n.project_id);
-                if (n.scope === 'session' && n.session_id && !seenSessions.has(n.session_id)) { seenSessions.add(n.session_id); sessionItems.push({ id: n.session_id, label: n.session_id }); }
+                const srv = n._server || 'local';
+                if (n.scope === 'project' && n.project_id) {
+                    const pk = srv + ':' + n.project_id;
+                    if (!projectKeys.has(pk)) {
+                        projectKeys.add(pk);
+                        projectItems.push({ server: srv, id: n.project_id, label: n.project_id.split('/').pop() || n.project_id });
+                    }
+                }
+                if (n.scope === 'session' && n.session_id) {
+                    const sk = srv + ':' + n.session_id;
+                    if (!sessionKeys.has(sk)) {
+                        sessionKeys.add(sk);
+                        sessionItems.push({ server: srv, id: n.session_id, label: n.session_id });
+                    }
+                }
             });
-            for (const [cwd, name] of projects) items.push({ value: 'project:' + cwd, scope: 'project', label: name });
-            for (const s of sessionItems) items.push({ value: 'session:' + s.id, scope: 'session', label: s.label });
+            for (const p of projectItems) {
+                items.push({ value: 'project:' + p.server + ':' + p.id, scope: 'project', label: p.label, server: p.server });
+            }
+            for (const s of sessionItems) {
+                items.push({ value: 'session:' + s.server + ':' + s.id, scope: 'session', label: s.label, server: s.server });
+            }
             _scopeDropdownItems = items;
+            // Render dropdown — group by server with headers in multi-server mode
             let html = '';
-            for (const it of items) {
-                const sel = it.value === _noteInputScope ? ' selected' : '';
-                html += `<div class="notes-scope-dropdown-item${sel}" data-value="${escHtml(it.value)}" onclick="_selectScopeItem('${escHtml(it.value)}')">${_noteScopeIcon(it.scope)}${escHtml(it.label)}</div>`;
+            if (multi) {
+                // Global first (always local)
+                const globalItem = items.find(i => i.value === 'global');
+                if (globalItem) {
+                    const sel = globalItem.value === _noteInputScope ? ' selected' : '';
+                    html += `<div class="notes-scope-dropdown-item${sel}" data-value="global" onclick="_selectScopeItem('global')">${_noteScopeIcon('global')}${escHtml(globalItem.label)}</div>`;
+                }
+                // Group remaining by server
+                const srvKeys = [...new Set(items.filter(i => i.value !== 'global').map(i => i.server))];
+                srvKeys.sort((a, b) => a === 'local' ? -1 : b === 'local' ? 1 : a.localeCompare(b));
+                for (const srv of srvKeys) {
+                    const srvItems = items.filter(i => i.value !== 'global' && i.server === srv);
+                    if (srvItems.length === 0) continue;
+                    html += `<div style="font-size:9px;color:#5a5a8a;padding:4px 8px 2px;pointer-events:none">${escHtml(getServerLabel(srv))}</div>`;
+                    for (const it of srvItems) {
+                        const sel = it.value === _noteInputScope ? ' selected' : '';
+                        html += `<div class="notes-scope-dropdown-item${sel}" data-value="${escHtml(it.value)}" onclick="_selectScopeItem('${escHtml(it.value)}')">${_noteScopeIcon(it.scope)}${escHtml(it.label)}</div>`;
+                    }
+                }
+            } else {
+                for (const it of items) {
+                    const sel = it.value === _noteInputScope ? ' selected' : '';
+                    html += `<div class="notes-scope-dropdown-item${sel}" data-value="${escHtml(it.value)}" onclick="_selectScopeItem('${escHtml(it.value)}')">${_noteScopeIcon(it.scope)}${escHtml(it.label)}</div>`;
+                }
             }
             list.innerHTML = html;
             _updateScopeBtn();
@@ -9133,8 +9198,9 @@
         function _autoDetectNoteScope() {
             const ctx = _notesCurrentContext();
             _updateNoteScopeSelect();
+            const srv = ctx.server || 'local';
             if (ctx.sessionId) {
-                const val = 'session:' + ctx.sessionId;
+                const val = 'session:' + srv + ':' + ctx.sessionId;
                 if (_scopeDropdownItems.some(i => i.value === val)) {
                     _selectScopeItem(val);
                 } else {
@@ -9142,7 +9208,7 @@
                 }
                 _setNotesTab('session');
             } else if (ctx.projectId) {
-                const val = 'project:' + ctx.projectId;
+                const val = 'project:' + srv + ':' + ctx.projectId;
                 if (_scopeDropdownItems.some(i => i.value === val)) {
                     _selectScopeItem(val);
                 } else {
@@ -9160,10 +9226,10 @@
                 if (k.startsWith('_seen_')) newFilters.add(k);
             }
             if (ctx.sessionId) {
-                newFilters.add('session:' + ctx.sessionId);
+                newFilters.add('session:' + srv + ':' + ctx.sessionId);
             }
             if (ctx.projectId) {
-                newFilters.add('project:' + ctx.projectId);
+                newFilters.add('project:' + srv + ':' + ctx.projectId);
             }
             // If no context, activate all
             if (!ctx.sessionId && !ctx.projectId) {
@@ -9179,11 +9245,12 @@
         function _updateNotesContext() {
             const ctx = _notesCurrentContext();
             _updateNoteScopeSelect();
+            const srv = ctx.server || 'local';
             if (ctx.sessionId) {
-                const val = 'session:' + ctx.sessionId;
+                const val = 'session:' + srv + ':' + ctx.sessionId;
                 if (_scopeDropdownItems.some(i => i.value === val)) _selectScopeItem(val);
             } else if (ctx.projectId) {
-                const val = 'project:' + ctx.projectId;
+                const val = 'project:' + srv + ':' + ctx.projectId;
                 if (_scopeDropdownItems.some(i => i.value === val)) _selectScopeItem(val);
             }
             _updateNotesContextBar();
@@ -9201,17 +9268,10 @@
                 if (_isMultiServer()) {
                     const srv = fp.server || 'local';
                     html += ' <span style="color:#4a4a7a">·</span> <span style="color:#5a7a5a;font-size:10px">' + escHtml(getServerLabel(srv)) + '</span>';
-                    if (srv !== 'local') {
-                        html += ' <span style="color:#6a5a3a;font-size:10px;margin-left:4px">— notes stored locally</span>';
-                    }
                 }
                 bar.innerHTML = html;
             } else {
-                let html = '<span style="color:#4a4a7a">No session focused</span>';
-                if (_isMultiServer()) {
-                    html += ' <span style="color:#5a7a5a;font-size:10px;margin-left:4px">· ' + escHtml(getServerLabel('local')) + '</span>';
-                }
-                bar.innerHTML = html;
+                bar.innerHTML = '<span style="color:#4a4a7a">No session focused</span>';
             }
         }
 
@@ -9228,28 +9288,39 @@
         function _buildNoteFilterChips() {
             const container = document.getElementById('notes-filters');
             if (!container) return;
+            const multi = _isMultiServer();
             // Only show chips for items that actually have notes
-            const projects = new Map();
-            const sessions = new Map();
+            // Key: "srv:id" to avoid cross-server collisions
+            const projects = new Map(); // "srv:cwd" -> { name, server, id }
+            const sessionMap = new Map(); // "srv:sid" -> { name, server, id }
             _notes.forEach(n => {
-                if (n.scope === 'project' && n.project_id && !projects.has(n.project_id)) {
-                    const p = panels.find(pp => pp.cwd === n.project_id);
-                    projects.set(n.project_id, p ? (p.cwd.split('/').pop() || p.cwd) : (n.project_id.split('/').pop() || n.project_id));
+                const srv = n._server || 'local';
+                if (n.scope === 'project' && n.project_id) {
+                    const pk = srv + ':' + n.project_id;
+                    if (!projects.has(pk)) {
+                        const p = panels.find(pp => pp.cwd === n.project_id && (pp.server || 'local') === srv);
+                        const name = p ? (p.cwd.split('/').pop() || p.cwd) : (n.project_id.split('/').pop() || n.project_id);
+                        projects.set(pk, { name, server: srv, id: n.project_id });
+                    }
                 }
-                if (n.scope === 'session' && n.session_id && !sessions.has(n.session_id)) {
-                    const p = panels.find(pp => pp.sessionId === n.session_id);
-                    sessions.set(n.session_id, p ? (p.name || p.sessionId) : n.session_id);
+                if (n.scope === 'session' && n.session_id) {
+                    const sk = srv + ':' + n.session_id;
+                    if (!sessionMap.has(sk)) {
+                        const p = panels.find(pp => pp.sessionId === n.session_id && (pp.server || 'local') === srv);
+                        const name = p ? (p.name || p.sessionId) : n.session_id;
+                        sessionMap.set(sk, { name, server: srv, id: n.session_id });
+                    }
                 }
             });
-            // Build all possible filter keys — only add new keys that haven't been seen
+            // Build all possible filter keys
             const allKeys = new Set();
             for (const k of projects.keys()) allKeys.add('project:' + k);
-            for (const k of sessions.keys()) allKeys.add('session:' + k);
+            for (const k of sessionMap.keys()) allKeys.add('session:' + k);
             // Remove stale keys that no longer exist in notes
             for (const k of [..._notesActiveFilters]) {
                 if (!k.startsWith('_seen_') && !allKeys.has(k)) _notesActiveFilters.delete(k);
             }
-            // Auto-activate new keys not yet seen (e.g. note added from another client)
+            // Auto-activate new keys not yet seen
             for (const k of allKeys) {
                 if (!_notesActiveFilters.has('_seen_' + k)) {
                     _notesActiveFilters.add('_seen_' + k);
@@ -9257,24 +9328,33 @@
                 }
             }
             const ctx = _notesCurrentContext();
-            // Show only relevant chips for the active tab
+            const ctxSrv = ctx.server || 'local';
             const showProjects = _notesFilter === 'all' || _notesFilter === 'project';
             const showSessions = _notesFilter === 'all' || _notesFilter === 'session';
+            // Group chips by server
+            const srvKeys = new Set();
+            for (const [, info] of projects) srvKeys.add(info.server);
+            for (const [, info] of sessionMap) srvKeys.add(info.server);
+            const orderedSrvs = [...srvKeys].sort((a, b) => a === 'local' ? -1 : b === 'local' ? 1 : a.localeCompare(b));
             let html = '';
-            if (showProjects && projects.size > 0) {
-                for (const [id, name] of projects) {
-                    const key = 'project:' + id;
-                    const active = _notesActiveFilters.has(key);
-                    const isCurrent = ctx.projectId === id;
-                    html += `<span class="notes-filter-chip${active ? ' active' : ''}${isCurrent ? ' current' : ''}" onclick="_toggleNoteFilter('${escHtml(key)}')"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:-1px;margin-right:3px;opacity:0.6"><path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>${escHtml(name)}</span>`;
+            for (const srv of orderedSrvs) {
+                const srvProjects = showProjects ? [...projects].filter(([, i]) => i.server === srv) : [];
+                const srvSessions = showSessions ? [...sessionMap].filter(([, i]) => i.server === srv) : [];
+                if (srvProjects.length === 0 && srvSessions.length === 0) continue;
+                if (multi) {
+                    html += `<div style="font-size:9px;color:#5a5a8a;padding:2px 0 1px;width:100%">${escHtml(getServerLabel(srv))}</div>`;
                 }
-            }
-            if (showSessions && sessions.size > 0) {
-                for (const [id, name] of sessions) {
-                    const key = 'session:' + id;
+                for (const [pk, info] of srvProjects) {
+                    const key = 'project:' + pk;
                     const active = _notesActiveFilters.has(key);
-                    const isCurrent = ctx.sessionId === id;
-                    html += `<span class="notes-filter-chip${active ? ' active' : ''}${isCurrent ? ' current' : ''}" onclick="_toggleNoteFilter('${escHtml(key)}')"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-1px;margin-right:3px;opacity:0.6"><rect x="2" y="3" width="20" height="18" rx="2"/><line x1="2" y1="7" x2="22" y2="7"/></svg>${escHtml(name)}</span>`;
+                    const isCurrent = ctx.projectId === info.id && ctxSrv === info.server;
+                    html += `<span class="notes-filter-chip${active ? ' active' : ''}${isCurrent ? ' current' : ''}" onclick="_toggleNoteFilter('${escHtml(key)}')"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:-1px;margin-right:3px;opacity:0.6"><path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>${escHtml(info.name)}</span>`;
+                }
+                for (const [sk, info] of srvSessions) {
+                    const key = 'session:' + sk;
+                    const active = _notesActiveFilters.has(key);
+                    const isCurrent = ctx.sessionId === info.id && ctxSrv === info.server;
+                    html += `<span class="notes-filter-chip${active ? ' active' : ''}${isCurrent ? ' current' : ''}" onclick="_toggleNoteFilter('${escHtml(key)}')"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-1px;margin-right:3px;opacity:0.6"><rect x="2" y="3" width="20" height="18" rx="2"/><line x1="2" y1="7" x2="22" y2="7"/></svg>${escHtml(info.name)}</span>`;
                 }
             }
             container.innerHTML = html;
@@ -9300,20 +9380,33 @@
             };
         }
 
-        function _notesApiUrl(path) {
-            // Notes are always on the local server
-            return serverUrl('local', path);
+        function _notesServerUrl(srv, path) {
+            return serverUrl(srv, path);
         }
 
         async function fetchNotes() {
-            try {
-                const resp = await fetch(_notesApiUrl('/notes'), {});
-                if (!resp.ok) return;
-                const data = await resp.json();
-                _notes = data.notes || [];
-                _notesLoaded = true;
-                renderNotes();
-            } catch (e) { /* ignore */ }
+            // Show spinner while loading
+            const list = document.getElementById('notes-list');
+            if (list && !_notesLoaded) {
+                list.innerHTML = '<div class="notes-empty"><span class="spinner"></span> Loading notes…</div>';
+            }
+            const allNotes = [];
+            // Only fetch from servers that are actually connected
+            const targets = servers.filter(s => s.enabled && serverConnected[s.key] === true);
+            if (!targets.find(s => s.key === 'local')) {
+                targets.unshift({ key: 'local' });
+            }
+            await Promise.allSettled(targets.map(async srv => {
+                try {
+                    const resp = await fetch(_notesServerUrl(srv.key, '/notes'), {});
+                    if (!resp.ok) return;
+                    const data = await resp.json();
+                    (data.notes || []).forEach(n => { n._server = srv.key; allNotes.push(n); });
+                } catch (e) { /* ignore */ }
+            }));
+            _notes = allNotes;
+            _notesLoaded = true;
+            renderNotes();
         }
 
         function renderNotes() {
@@ -9331,11 +9424,12 @@
             }
             // Apply chip filters — hide deselected projects/sessions
             filtered = filtered.filter(n => {
+                const srv = n._server || 'local';
                 if (n.scope === 'project' && n.project_id) {
-                    return _notesActiveFilters.has('project:' + n.project_id);
+                    return _notesActiveFilters.has('project:' + srv + ':' + n.project_id);
                 }
                 if (n.scope === 'session' && n.session_id) {
-                    return _notesActiveFilters.has('session:' + n.session_id);
+                    return _notesActiveFilters.has('session:' + srv + ':' + n.session_id);
                 }
                 return true; // global notes always shown
             });
@@ -9349,9 +9443,10 @@
             const targetName = focusedPanel ? focusedPanel.name : null;
             list.innerHTML = filtered.map(n => {
                 const ts = _notesRelTime(n.created_at);
+                const srv = n._server || 'local';
                 let scopeLabel = n.scope;
                 if (n.scope === 'session' && n.session_id) {
-                    const p = panels.find(pp => pp.sessionId === n.session_id);
+                    const p = panels.find(pp => pp.sessionId === n.session_id && (pp.server || 'local') === srv);
                     const sessionName = p ? p.name : n.session_id;
                     const projectName = n.project_id ? n.project_id.split('/').pop() : null;
                     scopeLabel = projectName ? projectName + ' / ' + sessionName : sessionName;
@@ -9369,7 +9464,7 @@
                             <button onclick="copyNote('${n.id}')" title="Copy to clipboard"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
                             <button class="note-del" onclick="deleteNote('${n.id}')" title="Delete">✕</button>
                         </div>
-                    </div>
+                    </div>${_isMultiServer() ? '<div style="padding:2px 8px 0;font-size:10px;color:#7878a0">' + escHtml(getServerLabel(srv)) + '</div>' : ''}
                 </div>`;
             }).join('');
         }
@@ -9400,25 +9495,35 @@
             } catch (e) { return ''; }
         }
 
+        function _parseScopeValue(val) {
+            // Format: "global", "session:<server>:<id>", "project:<server>:<path>"
+            if (val === 'global') return { scope: 'global', server: 'local', id: null };
+            const m = val.match(/^(session|project):([^:]+):(.+)$/);
+            if (m) return { scope: m[1], server: m[2], id: m[3] };
+            return { scope: 'global', server: 'local', id: null };
+        }
+
         async function addNote() {
             const input = document.getElementById('notes-input');
             const text = (input.value || '').trim();
             if (!text) return;
-            const ctx = _notesCurrentContext();
+            const parsed = _parseScopeValue(_noteInputScope);
             const body = { content: text };
-            if (_noteInputScope.startsWith('session:')) {
+            let targetServer = parsed.server;
+            if (parsed.scope === 'session') {
                 body.scope = 'session';
-                body.session_id = _noteInputScope.slice(8);
-                const panel = panels.find(p => p.sessionId === body.session_id);
+                body.session_id = parsed.id;
+                const panel = panels.find(p => p.sessionId === parsed.id);
                 if (panel && panel.cwd) body.project_id = panel.cwd;
-            } else if (_noteInputScope.startsWith('project:')) {
+            } else if (parsed.scope === 'project') {
                 body.scope = 'project';
-                body.project_id = _noteInputScope.slice(8);
+                body.project_id = parsed.id;
             } else {
                 body.scope = 'global';
+                targetServer = 'local';
             }
             try {
-                const resp = await fetch(_notesApiUrl('/notes'), {
+                const resp = await fetch(_notesServerUrl(targetServer, '/notes'), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', },
                     body: JSON.stringify(body),
@@ -9427,9 +9532,9 @@
                     input.value = '';
                     // Ensure the filter chip for this note is active
                     if (body.scope === 'session' && body.session_id) {
-                        _notesActiveFilters.add('session:' + body.session_id);
+                        _notesActiveFilters.add('session:' + targetServer + ':' + body.session_id);
                     } else if (body.scope === 'project' && body.project_id) {
-                        _notesActiveFilters.add('project:' + body.project_id);
+                        _notesActiveFilters.add('project:' + targetServer + ':' + body.project_id);
                     }
                     // Switch tab to show the new note
                     if (_notesFilter !== 'all' && _notesFilter !== body.scope) {
@@ -9441,8 +9546,10 @@
         }
 
         async function deleteNote(id) {
+            const note = _notes.find(n => n.id === id);
+            const srv = (note && note._server) || 'local';
             try {
-                await fetch(_notesApiUrl(`/notes/${id}`), {
+                await fetch(_notesServerUrl(srv, `/notes/${id}`), {
                     method: 'DELETE',
                 });
                 await fetchNotes();
@@ -9523,11 +9630,12 @@
             contentDiv.appendChild(ta);
             ta.focus();
 
+            const noteSrv = note._server || 'local';
             const save = async () => {
                 const newText = ta.value.trim();
                 if (newText && newText !== note.content) {
                     try {
-                        await fetch(_notesApiUrl(`/notes/${id}`), {
+                        await fetch(_notesServerUrl(noteSrv, `/notes/${id}`), {
                             method: 'PATCH',
                             headers: { 'Content-Type': 'application/json', },
                             body: JSON.stringify({ content: newText }),
@@ -9548,47 +9656,78 @@
             document.querySelectorAll('#notes-scope-tabs button').forEach(btn => {
                 btn.classList.toggle('active', btn.dataset.scope === scope);
             });
-            // Sync the scope buttons with the tab
+            // Sync the scope dropdown with the tab
             const ctx = _notesCurrentContext();
+            const srv = ctx.server || 'local';
             if (scope === 'global') {
-                _noteInputScope = 'global';
-                _setNoteScopeBtn('global');
+                _selectScopeItem('global');
             } else if (scope === 'project' && ctx.projectId) {
-                _noteInputScope = 'project:' + ctx.projectId;
-                _setNoteScopeBtn('project');
+                _selectScopeItem('project:' + srv + ':' + ctx.projectId);
             } else if (scope === 'session' && ctx.sessionId) {
-                _noteInputScope = 'session:' + ctx.sessionId;
-                _setNoteScopeBtn('session');
+                _selectScopeItem('session:' + srv + ':' + ctx.sessionId);
             }
             // 'all' keeps current selection
             renderNotes();
         }
 
         async function exportNotes() {
-            try {
-                const resp = await fetch(_notesApiUrl('/notes/export'), {});
-                if (!resp.ok) return;
-                const text = await resp.text();
-                const blob = new Blob([text], { type: 'text/markdown' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = 'notes.md';
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-            } catch (e) { /* ignore */ }
+            // Client-side export from merged notes across all servers
+            if (!_notes.length) return;
+            const multi = _isMultiServer();
+            let md = '# Notes\n\n';
+            const grouped = { global: [], project: {}, session: {} };
+            _notes.forEach(n => {
+                if (n.scope === 'global') grouped.global.push(n);
+                else if (n.scope === 'project') {
+                    const k = (n.project_id || 'unknown');
+                    (grouped.project[k] = grouped.project[k] || []).push(n);
+                } else if (n.scope === 'session') {
+                    const k = (n.session_id || 'unknown');
+                    (grouped.session[k] = grouped.session[k] || []).push(n);
+                }
+            });
+            if (grouped.global.length) {
+                md += '## Global\n\n';
+                grouped.global.forEach(n => {
+                    md += '- ' + n.content + (multi ? ' _(' + getServerLabel(n._server || 'local') + ')_' : '') + '\n';
+                });
+                md += '\n';
+            }
+            for (const [pid, notes] of Object.entries(grouped.project)) {
+                md += '## Project: ' + pid.split('/').pop() + '\n\n';
+                notes.forEach(n => {
+                    md += '- ' + n.content + (multi ? ' _(' + getServerLabel(n._server || 'local') + ')_' : '') + '\n';
+                });
+                md += '\n';
+            }
+            for (const [sid, notes] of Object.entries(grouped.session)) {
+                md += '## Session: ' + sid + '\n\n';
+                notes.forEach(n => {
+                    md += '- ' + n.content + (multi ? ' _(' + getServerLabel(n._server || 'local') + ')_' : '') + '\n';
+                });
+                md += '\n';
+            }
+            const blob = new Blob([md], { type: 'text/markdown' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'notes.md';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
         }
 
         async function clearAllNotes() {
             if (_notes.length === 0) return;
             const ok = await showConfirm(`Delete all ${_notes.length} notes?`, 'Delete');
             if (!ok) return;
-            try {
-                await fetch(_notesApiUrl('/notes?confirm=true'), { method: 'DELETE' });
-                await fetchNotes();
-            } catch (e) { /* ignore */ }
+            // Delete from all servers that have notes
+            const noteServers = [...new Set(_notes.map(n => n._server || 'local'))];
+            await Promise.allSettled(noteServers.map(srv =>
+                fetch(_notesServerUrl(srv, '/notes?confirm=true'), { method: 'DELETE' }).catch(() => {})
+            ));
+            await fetchNotes();
         }
 
         function _showToast(msg) {

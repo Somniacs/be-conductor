@@ -4,11 +4,19 @@ All notable changes to be-conductor are documented here.
 
 ## v0.3.23
 
+### Multi-server notes
+
+Notes now work across all connected machines. The dashboard fetches and merges notes from every server, so you see everything in one place. Each note is stored on its originating server and CRUD operations are routed accordingly.
+
+- **Cross-server fetch** — notes are fetched from all enabled, connected servers in parallel and merged into a single list
+- **Server-aware CRUD** — creating a note targets the server of the selected scope (session/project); editing and deleting route to the note's originating server
+- **Server labels** — in multi-server setups, note cards show the machine name, filter chips and the scope dropdown are grouped by machine with section headers. Single-server setups look unchanged
+- **Context bar** — shows the server name of the focused session when multiple servers are connected
+- **Loading spinner** — notes list shows a spinner while fetching from servers
+
 ### Notes improvements
 
-- **Custom scope dropdown** — replaced the native `<select>` with a custom dropdown that renders the same monochrome SVG icons used in the notes drawer tabs (globe, folder, terminal)
-- **Server label in context bar** — in multi-server setups the context bar now shows which machine the focused session belongs to, with a "notes stored locally" hint when a remote session is focused
-- **Combo box scoped to local sessions** — the scope dropdown only lists local sessions and projects since notes are stored in the local SQLite database
+- **Custom scope dropdown** — replaced the native `<select>` with a custom dropdown rendering monochrome SVG icons (globe, folder, terminal) matching the drawer tabs
 - **Orphaned notes cleanup** — session-scoped notes whose sessions no longer exist are automatically cleaned up on server startup and every 10 minutes
 - **Filter chip deselect fix** — deselecting a filter chip that has the `.current` highlight now correctly dims the chip instead of keeping it visually active
 - **Monochrome clipboard icon** — replaced the colored emoji with a monochrome SVG matching the rest of the UI
