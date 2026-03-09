@@ -2,6 +2,21 @@
 
 All notable changes to be-conductor are documented here.
 
+## v0.3.24
+
+### New
+
+- **Mobile text selection** — long-press a word in the terminal to select it. Drag to extend the selection across words or lines. A COPY button appears centered on the terminal — tap it to copy and exit. Tap once to clear the selection (button stays visible but grayed out), tap again to leave selection mode. The keyboard stays open if it was open before
+- **JetBrains Mono font** — self-hosted as the default terminal font for sharper, more readable output
+- **Smarter reconnection** — when a server goes offline the dashboard now polls until it comes back, then reconnects automatically. Shows a `[Reconnecting…]` indicator instead of silently hanging
+
+### Fixed
+
+- **Tables and formatted output no longer break on keyboard open/close** — opening or closing the soft keyboard could shift the terminal width by a few pixels, causing tables and box-drawing characters to reflow and corrupt. The terminal now ignores sub-character width changes
+- **Tables no longer break when reopening a session** — reconnecting to a sleeping session could replay the scrollback at the wrong column width, corrupting formatted output. The terminal now matches the server's last known width during replay
+- **Long-press no longer shows "Save image" menu** — on Android Chrome, long-pressing the terminal canvas triggered the browser's image context menu. Now suppressed
+- **Double-tap-to-zoom disabled on terminals** — the browser no longer intercepts double-taps for zooming on terminal views
+
 ## v0.3.23
 
 ### Multi-server notes

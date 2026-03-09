@@ -24,6 +24,13 @@
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='80' font-size='80'>♭</text></svg>">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
     <style>
+        @font-face {
+            font-family: 'JetBrains Mono';
+            src: url('/static/JetBrainsMono-Regular.woff2') format('woff2');
+            font-weight: 400;
+            font-style: normal;
+            font-display: swap;
+        }
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
         html {
@@ -1617,12 +1624,12 @@
             .panel-terminal::-webkit-scrollbar { display: none; }
             .xterm-scroll-proxy { width: 16px; }
             .xterm-scroll-thumb { width: 10px; right: 3px; }
-            .terminal-wrapper { touch-action: pan-y; }
+            .terminal-wrapper { touch-action: manipulation; }
             .terminal-wrapper .xterm .xterm-screen {
-                touch-action: pan-y;
+                touch-action: manipulation;
                 pointer-events: none;
             }
-            .terminal-wrapper .xterm .xterm-viewport { touch-action: pan-y; }
+            .terminal-wrapper .xterm .xterm-viewport { touch-action: manipulation; }
             /* Prevent browser auto-scrolling .panel-terminal to reveal textarea at cursor col 0 */
             .panel-terminal .xterm-helper-textarea {
                 position: fixed !important;
@@ -1630,6 +1637,31 @@
                 left: 0px !important;
             }
         }
+        /* Suppress long-press callout on terminals (iOS "Save image" etc) */
+        @media (pointer: coarse) {
+            .terminal-wrapper {
+                -webkit-touch-callout: none;
+            }
+        }
+        /* Copy pill for selection mode */
+        .select-copy-pill {
+            display: none;
+            position: fixed;
+            z-index: 602;
+            background: #3a3aaa;
+            color: #fff;
+            font-size: 13px;
+            font-weight: 600;
+            padding: 6px 22px;
+            border-radius: 16px;
+            cursor: pointer;
+            user-select: none; -webkit-user-select: none;
+            -webkit-tap-highlight-color: transparent;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+            transition: opacity 0.15s;
+        }
+        .select-copy-pill.visible { display: block; }
+        .select-copy-pill.disabled { opacity: 0.5; pointer-events: none; }
 
 
         .panel-terminal pre {
@@ -2776,6 +2808,9 @@
         </div>
     </div>
 
+    <div class="select-copy-pill" id="select-copy-pill"
+         onpointerdown="event.preventDefault(); copySelection()">COPY</div>
+
     <div class="extra-keys-bar" id="extra-keys-bar" onpointerdown="event.preventDefault()">
         <span class="extra-keys-chevron" onpointerdown="event.stopPropagation(); event.preventDefault(); toggleExtraKeysBar()" id="ek-chevron">&#9650;</span>
         <div class="extra-keys-drawer">
@@ -3132,9 +3167,11 @@
                 // 4. Resize terminal.  Single call, no oscillation.
                 if (p.terminal.cols !== p._ptyCols || p.terminal.rows !== visibleRows) {
                     p.terminal.resize(p._ptyCols, visibleRows);
-                    // Force repaint — some mobile browsers skip render after
-                    // resize when the terminal is wider than the viewport.
-                    p.terminal.refresh(0, visibleRows - 1);
+                    // Force repaint after canvas has resized — some mobile
+                    // browsers skip render after resize when terminal is
+                    // wider than the viewport.
+                    const vr = visibleRows;
+                    requestAnimationFrame(() => p.terminal.refresh(0, vr - 1));
                 }
             } else {
                 // Browser-only session — use same manual measurement as
@@ -3166,7 +3203,16 @@
                 // 3. Calculate rows and cols
                 let visibleRows = Math.max(1, Math.floor(wrapH / cellHeight));
                 if (visibleRows * cellHeight > wrapH + 0.5) visibleRows = Math.max(1, visibleRows - 1);
-                const visibleCols = Math.max(MIN_COLS, Math.floor(wrapW / cellWidth));
+                let visibleCols = Math.max(MIN_COLS, Math.floor(wrapW / cellWidth));
+
+                // If width changed by less than one cell (e.g. scrollbar
+                // appearing/disappearing when keyboard opens), keep current
+                // cols to avoid reflowing the buffer and corrupting tables.
+                const lastW = p._lastFitWidth || 0;
+                if (lastW > 0 && Math.abs(wrapW - lastW) < cellWidth) {
+                    visibleCols = p.terminal.cols;
+                }
+                p._lastFitWidth = wrapW;
 
                 // 4. Set min-width for MIN_COLS
                 target.style.minWidth = Math.ceil(MIN_COLS * cellWidth) + 'px';
@@ -3928,7 +3974,7 @@
                 const term = new Terminal({
                     cursorBlink: true,
                     fontSize: window.innerWidth <= 700 ? 8 : 14,
-                    fontFamily: "'Consolas', 'Monaco', 'Courier New', monospace",
+                    fontFamily: "'JetBrains Mono', 'Cascadia Mono', Menlo, 'DejaVu Sans Mono', Consolas, monospace",
                     theme: {
                         background: defT.background, foreground: defT.foreground,
                         cursor: defT.cursor, selectionBackground: defT.selectionBackground,
@@ -4050,7 +4096,18 @@
             panel.terminal.open(target);
             panel._termOpened = true;
 
-
+            // Update COPY pill enabled/disabled when selection changes
+            panel.terminal.onSelectionChange(() => {
+                if (!_isCoarsePointer || !_selectionMode) return;
+                const pill = document.getElementById('select-copy-pill');
+                if (!pill) return;
+                const sel = panel.terminal.getSelection();
+                if (sel) {
+                    pill.classList.remove('disabled');
+                } else {
+                    pill.classList.add('disabled');
+                }
+            });
 
             // Mobile: prevent .panel-terminal from being scrolled vertically.
             // Native compositor scroll (touch-action: pan-y) can bubble up
@@ -4073,29 +4130,129 @@
                 let tapX = 0, tapY = 0, tapMoved = false;
                 const TAP_SLOP = 10;
 
-                target.addEventListener('touchstart', (e) => {
-                    if (e.touches.length === 1) {
-                        tapX = e.touches[0].clientX;
-                        tapY = e.touches[0].clientY;
-                        tapMoved = false;
-                    }
-                }, { passive: true, capture: true });
+                // --- Helpers for touch-to-terminal-coords ---
+                function _touchToCell(clientX, clientY) {
+                    const term = panel.terminal;
+                    if (!term) return null;
+                    const screen = target.querySelector('.xterm-screen');
+                    if (!screen) return null;
+                    const rect = screen.getBoundingClientRect();
+                    const d = term._core._renderService.dimensions;
+                    if (!d || !d.css || !d.css.cell || d.css.cell.width <= 0) return null;
+                    const vp = target.querySelector('.xterm-viewport');
+                    const scrollOffset = vp ? vp.scrollTop : 0;
+                    const col = Math.max(0, Math.floor((clientX - rect.left) / d.css.cell.width));
+                    const row = Math.floor((clientY - rect.top + scrollOffset) / d.css.cell.height);
+                    return { col, row };
+                }
 
-                // stopPropagation prevents xterm's bubble-phase touchmove
-                // (which does viewport.scrollTop += delta) from double-scrolling.
-                // passive:true — we never preventDefault; the browser handles scroll.
+                function _selectWordAt(clientX, clientY) {
+                    const term = panel.terminal;
+                    const cell = _touchToCell(clientX, clientY);
+                    if (!cell || !term.buffer || !term.buffer.active) return;
+                    const bufLine = term.buffer.active.getLine(cell.row);
+                    if (!bufLine) return;
+                    const text = bufLine.translateToString(true);
+                    const wordRe = /[\w.\-\/:@~#]/;
+                    if (cell.col < 0 || cell.col >= text.length || !wordRe.test(text[cell.col])) return;
+                    let start = cell.col, end = cell.col;
+                    while (start > 0 && wordRe.test(text[start - 1])) start--;
+                    while (end < text.length - 1 && wordRe.test(text[end + 1])) end++;
+                    term.select(start, cell.row, end - start + 1);
+                }
+
+                function _selectRange(anchorCol, anchorRow, curCol, curRow) {
+                    const term = panel.terminal;
+                    if (!term) return;
+                    let sCol = anchorCol, sRow = anchorRow, eCol = curCol, eRow = curRow;
+                    if (eRow < sRow || (eRow === sRow && eCol < sCol)) {
+                        [sCol, sRow, eCol, eRow] = [eCol, eRow, sCol, sRow];
+                    }
+                    const length = (eRow - sRow) * term.cols + (eCol - sCol) + 1;
+                    if (length > 0) term.select(sCol, sRow, length);
+                }
+
+                // Long-press detection (only way to enter selection mode)
+                let _longPressTimer = null;
+                const LONG_PRESS_MS = 500;
+
+                function _cancelLongPress() {
+                    if (_longPressTimer) { clearTimeout(_longPressTimer); _longPressTimer = null; }
+                }
+
+                // Suppress browser context menu on long-press (canvas "Save image" menu)
+                target.addEventListener('contextmenu', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }, { capture: true });
+
+                target.addEventListener('touchstart', (e) => {
+                    if (e.touches.length !== 1) return;
+                    tapX = e.touches[0].clientX;
+                    tapY = e.touches[0].clientY;
+                    tapMoved = false;
+
+                    if (_selectionMode) {
+                        // Block focus/keyboard — must preventDefault + stopPropagation
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const cell = _touchToCell(tapX, tapY);
+                        if (cell) {
+                            panel._selAnchor = cell;
+                            panel._selDragging = false;
+                        }
+                    } else {
+                        // Start long-press timer → enter selection mode + select word
+                        _cancelLongPress();
+                        _longPressTimer = setTimeout(() => {
+                            _longPressTimer = null;
+                            tapMoved = true; // prevent touchend from processing as tap
+                            enterSelectionMode();
+                            _selectWordAt(tapX, tapY);
+                        }, LONG_PRESS_MS);
+                    }
+                }, { passive: false, capture: true });
+
                 target.addEventListener('touchmove', (e) => {
                     e.stopPropagation();
-                    if (!tapMoved && e.touches.length === 1) {
-                        const dx = e.touches[0].clientX - tapX;
-                        const dy = e.touches[0].clientY - tapY;
-                        if (Math.abs(dx) > TAP_SLOP || Math.abs(dy) > TAP_SLOP) tapMoved = true;
+                    if (_selectionMode) e.preventDefault();
+                    if (e.touches.length !== 1) return;
+                    const dx = e.touches[0].clientX - tapX;
+                    const dy = e.touches[0].clientY - tapY;
+                    if (Math.abs(dx) > TAP_SLOP || Math.abs(dy) > TAP_SLOP) {
+                        tapMoved = true;
+                        _cancelLongPress();
+                        if (_selectionMode && panel._selAnchor) {
+                            panel._selDragging = true;
+                            const cell = _touchToCell(e.touches[0].clientX, e.touches[0].clientY);
+                            if (cell) _selectRange(panel._selAnchor.col, panel._selAnchor.row, cell.col, cell.row);
+                        }
                     }
-                }, { passive: true, capture: true });
+                }, { passive: false, capture: true });
 
-                target.addEventListener('touchend', () => {
+                target.addEventListener('touchend', (e) => {
+                    _cancelLongPress();
+
+                    if (_selectionMode) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (!tapMoved) {
+                            const sel = panel.terminal.getSelection();
+                            if (sel) {
+                                // Has selection → clear it, pill goes disabled, stay in mode
+                                panel.terminal.clearSelection();
+                            } else {
+                                // No selection → exit selection mode
+                                exitSelectionMode();
+                            }
+                        }
+                        panel._selDragging = false;
+                        tapMoved = false;
+                        return;
+                    }
+
+                    // Normal mode: tap → focus + file link check
                     if (!tapMoved) {
-                        // Check if the tap hit a file link
                         let tappedLink = false;
                         try {
                             const term = panel.terminal;
@@ -4141,7 +4298,7 @@
                                     }
                                 }
                             }
-                        } catch (e) { /* ignore — fall through to normal tap */ }
+                        } catch (e) { /* ignore */ }
                         if (!tappedLink) {
                             panel.terminal.focus();
                             const vp = target.querySelector('.xterm-viewport');
@@ -4149,7 +4306,7 @@
                         }
                     }
                     tapMoved = false;
-                }, { passive: true, capture: true });
+                }, { passive: false, capture: true });
             }
 
             if (panel.fitAddon) {
@@ -4519,6 +4676,96 @@
             PageUp: '\x1b[5~',
             PageDown: '\x1b[6~',
         };
+
+        // --- Selection mode (xterm canvas selection via toggle) ---
+        let _selectionMode = false;
+
+
+        function enterSelectionMode() {
+            if (_selectionMode) return;
+            _selectionMode = true;
+            document.addEventListener('contextmenu', _suppressContextMenu, { capture: true });
+            _showSelectCopyPill(); // pill starts visible (word is selected)
+        }
+
+        function exitSelectionMode() {
+            if (!_selectionMode) return;
+            _selectionMode = false;
+            document.removeEventListener('contextmenu', _suppressContextMenu, { capture: true });
+            const fp = _getFocusedPanel();
+            if (fp && fp.terminal) fp.terminal.clearSelection();
+            _hideSelectCopyPill();
+        }
+
+        function _suppressContextMenu(e) {
+            if (e.target.closest && e.target.closest('.terminal-wrapper')) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+        }
+
+        let _pillRafId = null;
+
+        function _positionCopyPill() {
+            const pill = document.getElementById('select-copy-pill');
+            if (!pill || !_selectionMode) { _pillRafId = null; return; }
+            const fp = _getFocusedPanel();
+            if (fp && fp._termEl) {
+                const rect = fp._termEl.getBoundingClientRect();
+                pill.style.left = (rect.left + rect.width / 2) + 'px';
+                pill.style.transform = 'translateX(-50%)';
+                pill.style.bottom = Math.max(12, window.innerHeight - rect.bottom + 12) + 'px';
+            }
+            _pillRafId = requestAnimationFrame(_positionCopyPill);
+        }
+
+        function _showSelectCopyPill() {
+            const pill = document.getElementById('select-copy-pill');
+            if (!pill) return;
+            pill.classList.add('visible');
+            if (!_pillRafId) _pillRafId = requestAnimationFrame(_positionCopyPill);
+        }
+
+        function _hideSelectCopyPill() {
+            const pill = document.getElementById('select-copy-pill');
+            if (pill) { pill.classList.remove('visible'); pill.classList.remove('disabled'); }
+            if (_pillRafId) { cancelAnimationFrame(_pillRafId); _pillRafId = null; }
+        }
+
+        function _copyText(text) {
+            // Try modern Clipboard API first (requires HTTPS)
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                return navigator.clipboard.writeText(text);
+            }
+            // Fallback: temporary textarea + execCommand (works on HTTP)
+            return new Promise((resolve, reject) => {
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                ta.style.cssText = 'position:fixed;left:-9999px;top:-9999px;opacity:0;';
+                document.body.appendChild(ta);
+                ta.focus();
+                ta.select();
+                try {
+                    document.execCommand('copy') ? resolve() : reject();
+                } catch (e) { reject(e); }
+                finally { ta.remove(); }
+            });
+        }
+
+        function copySelection() {
+            const fp = _getFocusedPanel();
+            if (!fp || !fp.terminal) return;
+            const text = fp.terminal.getSelection();
+            if (text) {
+                const isAndroid = /android/i.test(navigator.userAgent);
+                _copyText(text).then(() => {
+                    if (!isAndroid) showToast('Copied to clipboard');
+                }).catch(() => {
+                    showToast('Copy failed');
+                });
+            }
+            exitSelectionMode();
+        }
 
         // Global modifier state for the extra-keys bar.
         const _ekMods = { ctrl: false, alt: false, shift: false };
@@ -5168,7 +5415,12 @@
 
                 panel._dimensionsReady = false;
 
-                // Check if another client owns resize — if so, match their size.
+                // Match the server's reported size so the scrollback replays
+                // at the correct column width (prevents table corruption).
+                // If another client actively owns resize, lock to their size
+                // permanently; otherwise use the server's cols only for the
+                // replay period, then release so the browser can resize freely.
+                let replayColLock = false;
                 try {
                     const info = await infoPromise;
                     if (info) {
@@ -5177,6 +5429,12 @@
                         if (otherOwnsResize && info.resize_source && info.rows && info.cols) {
                             panel._ptyRows = info.rows;
                             panel._ptyCols = info.cols;
+                        } else if (info.cols && info.rows) {
+                            // No active owner but server knows the size —
+                            // lock cols during replay to prevent reflow.
+                            panel._ptyRows = null;
+                            panel._ptyCols = info.cols;
+                            replayColLock = true;
                         } else {
                             panel._ptyRows = null;
                             panel._ptyCols = null;
@@ -5200,6 +5458,13 @@
                     panel._bufferReplay = false;
                     // Ensure viewport is at the latest output after replay.
                     if (panel.terminal) panel.terminal.scrollToBottom();
+                    // Release col lock after replay — browser can resize freely.
+                    if (replayColLock) {
+                        panel._ptyCols = null;
+                        panel._lastFitWidth = 0; // allow col recalc
+                        _fitPanelCore(panel);
+                        syncResizeToPTY(panel);
+                    }
                 }, 1500);
             };
 
@@ -5291,12 +5556,27 @@
             };
 
             ws.onclose = () => {
-                setTimeout(async () => {
-                    if (!panels.find(p => p.id === panel.id)) return;
-                    // Check if session is still running before reconnecting
+                // Poll with short-timeout fetches until the server is reachable,
+                // then reconnect.  Avoids hanging on a WebSocket open while
+                // Tailscale / the network is still coming back up.
+                if (panel._reconnecting) return;
+                panel._reconnecting = true;
+                setServerConnectedStatus(panel.server, false);
+                if (panel.terminal) {
+                    panel.terminal.write('\r\n\x1b[90m[Reconnecting…]\x1b[0m');
+                }
+                const poll = async () => {
+                    if (!panels.find(p => p.id === panel.id)) { panel._reconnecting = false; return; }
                     try {
-                        const resp = await fetch(serverUrl(panel.server, `/sessions/${panel.sessionId}`));
+                        const ctrl = new AbortController();
+                        const tid = setTimeout(() => ctrl.abort(), 3000);
+                        const resp = await fetch(
+                            serverUrl(panel.server, `/sessions/${panel.sessionId}`),
+                            { signal: ctrl.signal }
+                        );
+                        clearTimeout(tid);
                         if (resp.status === 404) {
+                            panel._reconnecting = false;
                             closePanel(panel.id);
                             fetchAllSessions();
                             return;
@@ -5304,16 +5584,21 @@
                         if (resp.ok) {
                             const info = await resp.json();
                             if (info.status === 'exited' || info.status === 'killed') {
+                                panel._reconnecting = false;
                                 closePanel(panel.id);
                                 fetchAllSessions();
                                 return;
                             }
                         }
+                        // Server is reachable and session is alive — reconnect now
+                        panel._reconnecting = false;
+                        connectWebSocket(panel);
                     } catch (e) {
-                        // Network error — try reconnecting anyway
+                        // Server still unreachable — retry in 1.5s
+                        setTimeout(poll, 1500);
                     }
-                    connectWebSocket(panel);
-                }, 500);
+                };
+                setTimeout(poll, 500);
             };
 
             ws.onerror = () => {
@@ -5416,7 +5701,7 @@
                 const term = new Terminal({
                     cursorBlink: false,
                     fontSize: window.innerWidth <= 700 ? 8 : 14,
-                    fontFamily: "'Consolas', 'Monaco', 'Courier New', monospace",
+                    fontFamily: "'JetBrains Mono', 'Cascadia Mono', Menlo, 'DejaVu Sans Mono', Consolas, monospace",
                     theme: {
                         background: defT.background, foreground: defT.foreground,
                         cursor: defT.cursor, selectionBackground: defT.selectionBackground,
@@ -5518,10 +5803,18 @@
             if (!toast) {
                 toast = document.createElement('div');
                 toast.id = 'observe-toast';
-                toast.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#2a2a5a;color:#d0d0ff;padding:6px 16px;border-radius:4px;font-size:12px;z-index:9999;transition:opacity 0.3s;';
+                toast.style.cssText = 'position:fixed;bottom:20px;transform:translateX(-50%);background:#2a2a5a;color:#d0d0ff;padding:6px 16px;border-radius:4px;font-size:12px;z-index:9999;transition:opacity 0.3s;';
                 document.body.appendChild(toast);
             }
             toast.textContent = message;
+            // Center on the focused terminal view if available, else screen center
+            const fp = _getFocusedPanel();
+            if (fp && fp._termEl) {
+                const rect = fp._termEl.getBoundingClientRect();
+                toast.style.left = (rect.left + rect.width / 2) + 'px';
+            } else {
+                toast.style.left = '50%';
+            }
             toast.style.opacity = '1';
             setTimeout(() => { toast.style.opacity = '0'; }, 2000);
         }
