@@ -2,6 +2,17 @@
 
 Control your AI agents from your phone in 5 minutes.
 
+1. [Set up Tailscale](#1-set-up-tailscale)
+2. [Install be-conductor](#2-install-be-conductor)
+3. [Start the server](#3-start-the-server)
+4. [Run an agent](#4-run-an-agent)
+5. [Open on your phone](#5-open-on-your-phone)
+6. [IDE plugins (optional)](#6-ide-plugins-optional)
+7. [Get notified (optional)](#7-get-notified-optional)
+8. [Keep it running](#8-keep-it-running)
+
+---
+
 ## 1. Set up Tailscale
 
 Tailscale is a free app that creates a private network between your devices. Install it once, and your phone can reach your computer from anywhere.
@@ -137,7 +148,17 @@ Run and manage sessions directly from your editor — no terminal needed.
 
 Both plugins auto-discover the running server and let you start, attach, resume, and observe sessions in an embedded terminal tab. Worktree isolation is available from the new-session dialog.
 
-## 7. Keep it running
+## 7. Get notified (optional)
+
+Get a message on your phone when an agent needs your attention — no need to keep the dashboard open.
+
+**Telegram** — create a bot, paste the token and chat ID into Settings > Notifications. Step-by-step: [Telegram setup](notification_telegram.md)
+
+**Slack** — create an app with an incoming webhook, paste the URL into Settings > Notifications. Step-by-step: [Slack setup](notification_slack.md)
+
+Both take about 2 minutes. Once set up, you'll get a message whenever a session is idle and waiting for input.
+
+## 8. Keep it running
 
 The be-conductor server starts automatically when you run your first agent and stays running in the background. If you accepted autostart during install, the dashboard is already reachable after a reboot. Otherwise, see [Auto-Start on Boot](autostart.md) for manual systemd (Linux), launchd (macOS), and Task Scheduler (Windows) setup.
 

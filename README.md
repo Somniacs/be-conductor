@@ -77,7 +77,7 @@ Each process runs in a PTY on your machine. Output goes into a rolling in-memory
 - **Git worktree isolation** — run agents in isolated branches so parallel sessions never conflict with each other or your work.
 - **Session resume** — exited sessions with resume tokens are saved and can be relaunched with one click or from the CLI.
 - **External session discovery** — find and resume sessions started in IDEs or other terminals (Claude Code, Codex, Copilot, Gemini, Goose).
-- **Notifications** — get alerted on Slack, Telegram, Discord, or custom webhooks when a session stalls or finishes.
+- **Notifications** — get alerted on Slack, Telegram, Discord, or custom webhooks when a session stalls or finishes. Setup guides: [Telegram](docs/notification_telegram.md), [Slack](docs/notification_slack.md).
 - **Notes** — scoped scratchpad for capturing ideas. Notes can be global, project-scoped, or session-scoped. Push a note directly into a terminal session, filter by project or session, and sync across all connected dashboards. In multi-server setups, notes from all machines are merged and displayed with server labels.
 - **File viewer** — browse project files, view text with line numbers, render Markdown, display images and SVGs, preview PDFs, and download files — all from the dashboard.
 - **File upload** — drag-and-drop, paste, or tap to upload files into a session; insert the path or copy it to clipboard.
