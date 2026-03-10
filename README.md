@@ -72,7 +72,7 @@ Each process runs in a PTY on your machine. Output goes into a rolling in-memory
 
 - **Run any terminal process** — AI coding agents, training jobs, builds, or any interactive command that runs in a terminal.
 - **Web dashboard** — full terminal rendering in the browser with split view, color themes, font controls, and keyboard input.
-- **Mobile-ready** — responsive layout with on-screen extra keys, touch scrolling, text selection via long-press, and auto-fullscreen when the keyboard opens.
+- **Mobile-ready** — responsive layout with on-screen extra keys, horizontal and vertical touch scrolling, text selection via long-press, and auto-fullscreen when the keyboard opens.
 - **Multi-machine** — connect to multiple be-conductor servers from one dashboard; sessions are grouped by machine.
 - **Git worktree isolation** — run agents in isolated branches so parallel sessions never conflict with each other or your work.
 - **Session resume** — exited sessions with resume tokens are saved and can be relaunched with one click or from the CLI.

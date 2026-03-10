@@ -2,6 +2,12 @@
 
 All notable changes to be-conductor are documented here.
 
+## v0.3.25
+
+### New
+
+- **One-finger horizontal scrolling** — swipe left or right on the terminal to scroll horizontally on mobile and tablet. Works simultaneously with vertical scrolling — diagonal swipes scroll both axes. The horizontal scroll thumb updates to match
+
 ## v0.3.24
 
 ### New

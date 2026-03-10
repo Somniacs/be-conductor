@@ -4128,6 +4128,7 @@
             //  2. Detect taps for focus + scroll-to-bottom
             if ('ontouchstart' in window) {
                 let tapX = 0, tapY = 0, tapMoved = false;
+                let lastTouchX = 0;
                 const TAP_SLOP = 10;
 
                 // --- Helpers for touch-to-terminal-coords ---
@@ -4190,6 +4191,7 @@
                     if (e.touches.length !== 1) return;
                     tapX = e.touches[0].clientX;
                     tapY = e.touches[0].clientY;
+                    lastTouchX = tapX;
                     tapMoved = false;
 
                     if (_selectionMode) {
@@ -4226,8 +4228,17 @@
                             panel._selDragging = true;
                             const cell = _touchToCell(e.touches[0].clientX, e.touches[0].clientY);
                             if (cell) _selectRange(panel._selAnchor.col, panel._selAnchor.row, cell.col, cell.row);
+                        } else if (!_selectionMode) {
+                            // Horizontal scroll: browser handles vertical natively
+                            // on .xterm-viewport; we handle horizontal on .panel-terminal
+                            const moveDeltaX = e.touches[0].clientX - lastTouchX;
+                            if (moveDeltaX !== 0) {
+                                panel._termEl.scrollLeft -= moveDeltaX;
+                                if (panel._syncHScroll) panel._syncHScroll();
+                            }
                         }
                     }
+                    lastTouchX = e.touches[0].clientX;
                 }, { passive: false, capture: true });
 
                 target.addEventListener('touchend', (e) => {
