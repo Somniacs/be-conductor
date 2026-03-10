@@ -396,6 +396,8 @@ class SessionRegistry:
     async def cleanup_all(self):
         """Gracefully stop all sessions, preserving resume tokens.
 
+        Phase 0: Send ESC to every running session to break agents out of
+        menus, selection prompts, or mid-thought states.
         Phase 1: Interrupt every running session (sends SIGINT / stop
         sequence so agents can print resume tokens).
         Phase 2: Wait up to 10 s for processes to exit — ``_monitor_process``
@@ -405,6 +407,16 @@ class SessionRegistry:
         ids = list(self.sessions.keys())
         if not ids:
             return
+
+        # Phase 0 — send ESC to break out of menus / thinking states
+        for sid in ids:
+            session = self.sessions.get(sid)
+            if session and session.status in ("running", "starting"):
+                try:
+                    session.pty.write(b"\x1b")
+                except OSError:
+                    pass
+        await asyncio.sleep(0.3)
 
         # Phase 1 — graceful interrupt
         for sid in ids:
