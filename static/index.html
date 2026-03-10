@@ -2781,6 +2781,17 @@
         </div>
     </div>
 
+    <div class="confirm-overlay" id="prompt-dialog">
+        <div class="confirm-box">
+            <p id="prompt-msg"></p>
+            <input type="text" id="prompt-input" class="settings-input" style="width:100%;margin:8px 0 12px;box-sizing:border-box;" />
+            <div class="confirm-actions">
+                <button class="confirm-cancel" id="prompt-cancel">Cancel</button>
+                <button class="confirm-ok" id="prompt-ok" style="background:#2a4a6a;">OK</button>
+            </div>
+        </div>
+    </div>
+
     <div class="stop-overlay" id="stop-dialog">
         <div class="stop-box">
             <p id="stop-msg"></p>
@@ -6922,7 +6933,7 @@
         }
 
         async function _changeToken() {
-            const newToken = prompt('Enter new auth token (min 8 characters):');
+            const newToken = await showPrompt('Enter new auth token (min 8 characters):');
             if (!newToken) return;
             if (newToken.trim().length < 8) {
                 const result = document.getElementById('token-action-result');
@@ -6949,7 +6960,7 @@
         }
 
         async function _removeToken() {
-            if (!confirm('Remove the auth token? All API access will be open without authentication.')) return;
+            if (!await showConfirm('Remove the auth token? All API access will be open without authentication.', 'Remove')) return;
             const result = document.getElementById('token-action-result');
             try {
                 const resp = await fetch('/admin/token', { method: 'DELETE' });
@@ -6966,6 +6977,31 @@
         }
 
         // ── SSL / HTTPS management ──
+        async function _waitForRestart(newUrl, statusEl) {
+            const sameProtocol = new URL(newUrl).protocol === location.protocol;
+            if (statusEl) { statusEl.textContent = 'Restarting server...'; statusEl.style.color = '#7878a0'; }
+            if (sameProtocol) {
+                // Same protocol (e.g. HTTPS → HTTP) — poll until the new server is up
+                for (let i = 0; i < 30; i++) {
+                    await new Promise(r => setTimeout(r, 1000));
+                    try {
+                        await fetch(newUrl + '/health', { mode: 'no-cors' });
+                        if (statusEl) { statusEl.textContent = 'Redirecting...'; statusEl.style.color = '#44dd77'; }
+                        setTimeout(() => { window.location.href = newUrl; }, 500);
+                        return;
+                    } catch (e) { /* server not up yet */ }
+                }
+                if (statusEl) { statusEl.textContent = 'Server did not come back. Reload manually at ' + newUrl; statusEl.style.color = '#ff6060'; }
+            } else {
+                // Cross-protocol (HTTP → HTTPS) — can't poll because browser
+                // blocks fetch to untrusted self-signed certs. Redirect after
+                // a delay and let the browser show the cert acceptance page.
+                if (statusEl) { statusEl.textContent = 'Redirecting to ' + newUrl + '...'; statusEl.style.color = '#44dd77'; }
+                await new Promise(r => setTimeout(r, 4000));
+                window.location.href = newUrl;
+            }
+        }
+
         async function _generateSSLCert() {
             const result = document.getElementById('ssl-action-result');
             if (result) { result.textContent = 'Generating...'; result.style.color = '#7878a0'; }
@@ -6973,8 +7009,7 @@
                 const resp = await fetch('/admin/ssl/generate', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({days: 365}) });
                 const data = await resp.json();
                 if (resp.ok) {
-                    if (result) { result.textContent = 'Certificate generated — restart server to enable HTTPS'; result.style.color = '#44dd77'; }
-                    setTimeout(async () => { await loadSettings(); }, 1500);
+                    await _waitForRestart(data.new_url || 'https://127.0.0.1:7777', result);
                 } else {
                     if (result) { result.textContent = data.detail || 'Failed'; result.style.color = '#ff6060'; }
                 }
@@ -7008,10 +7043,9 @@
                 });
                 const data = await resp.json();
                 if (resp.ok) {
-                    if (result) { result.textContent = 'Certificate saved — restart server to enable HTTPS'; result.style.color = '#44dd77'; }
                     const panel = document.getElementById('ssl-upload-panel');
                     if (panel) panel.style.display = 'none';
-                    setTimeout(async () => { await loadSettings(); }, 1500);
+                    await _waitForRestart(data.new_url || 'https://127.0.0.1:7777', result);
                 } else {
                     if (result) { result.textContent = data.detail || 'Failed'; result.style.color = '#ff6060'; }
                 }
@@ -7021,16 +7055,15 @@
         }
 
         async function _removeSSL() {
-            if (!confirm('Remove HTTPS? The server will revert to HTTP after restart.')) return;
+            if (!await showConfirm('Remove HTTPS? The server will revert to HTTP.', 'Remove')) return;
             const result = document.getElementById('ssl-action-result');
             try {
                 const resp = await fetch('/admin/ssl', { method: 'DELETE' });
+                const data = await resp.json().catch(() => ({}));
                 if (resp.ok) {
-                    if (result) { result.textContent = 'SSL removed — restart server to switch to HTTP'; result.style.color = '#44dd77'; }
-                    setTimeout(async () => { await loadSettings(); }, 1500);
+                    await _waitForRestart(data.new_url || 'http://127.0.0.1:7777', result);
                 } else {
-                    const err = await resp.json().catch(() => ({}));
-                    if (result) { result.textContent = err.detail || 'Failed'; result.style.color = '#ff6060'; }
+                    if (result) { result.textContent = data.detail || 'Failed'; result.style.color = '#ff6060'; }
                 }
             } catch (e) {
                 if (result) { result.textContent = 'Request failed'; result.style.color = '#ff6060'; }
@@ -8504,6 +8537,32 @@
                 }
                 document.getElementById('alert-ok').addEventListener('click', cleanup, { once: true });
                 overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(); }, { once: true });
+            });
+        }
+
+        function showPrompt(message, defaultValue) {
+            return new Promise(resolve => {
+                const overlay = document.getElementById('prompt-dialog');
+                document.getElementById('prompt-msg').textContent = message;
+                const input = document.getElementById('prompt-input');
+                input.value = defaultValue || '';
+                overlay.classList.add('open');
+                setTimeout(() => input.focus(), 50);
+                const ok = document.getElementById('prompt-ok');
+                const cancel = document.getElementById('prompt-cancel');
+                function cleanup(result) {
+                    overlay.classList.remove('open');
+                    ok.replaceWith(ok.cloneNode(true));
+                    cancel.replaceWith(cancel.cloneNode(true));
+                    resolve(result);
+                }
+                ok.addEventListener('click', () => cleanup(input.value), { once: true });
+                cancel.addEventListener('click', () => cleanup(null), { once: true });
+                input.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); cleanup(input.value); }
+                    if (e.key === 'Escape') { e.preventDefault(); cleanup(null); }
+                }, { once: true });
+                overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(null); }, { once: true });
             });
         }
 

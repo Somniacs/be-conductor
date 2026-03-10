@@ -8,6 +8,8 @@ All notable changes to be-conductor are documented here.
 
 - **HTTPS support** — enable HTTPS directly from the dashboard or CLI for secure access without Tailscale. Three options: generate a self-signed certificate, upload/paste PEM files, or set paths via environment variables. The self-signed generator auto-detects your LAN IP and adds it as a SAN entry so browsers accept the cert for local network access. HTTPS enables `navigator.clipboard` and other secure-context browser APIs when accessing from another device. CLI: `be-conductor cert` generates a cert, `be-conductor serve --ssl-cert --ssl-key` starts with custom cert paths. Dashboard: Settings → General → HTTPS section
 - **Gentler shutdown** — during server shutdown or upgrade, an ESC keystroke is sent to every active session before the interrupt signal. This breaks agents out of menus, selection prompts, or mid-thought states so they can process the shutdown and preserve their resume tokens
+- **Auto-restart on HTTPS changes** — generating, uploading, or removing SSL certificates automatically restarts the server and redirects the dashboard to the new URL. No manual restart needed
+- **No native dialogs** — replaced all native browser alert/confirm/prompt dialogs with styled in-app dialogs
 
 ## v0.3.25
 

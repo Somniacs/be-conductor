@@ -497,7 +497,7 @@ def _attach_session(session_name: str, stop_on_exit: bool = False):
 def _ws_url(session_name: str, source: str | None = None,
             client_id: str | None = None) -> str:
     """Build the WebSocket URL, appending auth and client identity."""
-    url = get_base_url().replace("http://", "ws://") + f"/sessions/{_urlquote(session_name, safe='')}/stream"
+    url = get_base_url().replace("https://", "wss://").replace("http://", "ws://") + f"/sessions/{_urlquote(session_name, safe='')}/stream"
     params = []
     if CONDUCTOR_TOKEN:
         params.append(f"token={CONDUCTOR_TOKEN}")
@@ -859,7 +859,7 @@ def status(use_json):
             "ok": running,
             "version": None,
             "base_url": get_base_url(),
-            "ws_base_url": get_base_url().replace("http://", "ws://"),
+            "ws_base_url": get_base_url().replace("https://", "wss://").replace("http://", "ws://"),
             "auth": {"mode": "bearer" if CONDUCTOR_TOKEN else "none"},
             "hostname": socket.gethostname(),
             "pid": None,

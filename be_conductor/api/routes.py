@@ -16,12 +16,15 @@
 import asyncio
 import hashlib
 import json
+import logging
 import os
 import re
+import signal
 import shlex
 import shutil
 import socket
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -749,6 +752,53 @@ def _get_local_ip() -> str:
         return "127.0.0.1"
 
 
+_log = logging.getLogger(__name__)
+
+
+def _schedule_restart(delay: float = 1.0):
+    """Spawn a new server process after *delay* seconds, then kill ourselves.
+
+    The new process waits for the port to become free before binding.
+    """
+    async def _do_restart():
+        await asyncio.sleep(delay)
+
+        project_root = Path(__file__).parent.parent.parent.resolve()
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(project_root) + os.pathsep + env.get("PYTHONPATH", "")
+
+        log_path = cfg.CONDUCTOR_DIR / "logs" / "server.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log = log_path.open("a")
+
+        popen_kwargs = dict(
+            stdin=subprocess.DEVNULL,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            cwd=str(project_root),
+            env=env,
+        )
+        if sys.platform == "win32":
+            popen_kwargs["creationflags"] = (
+                subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+            )
+        else:
+            popen_kwargs["start_new_session"] = True
+
+        cmd = [sys.executable, "-m", "be_conductor.server.app"]
+        subprocess.Popen(cmd, **popen_kwargs)
+        log.close()
+        _log.info("Spawned new server process, shutting down current")
+
+        # Kill ourselves — lifespan cleanup will run
+        if sys.platform == "win32":
+            os.kill(os.getpid(), signal.CTRL_C_EVENT)
+        else:
+            os.kill(os.getpid(), signal.SIGTERM)
+
+    asyncio.ensure_future(_do_restart())
+
+
 @router.post("/admin/ssl/generate")
 async def generate_ssl_cert(request: Request):
     """Generate a self-signed certificate. Localhost only."""
@@ -787,13 +837,16 @@ async def generate_ssl_cert(request: Request):
     key_path.chmod(0o600)
     cfg.set_ssl_config(str(cert_path), str(key_path))
 
+    _schedule_restart()
+
     return {
         "status": "ok",
         "certfile": str(cert_path),
         "keyfile": str(key_path),
         "san": san,
         "days": days,
-        "restart_required": True,
+        "restarting": True,
+        "new_url": f"https://127.0.0.1:{PORT}",
     }
 
 
@@ -823,7 +876,9 @@ async def upload_ssl_cert(request: Request):
 
     cfg.set_ssl_config(str(cert_path), str(key_path))
 
-    return {"status": "ok", "restart_required": True}
+    _schedule_restart()
+
+    return {"status": "ok", "restarting": True, "new_url": f"https://127.0.0.1:{PORT}"}
 
 
 @router.delete("/admin/ssl")
@@ -838,7 +893,9 @@ async def remove_ssl_cert(request: Request):
 
     cfg.set_ssl_config(None, None)
 
-    return {"status": "ok", "ssl_enabled": False, "restart_required": True}
+    _schedule_restart()
+
+    return {"status": "ok", "ssl_enabled": False, "restarting": True, "new_url": f"http://127.0.0.1:{PORT}"}
 
 
 # ---------------------------------------------------------------------------

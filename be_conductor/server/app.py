@@ -196,10 +196,26 @@ def create_app() -> FastAPI:
 app = create_app()
 
 
+def _wait_for_port(host: str, port: int, timeout: float = 15.0):
+    """Block until the port is free (previous server has shut down)."""
+    import socket as _sock
+    import time as _time
+
+    deadline = _time.monotonic() + timeout
+    while _time.monotonic() < deadline:
+        with _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM) as s:
+            s.settimeout(0.5)
+            if s.connect_ex((host if host != "0.0.0.0" else "127.0.0.1", port)) != 0:
+                return  # port is free
+        _time.sleep(0.5)
+
+
 def run_server(host: str = HOST, port: int = PORT,
                ssl_certfile: str | None = None, ssl_keyfile: str | None = None):
     import uvicorn
     import be_conductor.utils.config as _cfg
+
+    _wait_for_port(host, port)
 
     certfile = ssl_certfile or _cfg.SSL_CERTFILE
     keyfile = ssl_keyfile or _cfg.SSL_KEYFILE
