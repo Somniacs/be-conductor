@@ -6672,6 +6672,40 @@
                 html += '<div style="margin-top:6px;"><button style="background:none;border:none;color:#6070ff;cursor:pointer;font-size:11px;padding:0;" onclick="_generateToken()">Generate random token</button></div>';
             }
             html += '</div>';
+
+            // ── HTTPS section
+            html += '<div class="settings-section"><div class="settings-section-title">HTTPS</div>';
+            if (d.ssl_enabled) {
+                html += '<div class="settings-info-row"><span class="info-label">Status</span><span class="info-value" style="color:#44dd77">Enabled</span></div>';
+                html += `<div class="settings-info-row"><span class="info-label">Certificate</span><span class="info-value" style="font-size:11px">${escHtml(d.ssl_certfile || '')}</span></div>`;
+                html += '<div style="margin-top:8px;display:flex;gap:8px;align-items:center;">';
+                html += '<button class="run-btn" style="width:auto;padding:4px 14px;font-size:11px;background:#3a1a1a;border-color:#5a2a2a;color:#ff8080;" onclick="_removeSSL()">Remove HTTPS</button>';
+                html += '<button class="run-btn" style="width:auto;padding:4px 14px;font-size:11px;" onclick="_showSSLUpload()">Replace certificate</button>';
+                html += '<span id="ssl-action-result" style="font-size:11px;color:#7878a0"></span>';
+                html += '</div>';
+                html += '<div class="settings-hint" style="margin-top:6px">Restart the server for changes to take effect.</div>';
+            } else {
+                html += '<div class="settings-info-row"><span class="info-label">Status</span><span class="info-value" style="color:#9898b0">Not enabled</span></div>';
+                html += '<div class="settings-hint">Enable HTTPS for secure access from other devices. Required for clipboard access on non-localhost connections.</div>';
+                html += '<div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">';
+                html += '<button class="run-btn" style="width:auto;padding:4px 14px;font-size:11px;" onclick="_generateSSLCert()">Generate self-signed certificate</button>';
+                html += '<span id="ssl-action-result" style="font-size:11px;color:#7878a0"></span>';
+                html += '</div>';
+                html += '<div style="margin-top:10px;"><button style="background:none;border:none;color:#6070ff;cursor:pointer;font-size:11px;padding:0;" onclick="_showSSLUpload()">Upload or paste certificate files</button></div>';
+            }
+            html += '<div id="ssl-upload-panel" style="display:none;margin-top:10px;padding:10px;background:#0e0e1a;border:1px solid #2a2a4a;border-radius:6px;">';
+            html += '<div style="font-size:11px;color:#9898b0;margin-bottom:6px;">Paste PEM-encoded certificate and private key:</div>';
+            html += '<div style="margin-bottom:6px;"><label style="font-size:11px;color:#7878a0;display:block;margin-bottom:3px;">Certificate (cert.pem)</label>';
+            html += '<textarea id="ssl-cert-input" style="width:100%;height:80px;background:#08081a;border:1px solid #2a2a4a;border-radius:4px;color:#c0c0e0;font-family:monospace;font-size:10px;padding:6px;resize:vertical;" placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"></textarea></div>';
+            html += '<div style="margin-bottom:6px;"><label style="font-size:11px;color:#7878a0;display:block;margin-bottom:3px;">Private key (key.pem)</label>';
+            html += '<textarea id="ssl-key-input" style="width:100%;height:80px;background:#08081a;border:1px solid #2a2a4a;border-radius:4px;color:#c0c0e0;font-family:monospace;font-size:10px;padding:6px;resize:vertical;" placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"></textarea></div>';
+            html += '<div style="display:flex;gap:8px;align-items:center;">';
+            html += '<button class="run-btn" style="width:auto;padding:4px 14px;font-size:11px;" onclick="_uploadSSLCert()">Upload</button>';
+            html += '<button style="background:none;border:none;color:#7878a0;cursor:pointer;font-size:11px;padding:0;" onclick="document.getElementById(\'ssl-upload-panel\').style.display=\'none\'">Cancel</button>';
+            html += '</div>';
+            html += '</div>';
+            html += '</div>';
+
             html += '</div>';
 
             // ── Notifications tab (visible to ALL devices)
@@ -6922,6 +6956,78 @@
                 if (resp.ok) {
                     if (result) { result.textContent = 'Token removed — reloading...'; result.style.color = '#44dd77'; }
                     setTimeout(() => window.location.reload(), 1000);
+                } else {
+                    const err = await resp.json().catch(() => ({}));
+                    if (result) { result.textContent = err.detail || 'Failed'; result.style.color = '#ff6060'; }
+                }
+            } catch (e) {
+                if (result) { result.textContent = 'Request failed'; result.style.color = '#ff6060'; }
+            }
+        }
+
+        // ── SSL / HTTPS management ──
+        async function _generateSSLCert() {
+            const result = document.getElementById('ssl-action-result');
+            if (result) { result.textContent = 'Generating...'; result.style.color = '#7878a0'; }
+            try {
+                const resp = await fetch('/admin/ssl/generate', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({days: 365}) });
+                const data = await resp.json();
+                if (resp.ok) {
+                    if (result) { result.textContent = 'Certificate generated — restart server to enable HTTPS'; result.style.color = '#44dd77'; }
+                    setTimeout(async () => { await loadSettings(); }, 1500);
+                } else {
+                    if (result) { result.textContent = data.detail || 'Failed'; result.style.color = '#ff6060'; }
+                }
+            } catch (e) {
+                if (result) { result.textContent = 'Request failed'; result.style.color = '#ff6060'; }
+            }
+        }
+
+        function _showSSLUpload() {
+            const panel = document.getElementById('ssl-upload-panel');
+            if (panel) panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+        }
+
+        async function _uploadSSLCert() {
+            const certEl = document.getElementById('ssl-cert-input');
+            const keyEl = document.getElementById('ssl-key-input');
+            const result = document.getElementById('ssl-action-result');
+            if (!certEl || !keyEl) return;
+            const certPem = certEl.value.trim();
+            const keyPem = keyEl.value.trim();
+            if (!certPem || !keyPem) {
+                if (result) { result.textContent = 'Both certificate and key are required'; result.style.color = '#ff6060'; }
+                return;
+            }
+            if (result) { result.textContent = 'Uploading...'; result.style.color = '#7878a0'; }
+            try {
+                const resp = await fetch('/admin/ssl/upload', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ certfile: certPem, keyfile: keyPem }),
+                });
+                const data = await resp.json();
+                if (resp.ok) {
+                    if (result) { result.textContent = 'Certificate saved — restart server to enable HTTPS'; result.style.color = '#44dd77'; }
+                    const panel = document.getElementById('ssl-upload-panel');
+                    if (panel) panel.style.display = 'none';
+                    setTimeout(async () => { await loadSettings(); }, 1500);
+                } else {
+                    if (result) { result.textContent = data.detail || 'Failed'; result.style.color = '#ff6060'; }
+                }
+            } catch (e) {
+                if (result) { result.textContent = 'Request failed'; result.style.color = '#ff6060'; }
+            }
+        }
+
+        async function _removeSSL() {
+            if (!confirm('Remove HTTPS? The server will revert to HTTP after restart.')) return;
+            const result = document.getElementById('ssl-action-result');
+            try {
+                const resp = await fetch('/admin/ssl', { method: 'DELETE' });
+                if (resp.ok) {
+                    if (result) { result.textContent = 'SSL removed — restart server to switch to HTTP'; result.style.color = '#44dd77'; }
+                    setTimeout(async () => { await loadSettings(); }, 1500);
                 } else {
                     const err = await resp.json().catch(() => ({}));
                     if (result) { result.textContent = err.detail || 'Failed'; result.style.color = '#ff6060'; }

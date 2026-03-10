@@ -28,7 +28,18 @@ from urllib.parse import quote as _urlquote
 import click
 import httpx
 
-from be_conductor.utils.config import BASE_URL, CONDUCTOR_TOKEN, HOST, PORT, PID_FILE, VERSION, ensure_dirs
+from be_conductor.utils.config import (
+    CONDUCTOR_TOKEN, HOST, PORT, PID_FILE, VERSION, CERTS_DIR,
+    get_base_url, ensure_dirs,
+)
+import be_conductor.utils.config as _cfg
+
+
+def _http_kwargs() -> dict:
+    """Extra kwargs for httpx calls (disables cert verification for self-signed)."""
+    if _cfg.SSL_CERTFILE:
+        return {"verify": False}
+    return {}
 
 
 def _auth_headers() -> dict[str, str]:
@@ -40,7 +51,7 @@ def _auth_headers() -> dict[str, str]:
 
 def server_running() -> bool:
     try:
-        r = httpx.get(f"{BASE_URL}/health", timeout=2)
+        r = httpx.get(f"{get_base_url()}/health", timeout=2, **_http_kwargs())
         return r.status_code == 200
     except Exception:
         return False
@@ -108,13 +119,83 @@ def cli():
 @cli.command()
 @click.option("--host", default=HOST, help="Host to bind to")
 @click.option("--port", default=PORT, type=int, help="Port to bind to")
-def serve(host, port):
+@click.option("--ssl-cert", default=None, type=click.Path(exists=True), help="Path to SSL certificate (PEM)")
+@click.option("--ssl-key", default=None, type=click.Path(exists=True), help="Path to SSL private key (PEM)")
+def serve(host, port, ssl_cert, ssl_key):
     """Start the be-conductor server."""
     from be_conductor.server.app import run_server
 
+    scheme = "https" if (ssl_cert or _cfg.SSL_CERTFILE) else "http"
     click.echo(f"be-conductor server on {host}:{port}")
-    click.echo(f"  Dashboard: http://{host}:{port}")
-    run_server(host=host, port=port)
+    click.echo(f"  Dashboard: {scheme}://{host}:{port}")
+    run_server(host=host, port=port, ssl_certfile=ssl_cert, ssl_keyfile=ssl_key)
+
+
+def _get_local_ip() -> str:
+    """Best-effort detection of the LAN IP address."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
+
+
+@cli.command()
+@click.option("--days", default=365, type=int, help="Certificate validity in days")
+def cert(days):
+    """Generate a self-signed HTTPS certificate."""
+    ensure_dirs()
+
+    cert_path = CERTS_DIR / "cert.pem"
+    key_path = CERTS_DIR / "key.pem"
+
+    if cert_path.exists():
+        if not click.confirm(f"Certificate already exists at {cert_path}. Overwrite?"):
+            click.echo("Aborted.")
+            return
+
+    local_ip = _get_local_ip()
+    san = f"DNS:localhost,IP:127.0.0.1,IP:{local_ip}"
+
+    try:
+        subprocess.run(
+            [
+                "openssl", "req", "-x509", "-newkey", "rsa:2048",
+                "-keyout", str(key_path),
+                "-out", str(cert_path),
+                "-days", str(days),
+                "-nodes",
+                "-subj", "/CN=be-conductor",
+                "-addext", f"subjectAltName={san}",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        click.echo("Error: openssl is required but not found.", err=True)
+        click.echo("Install it with: sudo apt install openssl  # or brew install openssl", err=True)
+        sys.exit(1)
+    except subprocess.CalledProcessError as e:
+        click.echo(f"Error generating certificate: {e.stderr}", err=True)
+        sys.exit(1)
+
+    key_path.chmod(0o600)
+
+    # Update config
+    _cfg.set_ssl_config(str(cert_path), str(key_path))
+
+    click.echo(f"Certificate generated:")
+    click.echo(f"  cert: {cert_path}")
+    click.echo(f"  key:  {key_path}")
+    click.echo(f"  SAN:  {san}")
+    click.echo(f"  valid: {days} days")
+    click.echo()
+    click.echo("HTTPS is now configured. Restart the server for changes to take effect:")
+    click.echo("  be-conductor restart -f")
 
 
 def _get_latest_version() -> str | None:
@@ -250,17 +331,17 @@ def up():
     """Start the be-conductor server in the background."""
     if server_running():
         try:
-            r = httpx.get(f"{BASE_URL}/health", timeout=2)
+            r = httpx.get(f"{get_base_url()}/health", timeout=2, **_http_kwargs())
             version = r.json().get("version", "?")
         except Exception:
             version = "?"
-        click.echo(f"Server already running (v{version}) on {BASE_URL}")
+        click.echo(f"Server already running (v{version}) on {get_base_url()}")
         _check_for_update(gui=True)
         return
 
     click.echo("Starting server...")
     if start_server_daemon():
-        click.echo(f"Server started on {BASE_URL}")
+        click.echo(f"Server started on {get_base_url()}")
         _check_for_update(gui=True)
     else:
         click.echo("Failed to start server. Try: be-conductor serve", err=True)
@@ -319,7 +400,7 @@ def run(command, name, detach, worktree, use_json, rows, cols):
                 click.echo("Failed to start server. Try: be-conductor serve", err=True)
             sys.exit(1)
         if not use_json:
-            click.echo(f"Server started on {BASE_URL}")
+            click.echo(f"Server started on {get_base_url()}")
 
     # Include terminal size so the PTY spawns at the correct dimensions
     # from the start — avoids a resize race where the agent renders its
@@ -335,10 +416,11 @@ def run(command, name, detach, worktree, use_json, rows, cols):
         payload["worktree"] = True
 
     r = httpx.post(
-        f"{BASE_URL}/sessions/run",
+        f"{get_base_url()}/sessions/run",
         json=payload,
         headers=_auth_headers(),
         timeout=10,
+        **_http_kwargs(),
     )
 
     if r.status_code == 200:
@@ -350,7 +432,7 @@ def run(command, name, detach, worktree, use_json, rows, cols):
             if data.get("worktree"):
                 click.echo(f"Worktree: {data['worktree']['worktree_path']}")
                 click.echo(f"Branch:   {data['worktree']['branch']}")
-            click.echo(f"Dashboard: {BASE_URL}")
+            click.echo(f"Dashboard: {get_base_url()}")
         else:
             if data.get("worktree"):
                 click.echo(f"Session '{data['name']}' started in worktree.")
@@ -386,7 +468,7 @@ def attach(name):
         sys.exit(1)
 
     # Verify session exists
-    r = httpx.get(f"{BASE_URL}/sessions", headers=_auth_headers(), timeout=5)
+    r = httpx.get(f"{get_base_url()}/sessions", headers=_auth_headers(), timeout=5, **_http_kwargs())
     sessions = {s["name"]: s for s in r.json()}
     if name not in sessions:
         click.echo(f"Session '{name}' not found.", err=True)
@@ -415,7 +497,7 @@ def _attach_session(session_name: str, stop_on_exit: bool = False):
 def _ws_url(session_name: str, source: str | None = None,
             client_id: str | None = None) -> str:
     """Build the WebSocket URL, appending auth and client identity."""
-    url = BASE_URL.replace("http://", "ws://") + f"/sessions/{_urlquote(session_name, safe='')}/stream"
+    url = get_base_url().replace("http://", "ws://") + f"/sessions/{_urlquote(session_name, safe='')}/stream"
     params = []
     if CONDUCTOR_TOKEN:
         params.append(f"token={CONDUCTOR_TOKEN}")
@@ -444,10 +526,11 @@ def _resize_session(session_name: str, client_id: str | None = None):
         if client_id:
             body["client_id"] = client_id
         httpx.post(
-            f"{BASE_URL}/sessions/{_urlquote(session_name, safe='')}/resize",
+            f"{get_base_url()}/sessions/{_urlquote(session_name, safe='')}/resize",
             json=body,
             headers=_auth_headers(),
             timeout=3,
+            **_http_kwargs(),
         )
     except Exception:
         pass
@@ -457,10 +540,11 @@ def _stop_session_quietly(session_name: str):
     """Send a graceful stop to the session, ignoring errors."""
     try:
         httpx.post(
-            f"{BASE_URL}/sessions/{_urlquote(session_name, safe='')}/stop",
+            f"{get_base_url()}/sessions/{_urlquote(session_name, safe='')}/stop",
             json={"mode": "graceful"},
             headers=_auth_headers(),
             timeout=5,
+            **_http_kwargs(),
         )
     except Exception:
         pass
@@ -645,7 +729,7 @@ def list_sessions(use_json):
             click.echo("Server not running.", err=True)
         sys.exit(1)
 
-    r = httpx.get(f"{BASE_URL}/sessions", headers=_auth_headers(), timeout=5)
+    r = httpx.get(f"{get_base_url()}/sessions", headers=_auth_headers(), timeout=5, **_http_kwargs())
     sessions = r.json()
 
     if use_json:
@@ -687,7 +771,7 @@ def resume(name, detach, token, cmd):
         if not start_server_daemon():
             click.echo("Failed to start server. Try: be-conductor serve", err=True)
             sys.exit(1)
-        click.echo(f"Server started on {BASE_URL}")
+        click.echo(f"Server started on {get_base_url()}")
 
     if token:
         # External resume: create a new session with <command> <flag> <token>
@@ -695,7 +779,7 @@ def resume(name, detach, token, cmd):
         # Look up resume_flag from server config
         flag = "--resume"
         try:
-            cfg = httpx.get(f"{BASE_URL}/config", headers=_auth_headers(), timeout=5).json()
+            cfg = httpx.get(f"{get_base_url()}/config", headers=_auth_headers(), timeout=5, **_http_kwargs()).json()
             for entry in cfg.get("allowed_commands", []):
                 if entry.get("command", "").split()[0] == agent.split()[0]:
                     flag = entry.get("resume_flag", "--resume")
@@ -712,18 +796,20 @@ def resume(name, detach, token, cmd):
             "cols": size.columns,
         }
         r = httpx.post(
-            f"{BASE_URL}/sessions/run",
+            f"{get_base_url()}/sessions/run",
             json=payload,
             headers=_auth_headers(),
             timeout=10,
+            **_http_kwargs(),
         )
     else:
         size = shutil.get_terminal_size()
         r = httpx.post(
-            f"{BASE_URL}/sessions/{_urlquote(name, safe='')}/resume",
+            f"{get_base_url()}/sessions/{_urlquote(name, safe='')}/resume",
             json={"rows": size.lines, "cols": size.columns},
             headers=_auth_headers(),
             timeout=10,
+            **_http_kwargs(),
         )
 
     if r.status_code == 200:
@@ -751,7 +837,7 @@ def stop(name):
         click.echo("Server not running.", err=True)
         sys.exit(1)
 
-    r = httpx.delete(f"{BASE_URL}/sessions/{_urlquote(name, safe='')}", headers=_auth_headers(), timeout=5)
+    r = httpx.delete(f"{get_base_url()}/sessions/{_urlquote(name, safe='')}", headers=_auth_headers(), timeout=5, **_http_kwargs())
     if r.status_code == 200:
         click.echo(f"Session '{name}' stopped.")
     elif r.status_code == 404:
@@ -772,15 +858,15 @@ def status(use_json):
         info = {
             "ok": running,
             "version": None,
-            "base_url": BASE_URL,
-            "ws_base_url": BASE_URL.replace("http://", "ws://"),
+            "base_url": get_base_url(),
+            "ws_base_url": get_base_url().replace("http://", "ws://"),
             "auth": {"mode": "bearer" if CONDUCTOR_TOKEN else "none"},
             "hostname": socket.gethostname(),
             "pid": None,
         }
         if running:
             try:
-                r = httpx.get(f"{BASE_URL}/health", timeout=2)
+                r = httpx.get(f"{get_base_url()}/health", timeout=2, **_http_kwargs())
                 health = r.json()
                 info["version"] = health.get("version")
             except Exception:
@@ -798,7 +884,7 @@ def status(use_json):
         return
 
     try:
-        r = httpx.get(f"{BASE_URL}/health", timeout=2)
+        r = httpx.get(f"{get_base_url()}/health", timeout=2, **_http_kwargs())
         health = r.json()
         version = health.get("version", "?")
     except Exception:
@@ -811,7 +897,7 @@ def status(use_json):
         pass
 
     click.echo(f"be-conductor v{version}")
-    click.echo(f"  URL:  {BASE_URL}")
+    click.echo(f"  URL:  {get_base_url()}")
     click.echo(f"  Host: {socket.gethostname()}")
     if pid:
         click.echo(f"  PID:  {pid}")
@@ -856,7 +942,7 @@ def _warn_active_sessions() -> bool:
     Returns True if the caller should proceed, False to abort.
     """
     try:
-        r = httpx.get(f"{BASE_URL}/sessions", headers=_auth_headers(), timeout=5)
+        r = httpx.get(f"{get_base_url()}/sessions", headers=_auth_headers(), timeout=5, **_http_kwargs())
         sessions = r.json()
     except Exception:
         return True  # Can't reach server — nothing to warn about
@@ -937,7 +1023,7 @@ def restart(force):
                 break
 
     if start_server_daemon():
-        click.echo(f"Server restarted on {BASE_URL}")
+        click.echo(f"Server restarted on {get_base_url()}")
     else:
         click.echo("Failed to start server. Try: be-conductor serve", err=True)
         sys.exit(1)
@@ -953,10 +1039,10 @@ def open():
         if not start_server_daemon():
             click.echo("Failed to start server. Try: be-conductor serve", err=True)
             sys.exit(1)
-        click.echo(f"Server started on {BASE_URL}")
+        click.echo(f"Server started on {get_base_url()}")
 
-    click.echo(f"Opening {BASE_URL}")
-    webbrowser.open(BASE_URL)
+    click.echo(f"Opening {get_base_url()}")
+    webbrowser.open(get_base_url())
 
 
 ## ---------------------------------------------------------------------------
@@ -979,7 +1065,7 @@ def worktree_list(use_json):
             click.echo("Server not running.", err=True)
         sys.exit(1)
 
-    r = httpx.get(f"{BASE_URL}/worktrees", headers=_auth_headers(), timeout=5)
+    r = httpx.get(f"{get_base_url()}/worktrees", headers=_auth_headers(), timeout=5, **_http_kwargs())
     worktrees = r.json()
 
     if use_json:
@@ -1016,10 +1102,11 @@ def worktree_discard(name, force, yes):
             return
 
     r = httpx.delete(
-        f"{BASE_URL}/worktrees/{name}",
+        f"{get_base_url()}/worktrees/{name}",
         params={"force": str(force).lower()},
         headers=_auth_headers(),
         timeout=10,
+        **_http_kwargs(),
     )
     if r.status_code == 200:
         click.echo(f"Worktree '{name}' discarded.")
@@ -1042,9 +1129,10 @@ def worktree_merge(name, strategy, message, preview):
 
     if preview:
         r = httpx.post(
-            f"{BASE_URL}/worktrees/{name}/merge/preview",
+            f"{get_base_url()}/worktrees/{name}/merge/preview",
             headers=_auth_headers(),
             timeout=10,
+            **_http_kwargs(),
         )
         if r.status_code != 200:
             click.echo(f"Error: {r.json().get('detail', r.text)}", err=True)
@@ -1074,10 +1162,11 @@ def worktree_merge(name, strategy, message, preview):
         payload["message"] = message
 
     r = httpx.post(
-        f"{BASE_URL}/worktrees/{name}/merge",
+        f"{get_base_url()}/worktrees/{name}/merge",
         json=payload,
         headers=_auth_headers(),
         timeout=30,
+        **_http_kwargs(),
     )
     data = r.json()
 
@@ -1105,10 +1194,11 @@ def worktree_gc(dry_run, max_age, yes):
         sys.exit(1)
 
     r = httpx.post(
-        f"{BASE_URL}/worktrees/gc",
+        f"{get_base_url()}/worktrees/gc",
         json={"dry_run": dry_run or not yes, "max_age_days": max_age},
         headers=_auth_headers(),
         timeout=30,
+        **_http_kwargs(),
     )
     if r.status_code != 200:
         click.echo(f"Error: {r.json().get('detail', r.text)}", err=True)
@@ -1147,7 +1237,7 @@ def qr():
         if not start_server_daemon():
             click.echo("Failed to start server. Try: be-conductor serve", err=True)
             sys.exit(1)
-        click.echo(f"Server started on {BASE_URL}")
+        click.echo(f"Server started on {get_base_url()}")
 
     # Try to get Tailscale MagicDNS name (stable across IP changes), fall back to IP
     tailscale_host = None

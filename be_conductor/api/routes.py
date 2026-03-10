@@ -67,7 +67,8 @@ def _get_dashboard_base_url() -> str:
     if _dashboard_base_url is not None:
         return _dashboard_base_url
     host = _get_tailscale_name() or _get_tailscale_ip() or "127.0.0.1"
-    _dashboard_base_url = f"http://{host}:{PORT}"
+    scheme = "https" if cfg.SSL_CERTFILE else "http"
+    _dashboard_base_url = f"{scheme}://{host}:{PORT}"
     return _dashboard_base_url
 
 
@@ -730,6 +731,114 @@ async def delete_admin_token(request: Request):
         )
     cfg.set_conductor_token(None)
     return {"status": "ok", "auth_enabled": False}
+
+
+# ---------------------------------------------------------------------------
+# SSL / HTTPS management (localhost-only)
+# ---------------------------------------------------------------------------
+
+def _get_local_ip() -> str:
+    """Best-effort detection of the LAN IP address."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
+
+
+@router.post("/admin/ssl/generate")
+async def generate_ssl_cert(request: Request):
+    """Generate a self-signed certificate. Localhost only."""
+    _require_localhost(request)
+
+    cfg.CERTS_DIR.mkdir(parents=True, exist_ok=True)
+    cert_path = cfg.CERTS_DIR / "cert.pem"
+    key_path = cfg.CERTS_DIR / "key.pem"
+
+    data = await request.json() if request.headers.get("content-type") == "application/json" else {}
+    days = data.get("days", 365)
+    local_ip = _get_local_ip()
+    san = f"DNS:localhost,IP:127.0.0.1,IP:{local_ip}"
+
+    try:
+        result = subprocess.run(
+            [
+                "openssl", "req", "-x509", "-newkey", "rsa:2048",
+                "-keyout", str(key_path),
+                "-out", str(cert_path),
+                "-days", str(days),
+                "-nodes",
+                "-subj", "/CN=be-conductor",
+                "-addext", f"subjectAltName={san}",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=500, detail="openssl is not installed on the server")
+    except subprocess.CalledProcessError as e:
+        raise HTTPException(status_code=500, detail=f"openssl error: {e.stderr}")
+
+    key_path.chmod(0o600)
+    cfg.set_ssl_config(str(cert_path), str(key_path))
+
+    return {
+        "status": "ok",
+        "certfile": str(cert_path),
+        "keyfile": str(key_path),
+        "san": san,
+        "days": days,
+        "restart_required": True,
+    }
+
+
+@router.post("/admin/ssl/upload")
+async def upload_ssl_cert(request: Request):
+    """Upload certificate and key PEM content. Localhost only."""
+    _require_localhost(request)
+
+    data = await request.json()
+    cert_pem = data.get("certfile", "").strip()
+    key_pem = data.get("keyfile", "").strip()
+
+    if not cert_pem or not key_pem:
+        raise HTTPException(status_code=400, detail="Both certfile and keyfile are required")
+    if not cert_pem.startswith("-----BEGIN"):
+        raise HTTPException(status_code=400, detail="Certificate does not look like PEM format")
+    if "KEY" not in key_pem[:50].upper():
+        raise HTTPException(status_code=400, detail="Key does not look like PEM format")
+
+    cfg.CERTS_DIR.mkdir(parents=True, exist_ok=True)
+    cert_path = cfg.CERTS_DIR / "cert.pem"
+    key_path = cfg.CERTS_DIR / "key.pem"
+
+    cert_path.write_text(cert_pem)
+    key_path.write_text(key_pem)
+    key_path.chmod(0o600)
+
+    cfg.set_ssl_config(str(cert_path), str(key_path))
+
+    return {"status": "ok", "restart_required": True}
+
+
+@router.delete("/admin/ssl")
+async def remove_ssl_cert(request: Request):
+    """Remove SSL configuration. Localhost only."""
+    _require_localhost(request)
+
+    cert_path = cfg.CERTS_DIR / "cert.pem"
+    key_path = cfg.CERTS_DIR / "key.pem"
+    cert_path.unlink(missing_ok=True)
+    key_path.unlink(missing_ok=True)
+
+    cfg.set_ssl_config(None, None)
+
+    return {"status": "ok", "ssl_enabled": False, "restart_required": True}
 
 
 # ---------------------------------------------------------------------------

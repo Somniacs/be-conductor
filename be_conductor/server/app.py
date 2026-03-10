@@ -196,10 +196,18 @@ def create_app() -> FastAPI:
 app = create_app()
 
 
-def run_server(host: str = HOST, port: int = PORT):
+def run_server(host: str = HOST, port: int = PORT,
+               ssl_certfile: str | None = None, ssl_keyfile: str | None = None):
     import uvicorn
+    import be_conductor.utils.config as _cfg
 
-    uvicorn.run(app, host=host, port=port, log_level="info")
+    certfile = ssl_certfile or _cfg.SSL_CERTFILE
+    keyfile = ssl_keyfile or _cfg.SSL_KEYFILE
+    kwargs: dict = dict(host=host, port=port, log_level="info")
+    if certfile and keyfile:
+        kwargs["ssl_certfile"] = certfile
+        kwargs["ssl_keyfile"] = keyfile
+    uvicorn.run(app, **kwargs)
 
 
 if __name__ == "__main__":

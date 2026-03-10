@@ -82,7 +82,8 @@ Each process runs in a PTY on your machine. Output goes into a rolling in-memory
 - **File viewer** — browse project files, view text with line numbers, render Markdown, display images and SVGs, preview PDFs, and download files — all from the dashboard.
 - **File upload** — drag-and-drop, paste, or tap to upload files into a session; insert the path or copy it to clipboard.
 - **IDE plugins** — VS Code and JetBrains plugins for managing sessions without leaving your editor.
-- **Secure by default** — runs entirely on your machines with no cloud backend; pair with Tailscale for encrypted remote access.
+- **HTTPS support** — enable HTTPS from the dashboard or CLI for secure access without Tailscale. Generate a self-signed certificate, upload your own, or set paths via environment variables. Enables clipboard and other secure-context browser APIs on LAN. Setup guide: [HTTPS](docs/https.md).
+- **Secure by default** — runs entirely on your machines with no cloud backend; pair with Tailscale for encrypted remote access, or enable HTTPS for secure LAN access without a VPN.
 
 ## What You Can Run
 
@@ -99,7 +100,7 @@ The dashboard can only launch commands from the allowlist. The CLI is unrestrict
 
 Open the hamburger menu → **Settings** → **Agents** tab. Add, edit, or remove commands and click **Save**. Changes take effect immediately on all connected clients — no restart needed. Each command has a label (shown in the UI) and optional resume/stop settings for agent-specific behavior.
 
-The other Settings tabs — **General** (server info, auth token, limits), **Directories** (default paths), **Servers** (multi-machine management), and **Notifications** (browser/webhook alerts) — are also managed from here. Admin tabs (General, Agents, Directories) are visible on localhost or when `BE_CONDUCTOR_TOKEN` is set.
+The other Settings tabs — **General** (server info, auth token, HTTPS, limits), **Directories** (default paths), **Servers** (multi-machine management), and **Notifications** (browser/webhook alerts) — are also managed from here. Admin tabs (General, Agents, Directories) are visible on localhost or when `BE_CONDUCTOR_TOKEN` is set.
 
 <details>
 <summary>Alternative: edit the config file directly</summary>
@@ -136,6 +137,7 @@ After editing the file, restart the server: `be-conductor restart`.
 - **Python 3.10+** — check with `python3 --version` (or `py --version` on Windows)
 - **Git** — to clone the repository
 - **Tailscale** (optional, for remote access) — install on your workstation and your phone, tablet, or laptop. Sign in with the same account on all devices. See [tailscale.com](https://tailscale.com/)
+- **openssl** (optional, for self-signed certs) — required only if you use `be-conductor cert` or the dashboard's "Generate self-signed certificate" button. Pre-installed on most Linux and macOS systems
 
 ## Install
 
@@ -359,7 +361,7 @@ When only one server is configured (the default), the dashboard looks and works 
 
 ### Remote access from another device
 
-This requires [Tailscale](https://tailscale.com/) on both your workstation and your phone, tablet, or laptop.
+The easiest option is [Tailscale](https://tailscale.com/) — install it on your workstation and your phone/tablet/laptop, and you get encrypted access with zero configuration. Alternatively, enable [HTTPS](docs/https.md) + auth token for secure access on your local network without Tailscale (Settings → General → HTTPS, or `be-conductor cert`).
 
 **1. Start be-conductor on your workstation** (if not already running):
 
@@ -415,6 +417,7 @@ Yes. be-conductor runs entirely on your machines — no cloud backend, no vendor
 
 - **No cloud dependency** — runs on your workstation, GPU box, or air-gapped network. No API keys, no SaaS backend, zero cloud costs.
 - **Local only** — the server binds to your machine. Without Tailscale (or another VPN), it is not reachable from outside your local network.
+- **HTTPS available** — enable HTTPS with a self-signed or CA-signed certificate for encrypted connections on your LAN. Required for secure-context browser APIs (clipboard, notifications) when not on localhost.
 - **No authentication layer needed** — when using Tailscale, only devices signed into *your* Tailscale account can reach the server. The network itself is the firewall.
 - **No data leaves your machine** — session output stays in an in-memory buffer on localhost. Nothing is logged to external services.
 - **Restricted dashboard commands** — the web dashboard can only launch commands from a predefined allowlist. The CLI is unrestricted, but the browser cannot start arbitrary processes.
@@ -423,7 +426,7 @@ Yes. be-conductor runs entirely on your machines — no cloud backend, no vendor
 - **Sanitized session names** — names are validated against a strict allowlist (alphanumeric, hyphens, underscores, max 64 chars) on both the frontend and backend to prevent path traversal or injection via crafted names.
 - **Open source (MIT)** — the entire codebase is a single Python package and a single HTML file. Read it, audit it, fork it.
 
-If you're running be-conductor on a shared network without Tailscale, anyone on that network can reach port 7777. In that case, use a firewall rule or bind to `127.0.0.1` instead of `0.0.0.0`.
+If you're running be-conductor on a shared network without Tailscale, anyone on that network can reach port 7777. In that case, enable HTTPS + auth token for encrypted authenticated access, use a firewall rule, or bind to `127.0.0.1` instead of `0.0.0.0`.
 
 ## Dashboard
 
@@ -439,7 +442,7 @@ The web dashboard is a single HTML file served by the be-conductor server. See [
 - **File viewer** — browse project files, view text with line numbers, render Markdown and SVG, display images, preview PDFs, download files. Clickable file paths in console output open the viewer directly
 - **File upload** — drag-and-drop, clipboard paste (Ctrl+V), or attachment button (mobile). Progress dialog, path insertion, auto-cleanup on session end
 - **Session discovery** — Resume tab finds external sessions from Claude Code, Codex, Copilot, Gemini, and Goose. Filter by agent, resume closed sessions, or observe live ones with agent-specific formatting
-- **Settings** — tabbed dialog (General, Agents, Directories, Servers, Notifications). Admin tabs visible on localhost or with token auth. Changes propagate to all clients
+- **Settings** — tabbed dialog (General, Agents, Directories, Servers, Notifications). HTTPS setup with generate, upload, or paste-PEM options. Admin tabs visible on localhost or with token auth. Changes propagate to all clients
 - **Mobile** — extra keys toolbar (ESC, TAB, arrows, CTRL, ALT), touch scrolling, auto-fullscreen on keyboard open, collapsible sidebar
 - **Auto-reconnect** — WebSocket reconnects on disconnect; update notification when a new release is available
 
@@ -450,6 +453,9 @@ The web dashboard is a single HTML file served by the be-conductor server. See [
 | `be-conductor up` | Start the server (background daemon) |
 | `be-conductor serve` | Start the server (foreground) |
 | `be-conductor serve --host 0.0.0.0 --port 8888` | Custom host/port |
+| `be-conductor serve --ssl-cert CERT --ssl-key KEY` | Start with HTTPS using custom cert/key paths |
+| `be-conductor cert` | Generate a self-signed HTTPS certificate |
+| `be-conductor cert --days 730` | Generate cert with custom validity period |
 | `be-conductor run COMMAND [NAME]` | Start session and attach (see output in terminal) |
 | `be-conductor run -w COMMAND [NAME]` | Start session in an isolated git worktree |
 | `be-conductor run -d COMMAND [NAME]` | Start session in background (detached) |
@@ -516,6 +522,9 @@ Default port `7777`. All endpoints relative to your host. OpenAPI spec at `/open
 | `PUT` | `/admin/settings` | Update settings and persist to `~/.be-conductor/config.yaml` (localhost or token auth) |
 | `PUT` | `/admin/token` | Set or change the auth token (localhost only) |
 | `DELETE` | `/admin/token` | Remove the auth token (localhost only) |
+| `POST` | `/admin/ssl/generate` | Generate a self-signed HTTPS certificate (localhost only) |
+| `POST` | `/admin/ssl/upload` | Upload cert + key PEM content (localhost only) |
+| `DELETE` | `/admin/ssl` | Remove HTTPS configuration (localhost only) |
 
 ## Agent Integration
 

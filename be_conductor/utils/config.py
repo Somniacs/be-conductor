@@ -28,17 +28,27 @@ _TOKEN_FROM_ENV = CONDUCTOR_TOKEN is not None  # True if token came from environ
 
 HOST = "0.0.0.0"
 PORT = 7777
-BASE_URL = f"http://127.0.0.1:{PORT}"
 
 CONDUCTOR_DIR = Path.home() / ".be-conductor"
 SESSIONS_DIR = CONDUCTOR_DIR / "sessions"
 LOG_DIR = CONDUCTOR_DIR / "logs"
 UPLOADS_DIR = CONDUCTOR_DIR / "uploads"
+CERTS_DIR = CONDUCTOR_DIR / "certs"
 PID_FILE = CONDUCTOR_DIR / "server.pid"
 TOKEN_FILE = CONDUCTOR_DIR / "token"
 USER_CONFIG_FILE = CONDUCTOR_DIR / "config.yaml"
 WORKTREES_FILE = CONDUCTOR_DIR / "worktrees.json"
 NOTES_DB = CONDUCTOR_DIR / "notes.db"
+
+# ── SSL / TLS ────────────────────────────────────────────────────────────────
+
+SSL_CERTFILE: str | None = os.environ.get("BE_CONDUCTOR_SSL_CERTFILE")
+SSL_KEYFILE: str | None = os.environ.get("BE_CONDUCTOR_SSL_KEYFILE")
+
+
+def get_base_url() -> str:
+    scheme = "https" if SSL_CERTFILE else "http"
+    return f"{scheme}://127.0.0.1:{PORT}"
 
 # ── Defaults (overridden by ~/.be-conductor/config.yaml if it exists) ───────
 
@@ -158,6 +168,7 @@ def migrate_from_old_name():
 def load_user_config():
     """Load ~/.be-conductor/config.yaml and merge over defaults."""
     global ALLOWED_COMMANDS, DEFAULT_DIRECTORIES, BUFFER_MAX_BYTES, UPLOAD_WARN_SIZE, GRACEFUL_STOP_TIMEOUT
+    global SSL_CERTFILE, SSL_KEYFILE
 
     if not USER_CONFIG_FILE.exists():
         return
@@ -177,11 +188,17 @@ def load_user_config():
         UPLOAD_WARN_SIZE = data["upload_warn_size"]
     if "graceful_stop_timeout" in data and isinstance(data["graceful_stop_timeout"], (int, float)):
         GRACEFUL_STOP_TIMEOUT = data["graceful_stop_timeout"]
+    # SSL — env vars take precedence over config file
+    if not SSL_CERTFILE and "ssl_certfile" in data and isinstance(data["ssl_certfile"], str):
+        SSL_CERTFILE = data["ssl_certfile"]
+    if not SSL_KEYFILE and "ssl_keyfile" in data and isinstance(data["ssl_keyfile"], str):
+        SSL_KEYFILE = data["ssl_keyfile"]
 
 
 def save_user_config(data: dict):
     """Write settings to ~/.be-conductor/config.yaml and update in-memory values."""
     global ALLOWED_COMMANDS, DEFAULT_DIRECTORIES, BUFFER_MAX_BYTES, UPLOAD_WARN_SIZE, GRACEFUL_STOP_TIMEOUT, _config_version
+    global SSL_CERTFILE, SSL_KEYFILE
 
     if "allowed_commands" in data and isinstance(data["allowed_commands"], list):
         ALLOWED_COMMANDS = data["allowed_commands"]
@@ -193,6 +210,10 @@ def save_user_config(data: dict):
         UPLOAD_WARN_SIZE = data["upload_warn_size"]
     if "graceful_stop_timeout" in data and isinstance(data["graceful_stop_timeout"], (int, float)):
         GRACEFUL_STOP_TIMEOUT = data["graceful_stop_timeout"]
+    if "ssl_certfile" in data:
+        SSL_CERTFILE = data["ssl_certfile"] or None
+    if "ssl_keyfile" in data:
+        SSL_KEYFILE = data["ssl_keyfile"] or None
 
     config_out = {
         "allowed_commands": ALLOWED_COMMANDS,
@@ -201,6 +222,10 @@ def save_user_config(data: dict):
         "upload_warn_size": UPLOAD_WARN_SIZE,
         "graceful_stop_timeout": GRACEFUL_STOP_TIMEOUT,
     }
+    if SSL_CERTFILE:
+        config_out["ssl_certfile"] = SSL_CERTFILE
+    if SSL_KEYFILE:
+        config_out["ssl_keyfile"] = SSL_KEYFILE
 
     CONDUCTOR_DIR.mkdir(parents=True, exist_ok=True)
     USER_CONFIG_FILE.write_text(yaml.dump(config_out, default_flow_style=False, sort_keys=False))
@@ -221,12 +246,15 @@ def get_editable_settings() -> dict:
 def reset_to_defaults():
     """Reset all settings to built-in defaults and remove config.yaml."""
     global ALLOWED_COMMANDS, DEFAULT_DIRECTORIES, BUFFER_MAX_BYTES, UPLOAD_WARN_SIZE, GRACEFUL_STOP_TIMEOUT, _config_version
+    global SSL_CERTFILE, SSL_KEYFILE
 
     ALLOWED_COMMANDS = list(_DEFAULT_ALLOWED_COMMANDS)
     DEFAULT_DIRECTORIES = list(_DEFAULT_DIRECTORIES)
     BUFFER_MAX_BYTES = 1_000_000
     UPLOAD_WARN_SIZE = 20 * 1024 * 1024
     GRACEFUL_STOP_TIMEOUT = 30
+    SSL_CERTFILE = None
+    SSL_KEYFILE = None
 
     if USER_CONFIG_FILE.exists():
         USER_CONFIG_FILE.unlink()
@@ -242,6 +270,9 @@ def get_admin_settings() -> dict:
         "version": VERSION,
         "auth_enabled": CONDUCTOR_TOKEN is not None,
         "auth_from_env": _TOKEN_FROM_ENV,
+        "ssl_enabled": SSL_CERTFILE is not None and SSL_KEYFILE is not None,
+        "ssl_certfile": SSL_CERTFILE,
+        "ssl_keyfile": SSL_KEYFILE,
     }
 
 
@@ -281,7 +312,16 @@ _load_stored_token()
 load_user_config()
 
 
+def set_ssl_config(certfile: str | None, keyfile: str | None):
+    """Set or clear SSL cert/key paths. Persists to config.yaml."""
+    global SSL_CERTFILE, SSL_KEYFILE
+    SSL_CERTFILE = certfile
+    SSL_KEYFILE = keyfile
+    save_user_config({"ssl_certfile": certfile, "ssl_keyfile": keyfile})
+
+
 def ensure_dirs():
     SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    CERTS_DIR.mkdir(parents=True, exist_ok=True)
