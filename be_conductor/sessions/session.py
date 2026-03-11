@@ -165,10 +165,11 @@ class Session:
             return b""
         col = self.cols - self._WATERMARK_LEN + 1
         return (
-            f"\x1b7"                       # DECSC: save cursor + attributes
+            f"\x1b[s"                      # SCP: save cursor position
             f"\x1b[{col}G"                # CHA: move to column (absolute)
+            f"\x1b[0m"                     # SGR reset (erase with default bg)
             f"\x1b[0K"                     # EL: erase from cursor to end of line
-            f"\x1b8"                       # DECRC: restore cursor + attributes
+            f"\x1b[u"                      # RCP: restore cursor position
         ).encode("utf-8")
 
     def _watermark_seq(self) -> bytes:
@@ -177,11 +178,13 @@ class Session:
             return b""
         col = self.cols - self._WATERMARK_LEN + 1
         return (
-            f"\x1b7"                       # DECSC: save cursor + attributes
+            f"\x1b[s"                      # SCP: save cursor position
             f"\x1b[{col}G"                # CHA: move to column (absolute)
+            f"\x1b[0m"                     # SGR reset (clean slate)
             f"\x1b[2;38;5;242m"            # SGR: dim + gray
             f"{self._WATERMARK_LABEL}"
-            f"\x1b8"                       # DECRC: restore cursor + attributes
+            f"\x1b[0m"                     # SGR reset (clean up)
+            f"\x1b[u"                      # RCP: restore cursor position
         ).encode("utf-8")
 
     # -- Buffer & broadcast ------------------------------------------------

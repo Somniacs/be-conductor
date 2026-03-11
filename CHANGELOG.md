@@ -2,6 +2,13 @@
 
 All notable changes to be-conductor are documented here.
 
+## v0.3.27
+
+### Fixed
+
+- **Terminal display corruption** — fixed background color bleed (e.g. green everywhere) when running TUI apps like Claude Code. The watermark injection was using DECSC/DECRC escape sequences that share a single save slot with the application's own cursor save/restore, corrupting attribute state. Switched to SCP/RCP which use a separate slot
+- **Ctrl+Z in CLI attach** — pressing Ctrl+Z while attached to a session no longer sends SIGTSTP to the session process (which would suspend it with no way to resume). Instead, the CLI itself suspends properly — run `fg` to resume the attachment
+
 ## v0.3.26
 
 ### New

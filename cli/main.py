@@ -641,6 +641,12 @@ def _attach_session_unix(session_name: str, stop_on_exit: bool = False):
                         break
                     if b"\x1d" in data:  # Ctrl+]
                         break
+                    if b"\x1a" in data:  # Ctrl+Z — suspend CLI
+                        termios.tcsetattr(stdin_fd, termios.TCSADRAIN, old_settings)
+                        click.echo("\nSuspended. Run `fg` to resume.")
+                        signal.signal(signal.SIGCONT, lambda *_: tty.setraw(stdin_fd))
+                        os.kill(os.getpid(), signal.SIGTSTP)
+                        continue
                     try:
                         ws.send(data)
                     except Exception:
