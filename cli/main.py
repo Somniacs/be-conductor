@@ -15,6 +15,7 @@
 
 import json
 import os
+import re
 import shutil
 import signal
 import socket
@@ -550,6 +551,27 @@ def _stop_session_quietly(session_name: str):
         pass
 
 
+# Match OSC title sequences with BEL (\x07) or ST (\x1b\\) terminator
+_OSC_TITLE_RE = re.compile(rb'\x1b\][012];(.*?)(?:\x07|\x1b\\)')
+
+
+def _osc_title_seq(title: bytes) -> bytes:
+    """Build OSC title sequence covering all terminal flavors."""
+    return (
+        b"\x1b]0;" + title + b"\x07"     # OSC 0: icon + window title (JediTerm, xterm)
+        b"\x1b]1;" + title + b"\x07"     # OSC 1: icon/tab name (JediTerm)
+        b"\x1b]2;" + title + b"\x07"     # OSC 2: window title (standard)
+        b"\x1b]30;" + title + b"\x07"    # OSC 30: Konsole tab title
+    )
+
+
+def _rewrite_osc_title(data: bytes, session_name: str) -> bytes:
+    """Replace OSC title sequences with 'session_name - ♭conductor'."""
+    title = (session_name + f" - \u266dconductor").encode()
+    seq = _osc_title_seq(title)
+    return _OSC_TITLE_RE.sub(lambda m: seq, data)
+
+
 def _attach_session_unix(session_name: str, stop_on_exit: bool = False):
     """Unix attach — raw terminal with select-based I/O."""
     import select
@@ -572,7 +594,8 @@ def _attach_session_unix(session_name: str, stop_on_exit: bool = False):
         try:
             for message in ws:
                 if isinstance(message, bytes) and message:
-                    sys.stdout.buffer.write(message)
+                    sys.stdout.buffer.write(
+                        _rewrite_osc_title(message, session_name))
                     sys.stdout.buffer.flush()
                 # Text messages are JSON control events (resize, notifications)
                 # — not terminal data, so don't print them.
@@ -610,6 +633,11 @@ def _attach_session_unix(session_name: str, stop_on_exit: bool = False):
         signal.signal(signal.SIGHUP, on_hup)
 
     try:
+        # Set terminal title across all terminal flavors
+        sys.stdout.buffer.write(
+            _osc_title_seq(f"{session_name} - \u266dconductor".encode()))
+        sys.stdout.buffer.flush()
+
         tty.setraw(stdin_fd)
         ws = ws_sync.connect(ws_url)
 
@@ -667,6 +695,9 @@ def _attach_session_unix(session_name: str, stop_on_exit: bool = False):
         if old_sighup is not None:
             signal.signal(signal.SIGHUP, old_sighup)
         termios.tcsetattr(stdin_fd, termios.TCSADRAIN, old_settings)
+        # Restore terminal title
+        sys.stdout.buffer.write(b"\x1b]2;\x07")
+        sys.stdout.buffer.flush()
         if stop_on_exit:
             click.echo("")  # newline after raw mode
         else:
@@ -687,7 +718,8 @@ def _attach_session_win(session_name: str):
         try:
             for message in ws:
                 if isinstance(message, bytes) and message:
-                    sys.stdout.buffer.write(message)
+                    sys.stdout.buffer.write(
+                        _rewrite_osc_title(message, session_name))
                     sys.stdout.buffer.flush()
                 # Text messages are JSON control events (resize, notifications)
                 # — not terminal data, so don't print them.
@@ -697,6 +729,11 @@ def _attach_session_win(session_name: str):
             stop.set()
 
     try:
+        # Set terminal title across all terminal flavors
+        sys.stdout.buffer.write(
+            _osc_title_seq(f"{session_name} - \u266dconductor".encode()))
+        sys.stdout.buffer.flush()
+
         ws = ws_sync.connect(ws_url)
         reader_thread = threading.Thread(target=ws_reader, args=(ws,), daemon=True)
         reader_thread.start()
@@ -721,6 +758,9 @@ def _attach_session_win(session_name: str):
     except KeyboardInterrupt:
         pass
     finally:
+        # Restore terminal title
+        sys.stdout.buffer.write(b"\x1b]2;\x07")
+        sys.stdout.buffer.flush()
         click.echo("\nDetached.")
 
 
@@ -781,17 +821,21 @@ def resume(name, detach, token, cmd):
 
     if token:
         # External resume: create a new session with <command> <flag> <token>
-        agent = cmd or "claude"
-        # Look up resume_flag from server config
+        # Default agent comes from first allowed_commands entry (not hardcoded).
         flag = "--resume"
+        default_agent = "claude"
         try:
             cfg = httpx.get(f"{get_base_url()}/config", headers=_auth_headers(), timeout=5, **_http_kwargs()).json()
-            for entry in cfg.get("allowed_commands", []):
+            commands = cfg.get("allowed_commands", [])
+            if commands:
+                default_agent = commands[0].get("command", "claude")
+            agent = cmd or default_agent
+            for entry in commands:
                 if entry.get("command", "").split()[0] == agent.split()[0]:
                     flag = entry.get("resume_flag", "--resume")
                     break
         except Exception:
-            pass
+            agent = cmd or default_agent
         size = shutil.get_terminal_size()
         payload = {
             "name": name,

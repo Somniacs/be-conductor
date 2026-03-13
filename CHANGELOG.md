@@ -2,6 +2,18 @@
 
 All notable changes to be-conductor are documented here.
 
+## v0.3.28
+
+### Improved
+
+- **Resume default agent from config** — `be-conductor resume --token` no longer hardcodes `claude` as the default agent. It reads the first entry from `allowed_commands` in the server config, so if you've reordered your agents (e.g. codex first), that becomes the default. The `--command` flag still overrides explicitly
+- **Terminal title as watermark** — replaced the in-stream watermark (which caused display corruption in TUI apps) with an OSC terminal title (`session-name - ♭conductor`). Works on Konsole, iTerm2, GNOME Terminal, Windows Terminal, and most other terminals. The old watermark code is kept but disabled by default
+
+### Fixed
+
+- **Command not found after daemon restart** — the server now ensures `~/.local/bin` and `~/bin` are in PATH when spawning sessions, and resolves commands to absolute paths. Fixes "No such file or directory" errors when the daemon has a minimal environment
+- **Resume survives failures** — a failed resume attempt (e.g. command not found) no longer deletes the resumable session entry. The session stays in the list so you can retry
+
 ## v0.3.27
 
 ### Fixed

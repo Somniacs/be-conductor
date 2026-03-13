@@ -122,10 +122,7 @@ class Session:
             data = os.read(self.pty.master_fd, 65536)
             if data:
                 self._append_buffer(data)
-                if b'\n' in data:
-                    self._broadcast(self._watermark_clear_seq())
                 self._broadcast(data)
-                self._broadcast(self._watermark_seq())
         except OSError:
             # EIO means the slave side closed (process exited).
             # Unregister immediately to avoid a tight spin in the event loop.
@@ -143,10 +140,7 @@ class Session:
                 data = self.pty.read()
                 if data:
                     self._loop.call_soon_threadsafe(self._append_buffer, data)
-                    if b'\n' in data:
-                        self._loop.call_soon_threadsafe(self._broadcast, self._watermark_clear_seq())
                     self._loop.call_soon_threadsafe(self._broadcast, data)
-                    self._loop.call_soon_threadsafe(self._broadcast, self._watermark_seq())
                 else:
                     time.sleep(0.01)
             except OSError:

@@ -1600,9 +1600,6 @@ async def _stream_raw(ws: WebSocket, session: Any):
     buffer = session.get_buffer()
     if buffer:
         await ws.send_bytes(buffer)
-    wm = session._watermark_seq()
-    if wm:
-        await ws.send_bytes(wm)
 
     queue = session.subscribe()
 
@@ -1681,9 +1678,6 @@ async def _stream_typed(ws: WebSocket, session: Any):
     buffer = session.get_buffer()
     if buffer:
         await ws.send_json({"type": "stdout", "data": buffer.decode("utf-8", errors="replace")})
-    wm = session._watermark_seq()
-    if wm:
-        await ws.send_json({"type": "stdout", "data": wm.decode("utf-8", errors="replace")})
 
     queue = session.subscribe()
 

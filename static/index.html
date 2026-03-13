@@ -1533,6 +1533,19 @@
             /* background: red; DEBUG — uncomment to visualize terminal bounds */
         }
 
+        .terminal-watermark {
+            position: absolute;
+            bottom: 2px;
+            right: 12px;
+            color: #666;
+            font-size: 12px;
+            opacity: 0.4;
+            pointer-events: none;
+            user-select: none;
+            z-index: 4;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
         .panel-terminal {
             /* calc leaves room for the absolutely-positioned scroll proxy */
             width: calc(100% - 8px);
@@ -3891,6 +3904,11 @@
             termEl.appendChild(termWrapper);
             termOuter.appendChild(termEl);
 
+            const watermark = document.createElement('div');
+            watermark.className = 'terminal-watermark';
+            watermark.textContent = '\u266dconductor';
+            termOuter.appendChild(watermark);
+
             // Vertical scroll proxy — absolutely positioned at the right edge of
             // the outer wrapper, outside the horizontal scroll container.
             const scrollProxy = document.createElement('div');
@@ -5673,6 +5691,11 @@
             termWrapper.className = 'terminal-wrapper';
             termEl.appendChild(termWrapper);
             termOuter.appendChild(termEl);
+
+            const obsWatermark = document.createElement('div');
+            obsWatermark.className = 'terminal-watermark';
+            obsWatermark.textContent = '\u266dconductor';
+            termOuter.appendChild(obsWatermark);
 
             // Scroll proxies (same as normal panels)
             const scrollProxy = document.createElement('div');

@@ -230,7 +230,7 @@ class SessionRegistry:
         2. **Command-based** (Codex) — a fixed ``resume_command`` replaces
            the original command entirely, e.g. ``codex resume --last``.
         """
-        meta = self.resumable.pop(session_id, None)
+        meta = self.resumable.get(session_id)
 
         # Edge case: session just exited but _on_session_exit hasn't moved
         # it to self.resumable yet — check self.sessions as a fallback.
@@ -289,11 +289,13 @@ class SessionRegistry:
                 log.warning("Worktree path missing for resume: %s", wt_path)
                 worktree_data = None
 
-        self._delete_metadata(session_id)
-
         # Create the resumed session (don't create a new worktree — reuse existing)
+        # Only remove the resumable entry after successful creation so a
+        # failed resume (e.g. command not found) doesn't lose the session.
         session = await self.create(meta["name"], command, cwd=cwd,
                                     rows=rows, cols=cols)
+        self.resumable.pop(session_id, None)
+        self._delete_metadata(session_id)
 
         # Re-attach the worktree info
         if worktree_data:

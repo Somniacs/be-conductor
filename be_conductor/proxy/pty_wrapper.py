@@ -15,6 +15,7 @@
 
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 
@@ -89,6 +90,22 @@ if not _IS_WIN:
 
             args = shlex.split(self.command)
             env = os.environ.copy()
+            # Ensure common user-local bin dirs are in PATH — the daemon
+            # may have been started with a minimal environment.
+            home = os.path.expanduser("~")
+            extra_dirs = [
+                os.path.join(home, ".local", "bin"),
+                os.path.join(home, "bin"),
+            ]
+            path_dirs = env.get("PATH", "").split(os.pathsep)
+            for d in extra_dirs:
+                if d not in path_dirs and os.path.isdir(d):
+                    path_dirs.insert(0, d)
+            env["PATH"] = os.pathsep.join(path_dirs)
+            # Resolve command to absolute path so stored commands survive daemon restarts
+            resolved = shutil.which(args[0], path=env["PATH"])
+            if resolved:
+                args[0] = resolved
             env["TERM"] = "xterm-256color"
             for key in list(env):
                 if key.startswith("CLAUDE"):
