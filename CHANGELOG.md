@@ -2,6 +2,15 @@
 
 All notable changes to be-conductor are documented here.
 
+## v0.3.29
+
+### New
+
+- **Diagram viewer** — native rendering for `.drawio`, `.mermaid`/`.mmd`, and `.svg` files. Draw.io files render via the diagrams.net viewer with SVG extraction for vector-quality zoom. Mermaid diagrams render with dark theme. SVG files are sanitized (scripts stripped). Source/rendered toggle for all types
+- **Diagram zoom and pan** — scroll-wheel zoom at cursor position, click-drag panning, pinch-to-zoom at gesture center on touch devices, and double-click to fit. Zoom-in/out toolbar buttons with magnifying glass icons. Fit-to-view button scales the entire diagram into the viewport. Native scrollbars reflect zoom level. Window resize adapts the viewport proportionally. Touch gestures are isolated from browser zoom
+- **Diagram background toggle** — cycle between checker, dark, and white backgrounds for all diagram types
+- **Mobile file browser** — full-screen file list on small screens with sidebar/content toggle. Collapsible sidebar handle on the left edge (same pattern on phone and tablet). Two-row header with breadcrumb path on its own line. Breadcrumb taps navigate back to the file list. Touch panning for diagrams on mobile
+
 ## v0.3.28
 
 ### Improved

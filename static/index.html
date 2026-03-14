@@ -566,9 +566,12 @@
         }
         #file-overlay.open { display: flex; }
         .file-header {
-            display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-            padding: 10px 16px; background: #12122a; border-bottom: 1px solid #2a2a5a;
+            display: flex; flex-direction: column; gap: 4px;
+            padding: 8px 16px; background: #12122a; border-bottom: 1px solid #2a2a5a;
             flex-shrink: 0;
+        }
+        .file-header-row {
+            display: flex; align-items: center; gap: 8px;
         }
         .file-header h3 { margin: 0; font-size: 14px; color: #d0d0e8; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .file-close-btn {
@@ -579,6 +582,7 @@
         .file-close-btn:hover { background: #1a1a3a; color: #d0d0e8; }
         .file-toolbar {
             display: flex; align-items: center; gap: 6px;
+            margin-left: auto;
         }
         .file-toolbar button {
             background: none; border: 1px solid #3a3a6a; color: #a0a0d0;
@@ -596,10 +600,32 @@
         .file-main {
             flex: 1; display: flex; overflow: hidden;
         }
-        .file-sidebar {
+        .file-sidebar-wrap {
             width: 260px; min-width: 200px; background: #0e0e22;
-            border-right: 1px solid #2a2a5a; overflow-y: auto; flex-shrink: 0;
+            border-right: 1px solid #2a2a5a; flex-shrink: 0;
+            display: flex; flex-direction: column;
+            transition: width 0.15s, min-width 0.15s;
         }
+        .file-main.sidebar-collapsed .file-sidebar-wrap {
+            width: 0; min-width: 0; overflow: hidden; border-right: none;
+        }
+        .file-sidebar-header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 6px 10px; border-bottom: 1px solid #2a2a5a; flex-shrink: 0;
+        }
+        .file-sidebar-close {
+            background: none; border: none; color: #6a6a9a; font-size: 18px;
+            cursor: pointer; padding: 0 2px; line-height: 1;
+        }
+        .file-sidebar-close:hover { color: #d0d0e8; }
+        .file-sidebar { overflow-y: auto; flex: 1; }
+        .file-sidebar-handle {
+            width: 18px; flex-shrink: 0; display: none; align-items: center;
+            justify-content: center; cursor: pointer; background: #0e0e22;
+            border-right: 1px solid #2a2a5a; color: #5a5a8a;
+        }
+        .file-sidebar-handle:hover { background: #14142e; color: #a0a0d0; }
+        .file-main.sidebar-collapsed .file-sidebar-handle { display: flex; }
         .file-sidebar-item {
             display: flex; align-items: center; gap: 6px;
             padding: 6px 12px; cursor: pointer; font-size: 12px;
@@ -688,6 +714,28 @@
             max-width: 100%; max-height: 100%; object-fit: contain;
             border-radius: 4px; box-shadow: 0 2px 12px rgba(0,0,0,0.4);
         }
+        /* Diagram containers — SVG, Mermaid, DrawIO */
+        .file-diagram-container {
+            height: 100%; overflow: auto;
+            background: repeating-conic-gradient(#1a1a2e 0% 25%, #14142a 0% 50%) 50% / 20px 20px;
+            cursor: grab; user-select: none; touch-action: none;
+        }
+        .file-diagram-container::-webkit-scrollbar { width: 8px; height: 8px; }
+        .file-diagram-container::-webkit-scrollbar-track { background: transparent; }
+        .file-diagram-container::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 4px; }
+        .file-diagram-container::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
+        .file-diagram-container::-webkit-scrollbar-corner { background: transparent; }
+        .file-diagram-inner { position: relative; }
+        .file-diagram-inner svg { display: block; position: absolute; }
+        /* Draw.io foreignObject divs often get white backgrounds from GraphViewer,
+           hiding white text meant for dark canvases. Shape fills come from SVG rects,
+           so make the HTML overlay divs transparent. */
+        .file-diagram-inner svg foreignObject div { background: transparent !important; }
+        .file-diagram-error {
+            padding: 12px 16px; font-size: 12px; color: #ff6666; background: #1a0000;
+            border: 1px solid #3a1111; border-radius: 4px; margin-bottom: 8px;
+        }
+        .file-zoom-icon { display: none; vertical-align: middle; }
         .file-content iframe {
             width: 100%; height: 100%; border: none; background: #fff;
         }
@@ -700,7 +748,20 @@
         .file-breadcrumb .bc-sep { color: #3a3a5a; cursor: default; flex-shrink: 0; }
         .file-breadcrumb .bc-sep:hover { text-decoration: none; color: #3a3a5a; }
         @media (max-width: 700px) {
-            .file-sidebar { display: none; }
+            .file-header { padding: 6px 10px; gap: 3px; }
+            .file-toolbar label { display: none; }
+            .file-toolbar button { padding: 4px 8px; min-width: 24px; }
+            .file-main { flex-direction: column; }
+            .file-sidebar-wrap {
+                width: 100%; min-width: 0; border-right: none;
+                flex: 1;
+            }
+            .file-content { flex: 1; }
+            /* On mobile, show sidebar OR content — handle stays visible */
+            .file-main.mobile-viewing .file-sidebar-wrap { display: none; }
+            .file-main.mobile-viewing .file-sidebar-handle { display: flex; }
+            .file-main:not(.mobile-viewing) .file-content { display: none; }
+            .file-main:not(.mobile-viewing) .file-sidebar-handle { display: none; }
         }
 
         /* Notes drawer */
@@ -2732,18 +2793,31 @@
     <!-- Fullscreen file viewer -->
     <div id="file-overlay">
         <div class="file-header">
-            <button class="file-close-btn" onclick="closeFileOverlay()">&times;</button>
-            <div class="file-breadcrumb" id="file-breadcrumb"></div>
-            <div class="file-toolbar">
+            <div class="file-header-row">
+                <button class="file-close-btn" onclick="closeFileOverlay()">&times;</button>
+                <div class="file-breadcrumb" id="file-breadcrumb"></div>
+            </div>
+            <div class="file-header-row">
+                <div class="file-toolbar">
                 <label title="Show hidden files"><input type="checkbox" id="file-show-hidden" onchange="fileToggleHidden()"> Hidden</label>
                 <button id="file-render-btn" onclick="fileToggleRender()" title="Toggle rendered/source view" style="display:none;">Rendered</button>
-                <button id="file-zoom-out" onclick="fileZoom(-1)" title="Zoom out (-)">A&#8722;</button>
-                <button id="file-zoom-in" onclick="fileZoom(1)" title="Zoom in (+)">A+</button>
+                <button id="file-bg-btn" onclick="fileCycleBg()" title="Toggle background (dark/light/checker)" style="display:none;"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="1" width="14" height="14" rx="2"/><rect x="1" y="1" width="7" height="7" fill="currentColor" opacity="0.4"/><rect x="8" y="8" width="7" height="7" fill="currentColor" opacity="0.4"/></svg></button>
+                <button id="file-zoom-out" onclick="fileZoom(-1)" title="Zoom out (-)"><span class="file-zoom-text">A&#8722;</span><svg class="file-zoom-icon" width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="7" cy="7" r="5"/><path d="M11 11l3 3M5 7h4"/></svg></button>
+                <button id="file-zoom-in" onclick="fileZoom(1)" title="Zoom in (+)"><span class="file-zoom-text">A+</span><svg class="file-zoom-icon" width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="7" cy="7" r="5"/><path d="M11 11l3 3M5 7h4M7 5v4"/></svg></button>
+                <button id="file-fit-btn" onclick="fileFitToView()" title="Fit to view" style="display:none;"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6V2h4M14 6V2h-4M2 10v4h4M14 10v4h-4"/></svg></button>
                 <button id="file-download-btn" onclick="fileDownload()" title="Download file" style="display:none;"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v9M4 8l4 4 4-4M2 14h12"/></svg></button>
+                </div>
             </div>
         </div>
         <div class="file-main">
-            <div class="file-sidebar" id="file-sidebar"></div>
+            <div class="file-sidebar-wrap">
+                <div class="file-sidebar-header">
+                    <span style="font-size:12px;color:#8888bb;font-weight:600;">Files</span>
+                    <button class="file-sidebar-close" onclick="fileToggleSidebar()" title="Close file list">&times;</button>
+                </div>
+                <div class="file-sidebar" id="file-sidebar"></div>
+            </div>
+            <div class="file-sidebar-handle" onclick="fileToggleSidebar()" title="Open file list"><svg width="10" height="20" viewBox="0 0 10 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6l4 4-4 4"/></svg></div>
             <div class="file-content" id="file-content">
                 <div class="file-empty">Select a file to view its contents</div>
             </div>
@@ -2869,6 +2943,7 @@
     <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked@15.0.7/marked.min.js" async></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js" async></script>
     <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js" async></script>
     <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js" async></script>
     <script>
@@ -9154,6 +9229,7 @@
             const cb = document.getElementById('file-show-hidden');
             if (cb) cb.checked = false;
             _fileUpdateToolbar(null);
+            document.querySelector('.file-main')?.classList.remove('mobile-viewing');
             document.getElementById('file-overlay').classList.add('open');
             document.getElementById('file-content').innerHTML = '<div class="file-empty">Select a file to view its contents</div>';
             _fileActivePath = null;
@@ -9169,6 +9245,7 @@
             _fileRawContent = null;
             const cb = document.getElementById('file-show-hidden');
             if (cb) cb.checked = false;
+            document.querySelector('.file-main')?.classList.add('mobile-viewing');
             document.getElementById('file-overlay').classList.add('open');
             _fileActivePath = filePath;
             _fileActiveType = type;
@@ -9204,12 +9281,300 @@
             _fileRootPath = null;
         }
 
+        // --- Diagram zoom/pan (unified for SVG, Mermaid, DrawIO) ---
+        // Inner div has explicit width/height (always >= container).
+        // SVG is absolutely positioned and centered within inner.
+        // Container overflow:auto gives native scrollbars.
+        let _fileDiagramZoom = 100;
+        let _fileDiagramNatW = 0;
+        let _fileDiagramNatH = 0;
+
+        function _fileDiagramReset() {
+            _fileDiagramZoom = 100;
+            _fileDiagramNatW = 0;
+            _fileDiagramNatH = 0;
+        }
+
+        function _fileDiagramMeasure() {
+            const inner = document.querySelector('#file-content .file-diagram-inner');
+            if (!inner) return false;
+            const svg = inner.querySelector('svg');
+            if (!svg) return false;
+
+            // Always allow overflow so connection arrows outside viewBox aren't clipped
+            svg.setAttribute('overflow', 'visible');
+            // Strip width/height attrs — our CSS controls sizing via style props
+            svg.removeAttribute('width');
+            svg.removeAttribute('height');
+
+            // 1. If viewBox already exists, use its dimensions
+            const vb = svg.getAttribute('viewBox');
+            if (vb) {
+                const p = vb.split(/[\s,]+/).map(Number);
+                if (p.length >= 4 && p[2] > 0 && p[3] > 0) {
+                    _fileDiagramNatW = p[2]; _fileDiagramNatH = p[3];
+                    return true;
+                }
+            }
+
+            // 2. No viewBox — use getBBox to capture ALL content including
+            //    connection arrows that route outside the original bounds
+            try {
+                const bb = svg.getBBox();
+                if (bb.width > 0 && bb.height > 0) {
+                    svg.setAttribute('viewBox', bb.x + ' ' + bb.y + ' ' + bb.width + ' ' + bb.height);
+                    _fileDiagramNatW = bb.width; _fileDiagramNatH = bb.height;
+                    return true;
+                }
+            } catch(_) {}
+
+            // 3. Last resort: getBoundingClientRect (pixel size on screen)
+            const bcr = svg.getBoundingClientRect();
+            if (bcr.width > 0 && bcr.height > 0) {
+                _fileDiagramNatW = bcr.width; _fileDiagramNatH = bcr.height;
+                return true;
+            }
+            return false;
+        }
+
+        // Apply zoom: size inner div, position SVG centered within it
+        function _fileDiagramApplyZoom() {
+            const container = document.querySelector('#file-content .file-diagram-container');
+            const inner = container?.querySelector('.file-diagram-inner');
+            const svg = inner?.querySelector('svg');
+            if (!svg || !_fileDiagramNatW || !container) return;
+            // Strip any leftover inline dimensions from renderers (GraphViewer etc.)
+            svg.style.removeProperty('max-width');
+            svg.style.removeProperty('max-height');
+            svg.style.removeProperty('min-width');
+            svg.style.removeProperty('min-height');
+            const sw = Math.round(_fileDiagramNatW * _fileDiagramZoom / 100);
+            const sh = Math.round(_fileDiagramNatH * _fileDiagramZoom / 100);
+            const cw = container.clientWidth;
+            const ch = container.clientHeight;
+            const iw = Math.max(sw, cw);
+            const ih = Math.max(sh, ch);
+            inner.style.width = iw + 'px';
+            inner.style.height = ih + 'px';
+            svg.style.width = sw + 'px';
+            svg.style.height = sh + 'px';
+            svg.style.left = Math.round((iw - sw) / 2) + 'px';
+            svg.style.top = Math.round((ih - sh) / 2) + 'px';
+        }
+
+        function _fileDiagramFitToView() {
+            const container = document.querySelector('#file-content .file-diagram-container');
+            if (!container || !_fileDiagramNatW || !_fileDiagramNatH) return;
+            // Temporarily hide scrollbars to get true available space
+            const prevOverflow = container.style.overflow;
+            container.style.overflow = 'hidden';
+            const cw = container.clientWidth;
+            const ch = container.clientHeight;
+            container.style.overflow = prevOverflow;
+            // Fit with 2px safety margin to prevent rounding-induced scrollbars
+            _fileDiagramZoom = Math.min((cw - 2) / _fileDiagramNatW, (ch - 2) / _fileDiagramNatH) * 100;
+            _fileDiagramApplyZoom();
+            container.scrollLeft = 0;
+            container.scrollTop = 0;
+        }
+
+        function _fileDiagramInitFit() {
+            let attempts = 0;
+            const tryFit = () => {
+                if (_fileDiagramMeasure()) {
+                    _fileDiagramFitToView();
+                } else if (attempts < 30) {
+                    attempts++;
+                    setTimeout(tryFit, 200);
+                }
+            };
+            requestAnimationFrame(tryFit);
+        }
+
+        // Zoom at cursor: read SVG position from styles, no recalculation needed
+        function _diagramZoomAtPoint(container, mx, my, factor) {
+            const svg = container.querySelector('.file-diagram-inner svg');
+            if (!svg || !_fileDiagramNatW) return;
+            // SVG position before zoom
+            const svgL = parseFloat(svg.style.left) || 0;
+            const svgT = parseFloat(svg.style.top) || 0;
+            const svgW = parseFloat(svg.style.width) || _fileDiagramNatW;
+            const svgH = parseFloat(svg.style.height) || _fileDiagramNatH;
+            // Fraction of SVG under cursor
+            const fracX = (container.scrollLeft + mx - svgL) / svgW;
+            const fracY = (container.scrollTop + my - svgT) / svgH;
+            // Apply zoom
+            _fileDiagramZoom = Math.max(5, Math.min(2000, _fileDiagramZoom * factor));
+            _fileDiagramApplyZoom();
+            // Read new SVG position (just set by applyZoom)
+            const nL = parseFloat(svg.style.left) || 0;
+            const nT = parseFloat(svg.style.top) || 0;
+            const nW = parseFloat(svg.style.width) || 0;
+            const nH = parseFloat(svg.style.height) || 0;
+            // Scroll so same content point stays under cursor
+            container.scrollLeft = fracX * nW + nL - mx;
+            container.scrollTop = fracY * nH + nT - my;
+        }
+
+        // Resize: scale zoom, keep viewport center stable
+        let _diagramLastW = 0, _diagramLastH = 0;
+        const _diagramResizeObs = new ResizeObserver(entries => {
+            if (!_fileRendered || !_fileDiagramNatW) return;
+            for (const entry of entries) {
+                const w = entry.contentRect.width;
+                const h = entry.contentRect.height;
+                if (_diagramLastW && _diagramLastH) {
+                    const container = document.querySelector('#file-content .file-diagram-container');
+                    const svg = container?.querySelector('.file-diagram-inner svg');
+                    if (!container || !svg) { _diagramLastW = w; _diagramLastH = h; return; }
+                    // Viewport center in SVG fraction space before resize
+                    const svgL = parseFloat(svg.style.left) || 0;
+                    const svgT = parseFloat(svg.style.top) || 0;
+                    const svgW = parseFloat(svg.style.width) || 1;
+                    const svgH = parseFloat(svg.style.height) || 1;
+                    const cFracX = (container.scrollLeft + _diagramLastW / 2 - svgL) / svgW;
+                    const cFracY = (container.scrollTop + _diagramLastH / 2 - svgT) / svgH;
+                    // Scale zoom proportionally
+                    _fileDiagramZoom *= Math.min(w / _diagramLastW, h / _diagramLastH);
+                    _fileDiagramApplyZoom();
+                    // Restore center
+                    const nL = parseFloat(svg.style.left) || 0;
+                    const nT = parseFloat(svg.style.top) || 0;
+                    const nW = parseFloat(svg.style.width) || 1;
+                    const nH = parseFloat(svg.style.height) || 1;
+                    container.scrollLeft = cFracX * nW + nL - w / 2;
+                    container.scrollTop = cFracY * nH + nT - h / 2;
+                }
+                _diagramLastW = w;
+                _diagramLastH = h;
+            }
+        });
+        const _fileContentEl = document.getElementById('file-content');
+        if (_fileContentEl) _diagramResizeObs.observe(_fileContentEl);
+
         function fileZoom(dir) {
+            if (_fileRendered && /\.(svg|mermaid|mmd|drawio)$/i.test(_fileActivePath || '')) {
+                const container = document.querySelector('#file-content .file-diagram-container');
+                if (!container) return;
+                _diagramZoomAtPoint(container, container.clientWidth / 2, container.clientHeight / 2, dir > 0 ? 1.25 : 0.8);
+                return;
+            }
             _fileFontSize = Math.max(8, Math.min(24, _fileFontSize + dir * 2));
             const content = document.getElementById('file-content');
             if (content) {
                 const text = content.querySelector('.file-text');
                 if (text) text.style.fontSize = _fileFontSize + 'px';
+            }
+        }
+
+        // Scroll-wheel zoom at cursor
+        document.addEventListener('wheel', function(e) {
+            if (!_fileRendered) return;
+            const container = e.target.closest('.file-diagram-container');
+            if (!container) return;
+            e.preventDefault();
+            const rect = container.getBoundingClientRect();
+            _diagramZoomAtPoint(container, e.clientX - rect.left, e.clientY - rect.top, e.deltaY < 0 ? 1.15 : 1 / 1.15);
+        }, { passive: false });
+
+        // Mouse drag to scroll/pan
+        let _panActive = false, _panStartX = 0, _panStartY = 0, _panScrollX = 0, _panScrollY = 0, _panContainer = null;
+        document.addEventListener('mousedown', function(e) {
+            if (!_fileRendered || e.button !== 0) return;
+            const container = e.target.closest('.file-diagram-container');
+            if (!container) return;
+            _panActive = true;
+            _panContainer = container;
+            _panStartX = e.clientX;
+            _panStartY = e.clientY;
+            _panScrollX = container.scrollLeft;
+            _panScrollY = container.scrollTop;
+            container.style.cursor = 'grabbing';
+            e.preventDefault();
+        });
+        document.addEventListener('mousemove', function(e) {
+            if (!_panActive) return;
+            _panContainer.scrollLeft = _panScrollX - (e.clientX - _panStartX);
+            _panContainer.scrollTop = _panScrollY - (e.clientY - _panStartY);
+        });
+        document.addEventListener('mouseup', function() {
+            if (!_panActive) return;
+            _panActive = false;
+            if (_panContainer) _panContainer.style.cursor = '';
+            _panContainer = null;
+        });
+        // Double-click to fit
+        document.addEventListener('dblclick', function(e) {
+            if (!_fileRendered) return;
+            if (e.target.closest('.file-diagram-container')) _fileDiagramFitToView();
+        });
+
+        // Touch: pinch-to-zoom at gesture center + single-finger pan
+        let _pinchStartDist = 0, _pinchStartZoom = 100;
+        let _touchPanActive = false, _touchStartX = 0, _touchStartY = 0, _touchScrollX = 0, _touchScrollY = 0, _touchContainer = null;
+        document.addEventListener('touchstart', function(e) {
+            if (!_fileRendered) return;
+            const container = e.target.closest('.file-diagram-container');
+            if (!container) return;
+            if (e.touches.length === 2) {
+                e.preventDefault();
+                _touchPanActive = false;
+                const t = e.touches;
+                _pinchStartDist = Math.hypot(t[1].clientX - t[0].clientX, t[1].clientY - t[0].clientY);
+                _pinchStartZoom = _fileDiagramZoom;
+                _touchContainer = container;
+            } else if (e.touches.length === 1) {
+                _touchPanActive = true;
+                _touchContainer = container;
+                _touchStartX = e.touches[0].clientX;
+                _touchStartY = e.touches[0].clientY;
+                _touchScrollX = container.scrollLeft;
+                _touchScrollY = container.scrollTop;
+            }
+        }, { passive: false });
+        document.addEventListener('touchmove', function(e) {
+            if (!_fileRendered || !_touchContainer) return;
+            if (e.touches.length === 2 && _pinchStartDist) {
+                e.preventDefault();
+                const t = e.touches;
+                const dist = Math.hypot(t[1].clientX - t[0].clientX, t[1].clientY - t[0].clientY);
+                const rect = _touchContainer.getBoundingClientRect();
+                const mx = (t[0].clientX + t[1].clientX) / 2 - rect.left;
+                const my = (t[0].clientY + t[1].clientY) / 2 - rect.top;
+                const factor = dist / _pinchStartDist;
+                _pinchStartDist = dist;
+                _diagramZoomAtPoint(_touchContainer, mx, my, factor);
+            } else if (e.touches.length === 1 && _touchPanActive) {
+                e.preventDefault();
+                _touchContainer.scrollLeft = _touchScrollX - (e.touches[0].clientX - _touchStartX);
+                _touchContainer.scrollTop = _touchScrollY - (e.touches[0].clientY - _touchStartY);
+            }
+        }, { passive: false });
+        document.addEventListener('touchend', function(e) {
+            if (e.touches.length === 0) {
+                _pinchStartDist = 0;
+                _touchPanActive = false;
+                _touchContainer = null;
+            }
+        });
+
+        // Background cycling for diagrams: checker → dark → white → checker
+        const _diagramBgs = [
+            'repeating-conic-gradient(#1a1a2e 0% 25%, #14142a 0% 50%) 50% / 20px 20px',  // checker
+            '#0d1117',  // dark
+            '#ffffff',  // white
+        ];
+        let _fileDiagramBgIdx = 0;
+        function fileCycleBg() {
+            _fileDiagramBgIdx = (_fileDiagramBgIdx + 1) % _diagramBgs.length;
+            const bg = _diagramBgs[_fileDiagramBgIdx];
+            const container = document.querySelector('#file-content .file-diagram-container');
+            if (container) {
+                container.style.background = bg;
+                // Also update draw.io inner elements
+                container.querySelectorAll('.mxgraph, .geDiagramContainer').forEach(el => {
+                    el.style.background = bg;
+                });
             }
         }
 
@@ -9245,6 +9610,8 @@
         }
 
         async function fileBrowseTo(path) {
+            // On mobile, switch back to file list view
+            document.querySelector('.file-main')?.classList.remove('mobile-viewing');
             const sidebar = document.getElementById('file-sidebar');
             sidebar.innerHTML = '<div class="file-loading"><div class="file-spinner"></div></div>';
             try {
@@ -9303,12 +9670,24 @@
             }
         }
 
+        function fileToggleSidebar() {
+            const main = document.querySelector('.file-main');
+            if (!main) return;
+            if (window.innerWidth <= 700) {
+                main.classList.toggle('mobile-viewing');
+            } else {
+                main.classList.toggle('sidebar-collapsed');
+            }
+        }
+
         function fileViewFile(path, type) {
             _fileActivePath = path;
             _fileActiveType = type;
             _fileRendered = false;
             _fileRawContent = null;
             _fileUpdateToolbar(type);
+            // On mobile, switch to content view
+            document.querySelector('.file-main')?.classList.add('mobile-viewing');
             // Highlight active sidebar item
             document.querySelectorAll('#file-sidebar .file-sidebar-item').forEach(el => el.classList.remove('active'));
             // Find and highlight the matching item by checking the onclick path
@@ -9322,7 +9701,7 @@
         }
 
         function _fileIsRenderable(path) {
-            return /\.(md|markdown|rst|svg)$/i.test(path);
+            return /\.(md|markdown|rst|svg|mermaid|mmd|drawio)$/i.test(path);
         }
 
         function _fileUpdateToolbar(type) {
@@ -9343,11 +9722,21 @@
             if (dlBtn) {
                 dlBtn.style.display = _fileActivePath ? '' : 'none';
             }
-            // Show zoom only for source text view (not rendered, not PDF, not empty)
-            const showZoom = type === 'text' && _fileActivePath && !_fileRendered;
+            // Zoom buttons: magnifying glass for all diagrams, A-/A+ for text
+            const isDiagram = _fileRendered && /\.(svg|mermaid|mmd|drawio)$/i.test(_fileActivePath || '');
+            const showZoom = type === 'text' && _fileActivePath;
             if (zoomOut) zoomOut.style.display = showZoom ? '' : 'none';
             if (zoomIn) zoomIn.style.display = showZoom ? '' : 'none';
+            document.querySelectorAll('.file-zoom-text').forEach(el => el.style.display = isDiagram ? 'none' : '');
+            document.querySelectorAll('.file-zoom-icon').forEach(el => el.style.display = isDiagram ? 'inline-block' : 'none');
+            // Background toggle and fit button for all diagram types
+            const bgBtn = document.getElementById('file-bg-btn');
+            if (bgBtn) bgBtn.style.display = isDiagram ? '' : 'none';
+            const fitBtn = document.getElementById('file-fit-btn');
+            if (fitBtn) fitBtn.style.display = isDiagram ? '' : 'none';
         }
+
+        function fileFitToView() { _fileDiagramFitToView(); }
 
         function _fileRenderSource(text, truncated, totalSize) {
             let html = '';
@@ -9363,9 +9752,135 @@
             return html;
         }
 
-        function _fileRenderRichContent(path, text) {
+        // --- SVG sanitization ---
+        function _sanitizeSvg(text) {
+            try {
+                const doc = new DOMParser().parseFromString(text, 'image/svg+xml');
+                const err = doc.querySelector('parsererror');
+                if (err) return escHtml(text);
+                // Strip <script> elements
+                doc.querySelectorAll('script').forEach(el => el.remove());
+                // Strip on* event attributes and javascript: hrefs
+                const all = doc.querySelectorAll('*');
+                for (const el of all) {
+                    for (const attr of [...el.attributes]) {
+                        if (attr.name.startsWith('on')) el.removeAttribute(attr.name);
+                        if ((attr.name === 'href' || attr.name === 'xlink:href') &&
+                            attr.value.trim().toLowerCase().startsWith('javascript:'))
+                            el.removeAttribute(attr.name);
+                    }
+                }
+                return new XMLSerializer().serializeToString(doc.documentElement);
+            } catch (_) {
+                return escHtml(text);
+            }
+        }
+
+        // --- Mermaid support ---
+        let _mermaidInitialized = false;
+        function _ensureMermaidInit() {
+            if (_mermaidInitialized || typeof mermaid === 'undefined') return;
+            mermaid.initialize({
+                startOnLoad: false,
+                theme: 'dark',
+                themeVariables: { darkMode: true, background: '#0d1117' }
+            });
+            _mermaidInitialized = true;
+        }
+
+        async function _fileRenderMermaid(text) {
+            if (typeof mermaid === 'undefined') {
+                return '<div class="file-diagram-error">Mermaid library not loaded yet — try again in a moment</div>'
+                    + _fileRenderSource(text, false, 0);
+            }
+            try {
+                _ensureMermaidInit();
+                const id = 'mmd-' + Date.now();
+                const { svg } = await mermaid.render(id, text.trim());
+                return '<div class="file-diagram-container"><div class="file-diagram-inner">' + svg + '</div></div>';
+            } catch (e) {
+                return '<div class="file-diagram-error">Mermaid error: ' + escHtml(e.message || String(e)) + '</div>'
+                    + _fileRenderSource(text, false, 0);
+            }
+        }
+
+        // --- DrawIO support (lazy-loaded) ---
+        let _drawioLoading = null;
+        function _loadDrawio() {
+            if (_drawioLoading) return _drawioLoading;
+            if (typeof GraphViewer !== 'undefined') return Promise.resolve();
+            _drawioLoading = new Promise((resolve, reject) => {
+                const s = document.createElement('script');
+                s.src = 'https://viewer.diagrams.net/js/viewer-static.min.js';
+                s.onload = () => resolve();
+                s.onerror = () => { _drawioLoading = null; reject(new Error('Failed to load draw.io viewer')); };
+                document.head.appendChild(s);
+            });
+            return _drawioLoading;
+        }
+
+        async function _fileRenderDrawio(text) {
+            try {
+                await _loadDrawio();
+            } catch (e) {
+                return '<div class="file-diagram-error">' + escHtml(e.message) + '</div>'
+                    + _fileRenderSource(text, false, 0);
+            }
+            // Place mxgraph div in DOM so GraphViewer can render it,
+            // then extract the SVG into our standard inner wrapper
+            const container = document.createElement('div');
+            container.className = 'file-diagram-container';
+            const mxDiv = document.createElement('div');
+            mxDiv.className = 'mxgraph';
+            mxDiv.setAttribute('data-mxgraph', JSON.stringify({
+                highlight: '#0000ff', nav: false, resize: false, toolbar: '',
+                xml: text
+            }));
+            container.appendChild(mxDiv);
+            return {
+                html: container,
+                postMount: () => {
+                    requestAnimationFrame(() => {
+                        try { GraphViewer.processElements(); } catch(_) {}
+                        // Poll until SVG appears, then move it into file-diagram-inner
+                        let attempts = 0;
+                        const extractSvg = () => {
+                            const svg = container.querySelector('svg');
+                            if (svg) {
+                                const inner = document.createElement('div');
+                                inner.className = 'file-diagram-inner';
+                                // Remove all GraphViewer chrome, keep only the SVG
+                                const clone = svg.cloneNode(true);
+                                // Strip GraphViewer sizing so our zoom system controls it
+                                clone.style.removeProperty('width');
+                                clone.style.removeProperty('height');
+                                clone.style.removeProperty('max-width');
+                                clone.style.removeProperty('max-height');
+                                clone.style.removeProperty('overflow');
+                                inner.appendChild(clone);
+                                container.innerHTML = '';
+                                container.appendChild(inner);
+                                // Trigger fit-to-view now that SVG is in place
+                                _fileDiagramInitFit();
+                            } else if (attempts < 40) {
+                                attempts++;
+                                setTimeout(extractSvg, 200);
+                            } else {
+                                container.innerHTML = '<div class="file-diagram-error">Failed to render draw.io diagram</div>';
+                            }
+                        };
+                        setTimeout(extractSvg, 500);
+                    });
+                }
+            };
+        }
+
+        // --- Render dispatch (async) ---
+        async function _fileRenderRichContent(path, text) {
+            if (/\.drawio$/i.test(path)) return _fileRenderDrawio(text);
+            if (/\.(mermaid|mmd)$/i.test(path)) return _fileRenderMermaid(text);
             if (/\.svg$/i.test(path)) {
-                return '<div class="file-image">' + text + '</div>';
+                return '<div class="file-diagram-container"><div class="file-diagram-inner">' + _sanitizeSvg(text) + '</div></div>';
             }
             return _fileRenderMarkdown(text);
         }
@@ -9376,6 +9891,21 @@
             }
             // Fallback: show source if marked not loaded
             return _fileRenderSource(text, false, 0);
+        }
+
+        // Apply render result — handles both string and {html, postMount} objects
+        function _fileApplyRenderResult(contentEl, result) {
+            if (typeof result === 'string') {
+                contentEl.innerHTML = result;
+            } else if (result && result.html) {
+                contentEl.innerHTML = '';
+                contentEl.appendChild(result.html);
+                if (result.postMount) result.postMount();
+            }
+            // Auto-fit all diagrams after render
+            if (contentEl.querySelector('.file-diagram-container')) {
+                _fileDiagramInitFit();
+            }
         }
 
         async function fileViewText(path) {
@@ -9395,10 +9925,13 @@
                 _fileRawContent = data.content;
                 _fileRendered = false;
 
-                // Auto-render markdown and SVG files
+                // Auto-render markdown, SVG, mermaid, drawio files
                 if (_fileIsRenderable(path)) {
                     _fileRendered = true;
-                    content.innerHTML = _fileRenderRichContent(path, data.content);
+                    _fileDiagramReset();
+                    _fileDiagramBgIdx = 0;
+                    const result = await _fileRenderRichContent(path, data.content);
+                    _fileApplyRenderResult(content, result);
                 } else {
                     content.innerHTML = _fileRenderSource(data.content, data.truncated, data.total_size);
                 }
@@ -9408,12 +9941,14 @@
             }
         }
 
-        function fileToggleRender() {
+        async function fileToggleRender() {
             if (!_fileRawContent || !_fileActivePath) return;
             _fileRendered = !_fileRendered;
+            _fileDiagramReset();
             const content = document.getElementById('file-content');
             if (_fileRendered) {
-                content.innerHTML = _fileRenderRichContent(_fileActivePath, _fileRawContent);
+                const result = await _fileRenderRichContent(_fileActivePath, _fileRawContent);
+                _fileApplyRenderResult(content, result);
             } else {
                 content.innerHTML = _fileRenderSource(_fileRawContent, false, 0);
             }

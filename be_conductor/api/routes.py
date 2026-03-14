@@ -463,7 +463,7 @@ _TEXT_EXTENSIONS: set[str] = {
     ".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx",
     ".html", ".htm", ".css", ".scss", ".sass", ".less",
     ".json", ".jsonl", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf",
-    ".xml", ".svg",
+    ".xml", ".svg", ".drawio", ".mermaid", ".mmd",
     ".sh", ".bash", ".zsh", ".fish", ".bat", ".cmd", ".ps1",
     ".c", ".h", ".cpp", ".hpp", ".cc", ".cxx", ".cs", ".java", ".kt", ".kts",
     ".go", ".rs", ".rb", ".php", ".pl", ".pm", ".lua", ".r", ".R",
