@@ -83,7 +83,7 @@ Each process runs in a PTY on your machine. Output goes into a rolling in-memory
 - **File upload** — drag-and-drop, paste, or tap to upload files into a session; insert the path or copy it to clipboard.
 - **IDE plugins** — VS Code and JetBrains plugins for managing sessions without leaving your editor.
 - **HTTPS support** — enable HTTPS from the dashboard or CLI for secure access without Tailscale. Generate a self-signed certificate, upload your own, or set paths via environment variables. Enables clipboard and other secure-context browser APIs on LAN. Setup guide: [HTTPS](docs/https.md).
-- **Secure by default** — runs entirely on your machines with no cloud backend; pair with Tailscale for encrypted remote access, or enable HTTPS for secure LAN access without a VPN.
+- **Secure by default** — runs entirely on your machines with no cloud backend; pair with Tailscale (or self-hosted [headscale](docs/headscale.md)) for encrypted remote access, or enable HTTPS for secure LAN access without a VPN.
 
 ## What You Can Run
 
@@ -361,7 +361,7 @@ When only one server is configured (the default), the dashboard looks and works 
 
 ### Remote access from another device
 
-The easiest option is [Tailscale](https://tailscale.com/) — install it on your workstation and your phone/tablet/laptop, and you get encrypted access with zero configuration. Alternatively, enable [HTTPS](docs/https.md) + auth token for secure access on your local network without Tailscale (Settings → General → HTTPS, or `be-conductor cert`).
+The easiest option is [Tailscale](https://tailscale.com/) — install it on your workstation and your phone/tablet/laptop, and you get encrypted access with zero configuration. For a fully self-hosted alternative, see the [headscale setup guide](docs/headscale.md). Or enable [HTTPS](docs/https.md) + auth token for secure access on your local network without a VPN (Settings → General → HTTPS, or `be-conductor cert`).
 
 **1. Start be-conductor on your workstation** (if not already running):
 
