@@ -486,13 +486,16 @@ def _attach_session(session_name: str, stop_on_exit: bool = False):
     stopped when the CLI detaches for any reason (Ctrl+C, Ctrl+], terminal
     close, or the session process exiting).
     """
-    if sys.platform == "win32":
-        _attach_session_win(session_name)
-    else:
-        _attach_session_unix(session_name, stop_on_exit=stop_on_exit)
-
-    if stop_on_exit:
-        _stop_session_quietly(session_name)
+    try:
+        if sys.platform == "win32":
+            _attach_session_win(session_name)
+        else:
+            _attach_session_unix(session_name, stop_on_exit=stop_on_exit)
+    except (OSError, Exception):
+        pass
+    finally:
+        if stop_on_exit:
+            _stop_session_quietly(session_name)
 
 
 def _ws_url(session_name: str, source: str | None = None,
@@ -590,13 +593,20 @@ def _attach_session_unix(session_name: str, stop_on_exit: bool = False):
 
     wake_r, wake_w = os.pipe()
 
+    stdout_fd = sys.stdout.fileno()
+
     def ws_reader(ws):
         try:
             for message in ws:
                 if isinstance(message, bytes) and message:
-                    sys.stdout.buffer.write(
-                        _rewrite_osc_title(message, session_name))
-                    sys.stdout.buffer.flush()
+                    # Write directly to the fd — bypasses Python buffering
+                    # so the kernel PTY layer handles batching naturally,
+                    # matching how a direct child process writes to the terminal.
+                    data = _rewrite_osc_title(message, session_name)
+                    mv = memoryview(data)
+                    while mv:
+                        n = os.write(stdout_fd, mv)
+                        mv = mv[n:]
                 # Text messages are JSON control events (resize, notifications)
                 # — not terminal data, so don't print them.
         except Exception:
@@ -664,7 +674,10 @@ def _attach_session_unix(session_name: str, stop_on_exit: bool = False):
                 _resize_session(session_name, client_id=client_id)
 
                 if stdin_fd in readable:
-                    data = os.read(stdin_fd, 1024)
+                    try:
+                        data = os.read(stdin_fd, 1024)
+                    except OSError:
+                        break  # PTY closed (e.g. IDE terminal tab closed)
                     if not data:
                         break
                     if b"\x1d" in data:  # Ctrl+]
@@ -740,16 +753,19 @@ def _attach_session_win(session_name: str):
 
         try:
             while not stop.is_set():
-                if msvcrt.kbhit():
-                    ch = msvcrt.getwch()
-                    if ch == "\x1d":  # Ctrl+]
-                        break
-                    try:
-                        ws.send(ch.encode("utf-8"))
-                    except Exception:
-                        break
-                else:
-                    stop.wait(timeout=0.05)
+                try:
+                    if msvcrt.kbhit():
+                        ch = msvcrt.getwch()
+                        if ch == "\x1d":  # Ctrl+]
+                            break
+                        try:
+                            ws.send(ch.encode("utf-8"))
+                        except Exception:
+                            break
+                    else:
+                        stop.wait(timeout=0.05)
+                except OSError:
+                    break  # Console closed (e.g. IDE terminal tab closed)
         finally:
             try:
                 ws.close()

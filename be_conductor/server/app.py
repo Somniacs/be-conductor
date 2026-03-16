@@ -173,8 +173,8 @@ def create_app() -> FastAPI:
                     f'<head>\n    <meta name="be-conductor-token" content="{token}">',
                     1,
                 )
-                return HTMLResponse(html)
-            return FileResponse(static_dir / "index.html")
+                return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
+            return FileResponse(static_dir / "index.html", headers={"Cache-Control": "no-cache"})
 
         @app.get("/sw.js")
         async def service_worker():

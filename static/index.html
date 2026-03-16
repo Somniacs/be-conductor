@@ -3265,12 +3265,34 @@
 
                 // 4. Resize terminal.  Single call, no oscillation.
                 if (p.terminal.cols !== p._ptyCols || p.terminal.rows !== visibleRows) {
+                    // Save scroll state — resize reflows the buffer and can
+                    // reset viewport scroll, causing visible jumping.
+                    const vp = target.querySelector('.xterm-viewport');
+                    const wasScrolledUp = p._userScrolledUp;
+                    const savedST = vp ? vp.scrollTop : 0;
+
                     p.terminal.resize(p._ptyCols, visibleRows);
+
+                    // Restore scroll position if user had scrolled up
+                    if (wasScrolledUp && vp) {
+                        const max = vp.scrollHeight - vp.clientHeight;
+                        vp.scrollTop = Math.min(savedST, max);
+                        if (p._updateScrollLock) p._updateScrollLock();
+                    }
+
                     // Force repaint after canvas has resized — some mobile
                     // browsers skip render after resize when terminal is
                     // wider than the viewport.
                     const vr = visibleRows;
-                    requestAnimationFrame(() => p.terminal.refresh(0, vr - 1));
+                    requestAnimationFrame(() => {
+                        p.terminal.refresh(0, vr - 1);
+                        // Re-restore after refresh (can reset scroll again)
+                        if (wasScrolledUp && vp) {
+                            const max = vp.scrollHeight - vp.clientHeight;
+                            vp.scrollTop = Math.min(savedST, max);
+                            if (p._updateScrollLock) p._updateScrollLock();
+                        }
+                    });
                 }
             } else {
                 // Browser-only session — use same manual measurement as
@@ -3319,7 +3341,17 @@
 
                 // 5. Resize terminal — single call, no oscillation
                 if (p.terminal.cols !== visibleCols || p.terminal.rows !== visibleRows) {
+                    const vp = target.querySelector('.xterm-viewport');
+                    const wasScrolledUp = p._userScrolledUp;
+                    const savedST = vp ? vp.scrollTop : 0;
+
                     p.terminal.resize(visibleCols, visibleRows);
+
+                    if (wasScrolledUp && vp) {
+                        const max = vp.scrollHeight - vp.clientHeight;
+                        vp.scrollTop = Math.min(savedST, max);
+                        if (p._updateScrollLock) p._updateScrollLock();
+                    }
                 }
 
                 syncResizeToPTY(p);
@@ -3331,6 +3363,14 @@
                 p._scrollProxy.style.height = outerEl.clientHeight + 'px';
             }
             if (p._syncHScroll) requestAnimationFrame(p._syncHScroll);
+        }
+
+        function isAtBottom(panel) {
+            const target = panel._termWrapper || panel._termEl;
+            const vp = target && target.querySelector('.xterm-viewport');
+            if (!vp) return true;
+            // 2px tolerance for floating-point rounding
+            return vp.scrollTop >= vp.scrollHeight - vp.clientHeight - 2;
         }
 
         function scrollToCursor(panel) {
@@ -4079,6 +4119,7 @@
                     cursorBlink: true,
                     fontSize: window.innerWidth <= 700 ? 8 : 14,
                     fontFamily: "'JetBrains Mono', 'Cascadia Mono', Menlo, 'DejaVu Sans Mono', Consolas, monospace",
+                    lineHeight: 1.2,
                     theme: {
                         background: defT.background, foreground: defT.foreground,
                         cursor: defT.cursor, selectionBackground: defT.selectionBackground,
@@ -4105,6 +4146,7 @@
                 _registerFileLinks(term, panel);
 
                 term.onData((data) => {
+                    if (panel._unlockScroll) panel._unlockScroll();
                     if (panel.ws && panel.ws.readyState === WebSocket.OPEN) {
                         // Apply extra-keys modifiers (Ctrl/Alt) to regular keyboard input
                         if ((_ekMods.ctrl || _ekMods.alt) && data.length === 1) {
@@ -4494,13 +4536,65 @@
                         }
                     }
 
-                    // Sync when xterm viewport scrolls — use capture on
-                    // the wrapper since scroll events don't bubble.
-                    // Also listen directly on the current viewport element.
+                    // --- Scroll position lock ---
+                    // When user scrolls up, lock the viewport position so
+                    // xterm.js auto-scroll (during write/render) can't move it.
+                    // We distinguish user scrolls (preceded by wheel/touch/drag)
+                    // from programmatic scrolls (xterm.js auto-scroll) and
+                    // revert the latter.
                     const initialVp = getVpForThumb();
+                    let lockedScrollTop = null;
+                    let userWheeling = false;
+                    let userTouching = false;
+                    let restoring = false;
+
+                    target.addEventListener('wheel', () => {
+                        userWheeling = true;
+                        requestAnimationFrame(() => { userWheeling = false; });
+                    }, { passive: true });
+                    target.addEventListener('touchstart', () => {
+                        userTouching = true;
+                    }, { passive: true });
+                    target.addEventListener('touchend', () => {
+                        // Clear after a short delay so the scroll event
+                        // from the touch inertia is still counted as user.
+                        setTimeout(() => { userTouching = false; }, 300);
+                    }, { passive: true });
+
                     if (initialVp) {
-                        initialVp.addEventListener('scroll', scheduleThumbSync, { passive: true });
+                        initialVp.addEventListener('scroll', () => {
+                            scheduleThumbSync();
+                            if (restoring) return;
+
+                            if (userWheeling || userTouching || dragging) {
+                                // User-initiated scroll — update lock position
+                                if (!isAtBottom(panel)) {
+                                    panel._userScrolledUp = true;
+                                    lockedScrollTop = initialVp.scrollTop;
+                                } else {
+                                    panel._userScrolledUp = false;
+                                    lockedScrollTop = null;
+                                }
+                            } else if (lockedScrollTop !== null && panel._userScrolledUp) {
+                                // Programmatic scroll (xterm.js) — revert
+                                restoring = true;
+                                initialVp.scrollTop = lockedScrollTop;
+                                restoring = false;
+                            }
+                        }, { passive: true });
                     }
+
+                    // Expose lock reset for use by onData / reconnect
+                    panel._unlockScroll = () => {
+                        panel._userScrolledUp = false;
+                        lockedScrollTop = null;
+                    };
+                    // Expose lock update for use by _fitPanelCore resize
+                    panel._updateScrollLock = () => {
+                        if (panel._userScrolledUp && initialVp) {
+                            lockedScrollTop = initialVp.scrollTop;
+                        }
+                    };
 
                     // Drag the thumb to scroll the terminal
                     let dragging = false, dragStartY = 0, dragStartST = 0;
@@ -4651,7 +4745,14 @@
                 // when the split divider is dragged or window is resized.
                 if (typeof ResizeObserver !== 'undefined') {
                     const outerObs = panel._termEl.parentElement; // .panel-terminal-outer
-                    panel._resizeObserver = new ResizeObserver(() => fitPanel(panel));
+                    panel._resizeObserver = new ResizeObserver(() => {
+                        // Skip resize while data is actively flowing and user
+                        // is reading scrollback — prevents scrollbar jitter
+                        // from triggering a reflow that jumps the viewport.
+                        const recentWrite = Date.now() - (panel._lastWriteTime || 0) < 200;
+                        if (panel._userScrolledUp && recentWrite) return;
+                        fitPanel(panel);
+                    });
                     panel._resizeObserver.observe(outerObs);
                 }
             }
@@ -5527,6 +5628,7 @@
                     panel.terminal.reset();
                 }
                 panel._bufferReplay = true;
+                if (panel._unlockScroll) panel._unlockScroll();
 
                 panel._dimensionsReady = false;
 
@@ -5571,8 +5673,9 @@
 
                 setTimeout(() => {
                     panel._bufferReplay = false;
-                    // Ensure viewport is at the latest output after replay.
-                    if (panel.terminal) panel.terminal.scrollToBottom();
+                    // Ensure viewport is at the latest output after replay,
+                    // but not if the user scrolled up to read during replay.
+                    if (panel.terminal && !panel._userScrolledUp) panel.terminal.scrollToBottom();
                     // Release col lock after replay — browser can resize freely.
                     if (replayColLock) {
                         panel._ptyCols = null;
@@ -5612,6 +5715,7 @@
                 if (_cuf) {
                     panel._cursorCol = parseInt(_cuf[1], 10);
                 }
+                panel._lastWriteTime = Date.now();
                 panel.terminal.write(merged, () => {
                     if (!panel._bufferReplay) {
                         requestAnimationFrame(() => scrollToCursor(panel));
@@ -5822,6 +5926,7 @@
                     cursorBlink: false,
                     fontSize: window.innerWidth <= 700 ? 8 : 14,
                     fontFamily: "'JetBrains Mono', 'Cascadia Mono', Menlo, 'DejaVu Sans Mono', Consolas, monospace",
+                    lineHeight: 1.2,
                     theme: {
                         background: defT.background, foreground: defT.foreground,
                         cursor: defT.cursor, selectionBackground: defT.selectionBackground,

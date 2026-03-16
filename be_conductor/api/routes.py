@@ -1585,7 +1585,7 @@ async def stream_session(ws: WebSocket, session_id: str, typed: bool = False,
         if typed:
             await _stream_typed(ws, session)
         else:
-            await _stream_raw(ws, session)
+            await _stream_raw(ws, session, source=source)
     finally:
         _notification_ws.pop(ws, None)
         if is_cli:
@@ -1594,10 +1594,12 @@ async def stream_session(ws: WebSocket, session_id: str, typed: bool = False,
             session.browser_disconnected(client_id)
 
 
-async def _stream_raw(ws: WebSocket, session: Any):
+async def _stream_raw(ws: WebSocket, session: Any, source: str | None = None):
     """Original raw binary WebSocket protocol (dashboard default)."""
-    # Send buffered output first
-    buffer = session.get_buffer()
+    # CLI clients get a clean pyte snapshot (no historical cursor movements
+    # that cause scroll-jumping in the host terminal emulator).
+    # Dashboard gets the raw buffer so scrollback history is preserved.
+    buffer = session.get_screen_snapshot(clean=(source == "cli"))
     if buffer:
         await ws.send_bytes(buffer)
 
@@ -1674,8 +1676,8 @@ async def _stream_raw(ws: WebSocket, session: Any):
 
 async def _stream_typed(ws: WebSocket, session: Any):
     """Typed JSON WebSocket protocol for agent clients."""
-    # Send buffered output as a typed stdout message
-    buffer = session.get_buffer()
+    # Send current screen state (pyte snapshot for TUI sessions).
+    buffer = session.get_screen_snapshot()
     if buffer:
         await ws.send_json({"type": "stdout", "data": buffer.decode("utf-8", errors="replace")})
 

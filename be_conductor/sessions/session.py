@@ -42,11 +42,120 @@ _DEFAULT_RESUME_RE = re.compile(r'--resume\s+(\S+)')
 
 import shutil
 
+import pyte
+
 from be_conductor.proxy.pty_wrapper import PTYProcess
 from be_conductor.utils import config as cfg
 from be_conductor.utils.config import UPLOADS_DIR
 
 logger = logging.getLogger(__name__)
+
+# pyte encodes private mode numbers by left-shifting by 5.
+_PYTE_ALT_MODE = 1049 << 5  # alternate screen buffer (DECALTBUF)
+
+# Map pyte named colors → ANSI 3-bit colour indices (0-7).
+_PYTE_COLOR_NAMES = {
+    "black": 0, "red": 1, "green": 2, "brown": 3, "yellow": 3,
+    "blue": 4, "magenta": 5, "cyan": 6, "white": 7,
+}
+
+
+def _color_sgr(color: str, is_bg: bool) -> str:
+    """Convert a pyte colour value to an SGR parameter fragment.
+
+    Returns an empty string for the default colour.
+    """
+    if color == "default" or not color:
+        return ""
+    base = 40 if is_bg else 30
+    idx = _PYTE_COLOR_NAMES.get(color)
+    if idx is not None:
+        return str(base + idx)
+    # pyte stores 256/true-colour values as 6-char hex strings ("ff0000").
+    if len(color) == 6:
+        try:
+            r, g, b = int(color[0:2], 16), int(color[2:4], 16), int(color[4:6], 16)
+            return f"{base + 8};2;{r};{g};{b}"
+        except ValueError:
+            pass
+    return ""
+
+
+def _render_pyte_screen(screen: pyte.Screen, in_alt: bool) -> bytes:
+    """Render the current pyte screen state as ANSI escape sequences.
+
+    Produces a compact byte string that, when written to a terminal,
+    reproduces the screen contents including colours and attributes.
+    """
+    buf = bytearray()
+
+    if in_alt:
+        buf.extend(b"\x1b[?1049h")   # enter alternate screen
+
+    buf.extend(b"\x1b[?25l")         # hide cursor during draw
+    buf.extend(b"\x1b[2J\x1b[H")    # clear screen + home
+
+    default = screen.default_char
+    prev = default
+
+    for y in range(screen.lines):
+        row = screen.buffer[y]
+
+        # Find rightmost non-default cell to skip trailing blanks.
+        last = -1
+        for x in range(screen.columns - 1, -1, -1):
+            if row[x] != default:
+                last = x
+                break
+        if last < 0:
+            continue  # entirely empty line
+
+        buf.extend(f"\x1b[{y + 1};1H".encode())  # move to line start
+
+        for x in range(last + 1):
+            ch = row[x]
+
+            # Emit SGR only when attributes change.
+            if (ch.fg != prev.fg or ch.bg != prev.bg or
+                    ch.bold != prev.bold or ch.italics != prev.italics or
+                    ch.underscore != prev.underscore or
+                    ch.reverse != prev.reverse or
+                    ch.strikethrough != prev.strikethrough or
+                    ch.blink != prev.blink):
+                parts = ["0"]  # reset, then re-apply
+                if ch.bold:
+                    parts.append("1")
+                if ch.italics:
+                    parts.append("3")
+                if ch.underscore:
+                    parts.append("4")
+                if ch.blink:
+                    parts.append("5")
+                if ch.reverse:
+                    parts.append("7")
+                if ch.strikethrough:
+                    parts.append("9")
+                fg = _color_sgr(ch.fg, False)
+                if fg:
+                    parts.append(fg)
+                bg = _color_sgr(ch.bg, True)
+                if bg:
+                    parts.append(bg)
+                buf.extend(f"\x1b[{';'.join(parts)}m".encode())
+                prev = ch
+
+            buf.extend(ch.data.encode("utf-8") if ch.data else b" ")
+
+        # Reset at end of each rendered line so trailing state doesn't leak.
+        buf.extend(b"\x1b[0m")
+        prev = default
+
+    # Final cursor position & visibility.
+    buf.extend(f"\x1b[{screen.cursor.y + 1};{screen.cursor.x + 1}H".encode())
+    if not screen.cursor.hidden:
+        buf.extend(b"\x1b[?25h")
+
+    return bytes(buf)
 
 _IS_WIN = sys.platform == "win32"
 
@@ -92,9 +201,16 @@ class Session:
         self._queue_overflow_warned: bool = False
         self._notifier = notifier  # SessionNotifier instance (optional)
 
+        # Virtual terminal for screen snapshots — allows new clients to
+        # receive a compact, accurate screen state instead of replaying the
+        # full raw output buffer (which can cause scroll jumping and TUI
+        # rendering issues in terminal emulators).
+        self._pyte_screen = pyte.Screen(80, 24)
+        self._pyte_stream = pyte.Stream(self._pyte_screen)
+
     async def start(self, rows: int = 24, cols: int = 80):
-        # Reserve the last row for the watermark label.
-        self.pty.spawn(rows=max(1, rows - 1), cols=cols)
+        self.pty.spawn(rows=rows, cols=cols)
+        self._pyte_screen.resize(rows, cols)
         self.pid = self.pty.pid
         self.start_time = time.time()
         self.created_at = datetime.fromtimestamp(self.start_time, tz=timezone.utc).isoformat()
@@ -148,39 +264,6 @@ class Session:
             except Exception:
                 break
 
-    # -- Watermark ---------------------------------------------------------
-
-    _WATERMARK_LABEL = "♭conductor"
-    _WATERMARK_LEN = len(_WATERMARK_LABEL)  # 10 columns (♭ is narrow)
-
-    def _watermark_clear_seq(self) -> bytes:
-        """Erase the watermark area on the current cursor row."""
-        if self.cols < self._WATERMARK_LEN:
-            return b""
-        col = self.cols - self._WATERMARK_LEN + 1
-        return (
-            f"\x1b[s"                      # SCP: save cursor position
-            f"\x1b[{col}G"                # CHA: move to column (absolute)
-            f"\x1b[0m"                     # SGR reset (erase with default bg)
-            f"\x1b[0K"                     # EL: erase from cursor to end of line
-            f"\x1b[u"                      # RCP: restore cursor position
-        ).encode("utf-8")
-
-    def _watermark_seq(self) -> bytes:
-        """Build ANSI sequence that draws the watermark on the cursor row."""
-        if self.cols < self._WATERMARK_LEN:
-            return b""
-        col = self.cols - self._WATERMARK_LEN + 1
-        return (
-            f"\x1b[s"                      # SCP: save cursor position
-            f"\x1b[{col}G"                # CHA: move to column (absolute)
-            f"\x1b[0m"                     # SGR reset (clean slate)
-            f"\x1b[2;38;5;242m"            # SGR: dim + gray
-            f"{self._WATERMARK_LABEL}"
-            f"\x1b[0m"                     # SGR reset (clean up)
-            f"\x1b[u"                      # RCP: restore cursor position
-        ).encode("utf-8")
-
     # -- Buffer & broadcast ------------------------------------------------
 
     def _append_buffer(self, data: bytes):
@@ -188,6 +271,11 @@ class Session:
         if len(self.buffer) > cfg.BUFFER_MAX_BYTES:
             excess = len(self.buffer) - cfg.BUFFER_MAX_BYTES
             del self.buffer[:excess]
+        # Feed the virtual terminal so screen snapshots stay current.
+        try:
+            self._pyte_stream.feed(data.decode("utf-8", errors="replace"))
+        except Exception:
+            pass
         # Feed the notifier so it can detect when the agent needs attention.
         if self._notifier:
             self._notifier.on_output(data, self.buffer)
@@ -228,6 +316,22 @@ class Session:
     def get_buffer(self) -> bytes:
         return bytes(self.buffer)
 
+    def get_screen_snapshot(self, clean: bool = False) -> bytes:
+        """Return a compact representation of the current terminal state.
+
+        When *clean* is True (CLI clients) or the session is in
+        alternate-screen mode, returns a pyte-rendered snapshot — a
+        compact, accurate screen state without historical cursor
+        movements that can cause scroll-jumping.
+
+        Otherwise returns the raw buffer so scrollback history is
+        preserved (dashboard).
+        """
+        in_alt = _PYTE_ALT_MODE in self._pyte_screen.mode
+        if in_alt or clean:
+            return _render_pyte_screen(self._pyte_screen, in_alt=in_alt)
+        return bytes(self.buffer)
+
     def send_input(self, text: str):
         self.pty.write(text.encode())
 
@@ -256,7 +360,11 @@ class Session:
         self.cols = cols
         if source:
             self.resize_source = source
-        self.pty.resize(max(1, rows - 1), cols)
+        self.pty.resize(rows, cols)
+        try:
+            self._pyte_screen.resize(rows, cols)
+        except Exception:
+            pass
 
     def cli_connected(self, client_id: str):
         """Track a CLI WebSocket connection."""

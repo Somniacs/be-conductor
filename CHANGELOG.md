@@ -2,6 +2,18 @@
 
 All notable changes to be-conductor are documented here.
 
+## v0.3.30
+
+### Fixed
+
+- **CLI scroll jumping** — switched from buffered `sys.stdout.buffer.write()` + `flush()` to direct `os.write()` so the kernel PTY handles batching naturally, matching how a direct child process writes to the terminal
+- **Web console scroll lock** — scrolling up in the dashboard now locks the viewport position; new output no longer yanks the view away
+- **Clean reconnect snapshot** — CLI clients receive a pyte-rendered screen snapshot instead of raw buffer replay, avoiding garbled scrollback on resume
+- **Dashboard line height** — increased xterm.js line height to prevent clipping of tall Unicode glyphs (✻ spinner)
+- **Dashboard cache** — served with `Cache-Control: no-cache` to ensure updates load immediately
+- **Session cleanup on terminal close** — graceful stop now runs reliably via `finally` block
+- **Removed dead watermark code** — cleaned up unused watermark methods and PTY row reservation
+
 ## v0.3.29
 
 ### New
