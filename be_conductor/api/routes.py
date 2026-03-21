@@ -1863,7 +1863,8 @@ async def _stream_typed(ws: WebSocket, session: Any):
                         })
                         await ws.close()
                         break
-                    # Coalesce pending chunks for atomic delivery
+                    # Coalesce: small delay to collect full redraws
+                    await asyncio.sleep(0.005)
                     chunks = [data]
                     while not queue.empty():
                         more = queue.get_nowait()

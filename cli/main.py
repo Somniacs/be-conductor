@@ -596,23 +596,59 @@ def _attach_session_unix(session_name: str, stop_on_exit: bool = False):
     stdout_fd = sys.stdout.fileno()
 
     def ws_reader(ws):
+        # Buffer for synchronized-update mode (DEC private mode 2026).
+        # Terminals that support this protocol buffer all output between
+        # \x1b[?2026h (begin) and \x1b[?2026l (end) and render atomically.
+        # When Claude's redraw spans multiple WebSocket messages, we must
+        # reassemble the full sync block before writing so the terminal
+        # can process it in one shot — otherwise intermediate states
+        # (clear screen, cursor home) flash visibly.
+        _SYNC_ON = b"\x1b[?2026h"
+        _SYNC_OFF = b"\x1b[?2026l"
+        sync_buf = bytearray()
+        in_sync = False
+
+        def _flush(data):
+            """Write data to stdout fd."""
+            mv = memoryview(data)
+            while mv:
+                n = os.write(stdout_fd, mv)
+                mv = mv[n:]
+
         try:
             for message in ws:
                 if isinstance(message, bytes) and message:
-                    # Write directly to the fd — bypasses Python buffering
-                    # so the kernel PTY layer handles batching naturally,
-                    # matching how a direct child process writes to the terminal.
-                    # Pass raw bytes through without modification — injecting
-                    # extra OSC sequences can trigger terminal scroll-on-output.
-                    mv = memoryview(message)
-                    while mv:
-                        n = os.write(stdout_fd, mv)
-                        mv = mv[n:]
-                # Text messages are JSON control events (resize, notifications)
-                # — not terminal data, so don't print them.
+                    if in_sync:
+                        sync_buf.extend(message)
+                        if _SYNC_OFF in message:
+                            # End of synchronized update — flush everything.
+                            _flush(sync_buf)
+                            sync_buf.clear()
+                            in_sync = False
+                        elif len(sync_buf) > 1_000_000:
+                            # Safety: don't buffer forever if SYNC_OFF is lost.
+                            _flush(sync_buf)
+                            sync_buf.clear()
+                            in_sync = False
+                    elif _SYNC_ON in message:
+                        if _SYNC_OFF in message:
+                            # Complete sync block in one message — pass through.
+                            _flush(message)
+                        else:
+                            # Sync started but not finished — start buffering.
+                            sync_buf.extend(message)
+                            in_sync = True
+                    else:
+                        # Normal data outside sync mode — write immediately.
+                        _flush(message)
         except Exception:
             pass
         finally:
+            if sync_buf:
+                try:
+                    _flush(sync_buf)
+                except Exception:
+                    pass
             stop.set()
             os.write(wake_w, b"\x00")
 

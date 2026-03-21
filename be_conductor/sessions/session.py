@@ -256,8 +256,22 @@ class Session:
 
     def _on_readable(self):
         try:
-            data = os.read(self.pty.master_fd, 65536)
-            if data:
+            # Drain ALL available data from the PTY in one call so that
+            # full-screen redraws (clear + home + content) are broadcast
+            # as a single chunk — matching how a direct terminal connection
+            # delivers data.  The fd is non-blocking, so os.read raises
+            # BlockingIOError when the buffer is empty.
+            chunks = []
+            try:
+                while True:
+                    chunk = os.read(self.pty.master_fd, 65536)
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+            except BlockingIOError:
+                pass
+            if chunks:
+                data = b"".join(chunks) if len(chunks) > 1 else chunks[0]
                 self._append_buffer(data)
                 self._broadcast(data)
         except OSError:
