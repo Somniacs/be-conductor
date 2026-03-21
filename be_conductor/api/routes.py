@@ -513,14 +513,21 @@ _MAX_PDF_SIZE = 50 * 1024 * 1024      # 50 MB
 _MAX_IMAGE_SIZE = 50 * 1024 * 1024    # 50 MB
 
 
-def _classify_file(entry: Path) -> str:
-    """Return 'text', 'pdf', 'image', or 'binary' for a file entry."""
+def _classify_file(entry: Path, *, deep: bool = False) -> str:
+    """Return 'text', 'pdf', 'image', or 'binary' for a file entry.
+
+    With deep=False (default), classification is extension-only — fast
+    enough for directory listings.  With deep=True, unrecognised
+    extensions trigger an 8 KB heuristic read (used when opening a file).
+    """
     if entry.suffix.lower() in _PDF_EXTENSIONS:
         return "pdf"
     if entry.suffix.lower() in _IMAGE_EXTENSIONS:
         return "image"
     if entry.suffix.lower() in _TEXT_EXTENSIONS or entry.name in _TEXT_NAMES:
         return "text"
+    if not deep:
+        return "binary"
     # Heuristic: read first 8KB, check for null bytes + UTF-8 validity
     try:
         chunk = entry.read_bytes()[:8192]
@@ -533,7 +540,7 @@ def _classify_file(entry: Path) -> str:
 
 
 @router.get("/files/browse")
-async def file_browse(path: str = "~", show_hidden: bool = False, root: str | None = None):
+def file_browse(path: str = "~", show_hidden: bool = False, root: str | None = None):
     """List directories and files in a path for the file viewer."""
     try:
         resolved = Path(path).expanduser().resolve()
@@ -560,9 +567,14 @@ async def file_browse(path: str = "~", show_hidden: bool = False, root: str | No
                 if count > _MAX_FILE_BROWSE:
                     truncated = True
                     break
-                if entry.is_dir():
+                try:
+                    is_dir = entry.is_dir()
+                    is_file = entry.is_file() if not is_dir else False
+                except OSError:
+                    continue  # skip broken symlinks / unmountable entries
+                if is_dir:
                     dirs.append({"name": entry.name, "path": str(entry), "type": "directory"})
-                elif entry.is_file():
+                elif is_file:
                     try:
                         size = entry.stat().st_size
                     except OSError:
@@ -590,7 +602,7 @@ async def file_browse(path: str = "~", show_hidden: bool = False, root: str | No
 
 
 @router.get("/files/read")
-async def file_read(path: str, request: Request, download: bool = False):
+def file_read(path: str, request: Request, download: bool = False):
     """Read file content — text as JSON, PDF as binary stream."""
     from fastapi.responses import FileResponse as _FileResponse
 
@@ -598,7 +610,7 @@ async def file_read(path: str, request: Request, download: bool = False):
     if not resolved.is_file():
         raise HTTPException(status_code=404, detail="File not found")
 
-    ftype = _classify_file(resolved)
+    ftype = _classify_file(resolved, deep=True)
 
     # Download mode — return raw file as attachment
     if download:

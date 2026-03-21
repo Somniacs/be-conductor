@@ -663,9 +663,9 @@
         .file-content .file-empty {
             padding: 40px 16px; text-align: center; color: #5a5a80; font-size: 13px;
         }
-        .file-content .file-loading {
+        .file-content .file-loading, #file-sidebar > .file-loading {
             display: flex; flex-direction: column; align-items: center; justify-content: center;
-            height: 100%; color: #7878a0; font-size: 13px; gap: 10px;
+            height: 100%; min-height: 120px; color: #7878a0; font-size: 13px; gap: 10px;
         }
         .file-spinner {
             display: inline-block; width: 24px; height: 24px;
@@ -9244,8 +9244,9 @@
         // Match absolute (/...), home-relative (~/...), relative (foo/bar.ext),
         // and directory paths ending with / (e.g. libs/solosRender/)
         const _filePathRe = /((?:\/[\w.~@+-]+)+\/?|~(?:\/[\w.~@+-]+)+\/?|(?:[\w.@+-]+\/)+[\w.@+-]*)/g;
-        // Bare filenames (no /) in structured contexts: after "- ", "* ", "│ ", or start of line
-        const _bareFileRe = /(?:^|[-*│]\s+)([\w][\w.@+-]*\.[\w]+)(?=\s|$|[│)\]])/gm;
+        // Bare filenames (no /) anywhere in text — extension check filters false positives.
+        // Preceded by whitespace, punctuation, or start of line; followed by same or end.
+        const _bareFileRe = /(?:^|(?<=[\s`'"(│\[{:,]))(\w[\w.@+-]*\.\w+)(?=[\s`'")\]},;:|]|$)/gm;
 
         function _makeFileLink(startIdx, path, bufferLineNumber, panel) {
             return {

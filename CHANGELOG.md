@@ -6,9 +6,10 @@ All notable changes to be-conductor are documented here.
 
 ### Fixed
 
-- **Scroll jumping in CLI and web console** — removed the `shouldFollow` auto-scroll that fought xterm.js's native scroll preservation, and stopped injecting extra OSC title sequences into the CLI data stream so the byte output matches a direct terminal session
-- **Click-to-focus scroll jump** — clicking into a terminal panel while reading scrollback no longer yanks the viewport to the cursor position
-- **Removed watermark overlay** — removed the `♭conductor` watermark from terminal panels
+- **Scroll jumping in CLI and web console** — removed auto-scroll that fought xterm.js's native scroll preservation, stopped injecting OSC title sequences into CLI data stream so byte output matches a direct terminal session
+- **Click-to-focus scroll jump** — clicking into a terminal panel while reading scrollback no longer yanks the viewport
+- **File browser hang on large directories** — `_classify_file` was reading 8KB of every unrecognised file during directory listing; now extension-only classification for browsing, deep heuristic only when opening a file
+- **File browser spinner position** — centered the loading spinner in the sidebar
 
 ## v0.3.30
 
