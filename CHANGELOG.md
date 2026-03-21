@@ -2,12 +2,19 @@
 
 All notable changes to be-conductor are documented here.
 
+## v0.3.31
+
+### Fixed
+
+- **Scroll jumping in CLI and web console** — removed the `shouldFollow` auto-scroll that fought xterm.js's native scroll preservation, and stopped injecting extra OSC title sequences into the CLI data stream so the byte output matches a direct terminal session
+- **Click-to-focus scroll jump** — clicking into a terminal panel while reading scrollback no longer yanks the viewport to the cursor position
+- **Removed watermark overlay** — removed the `♭conductor` watermark from terminal panels
+
 ## v0.3.30
 
 ### Fixed
 
-- **CLI scroll jumping** — switched from buffered `sys.stdout.buffer.write()` + `flush()` to direct `os.write()` so the kernel PTY handles batching naturally, matching how a direct child process writes to the terminal
-- **Web console scroll lock** — scrolling up in the dashboard now locks the viewport position; new output no longer yanks the view away
+- **CLI direct writes** — switched to `os.write()` for natural kernel PTY batching
 - **Clean reconnect snapshot** — CLI clients receive a pyte-rendered screen snapshot instead of raw buffer replay, avoiding garbled scrollback on resume
 - **Dashboard line height** — increased xterm.js line height to prevent clipping of tall Unicode glyphs (✻ spinner)
 - **Dashboard cache** — served with `Cache-Control: no-cache` to ensure updates load immediately

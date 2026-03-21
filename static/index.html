@@ -1594,18 +1594,6 @@
             /* background: red; DEBUG — uncomment to visualize terminal bounds */
         }
 
-        .terminal-watermark {
-            position: absolute;
-            bottom: 2px;
-            right: 12px;
-            color: #666;
-            font-size: 12px;
-            opacity: 0.4;
-            pointer-events: none;
-            user-select: none;
-            z-index: 4;
-            font-family: 'JetBrains Mono', monospace;
-        }
 
         .panel-terminal {
             /* calc leaves room for the absolutely-positioned scroll proxy */
@@ -3268,15 +3256,26 @@
                     // Save scroll state — resize reflows the buffer and can
                     // reset viewport scroll, causing visible jumping.
                     const vp = target.querySelector('.xterm-viewport');
-                    const wasScrolledUp = p._userScrolledUp;
+                    const buf = p.terminal.buffer.active;
+                    const wasScrolledUp = buf.viewportY < buf.baseY;
                     const savedST = vp ? vp.scrollTop : 0;
+
+                    // Block _userScrolledUp updates during resize — the
+                    // reflow fires intermediate scroll events at wrong
+                    // positions that would corrupt the flag.
+                    p._progScrolling = true;
 
                     p.terminal.resize(p._ptyCols, visibleRows);
 
-                    // Restore scroll position if user had scrolled up
-                    if (wasScrolledUp && vp) {
-                        const max = vp.scrollHeight - vp.clientHeight;
-                        vp.scrollTop = Math.min(savedST, max);
+                    // Restore scroll position after resize reflow
+                    if (vp) {
+                        if (wasScrolledUp) {
+                            const max = vp.scrollHeight - vp.clientHeight;
+                            vp.scrollTop = Math.min(savedST, max);
+                        } else {
+                            // Was at bottom — stay at bottom
+                            vp.scrollTop = vp.scrollHeight - vp.clientHeight;
+                        }
                         if (p._updateScrollLock) p._updateScrollLock();
                     }
 
@@ -3287,11 +3286,19 @@
                     requestAnimationFrame(() => {
                         p.terminal.refresh(0, vr - 1);
                         // Re-restore after refresh (can reset scroll again)
-                        if (wasScrolledUp && vp) {
-                            const max = vp.scrollHeight - vp.clientHeight;
-                            vp.scrollTop = Math.min(savedST, max);
+                        if (vp) {
+                            if (wasScrolledUp) {
+                                const max = vp.scrollHeight - vp.clientHeight;
+                                vp.scrollTop = Math.min(savedST, max);
+                            } else {
+                                vp.scrollTop = vp.scrollHeight - vp.clientHeight;
+                            }
                             if (p._updateScrollLock) p._updateScrollLock();
                         }
+                        // Defer flag clear — scroll events from the scrollTop
+                        // assignments above are dispatched asynchronously; clear
+                        // in the next frame so they still see _progScrolling=true.
+                        requestAnimationFrame(() => { p._progScrolling = false; });
                     });
                 }
             } else {
@@ -3342,16 +3349,23 @@
                 // 5. Resize terminal — single call, no oscillation
                 if (p.terminal.cols !== visibleCols || p.terminal.rows !== visibleRows) {
                     const vp = target.querySelector('.xterm-viewport');
-                    const wasScrolledUp = p._userScrolledUp;
+                    const buf = p.terminal.buffer.active;
+                    const wasScrolledUp = buf.viewportY < buf.baseY;
                     const savedST = vp ? vp.scrollTop : 0;
 
+                    p._progScrolling = true;
                     p.terminal.resize(visibleCols, visibleRows);
 
-                    if (wasScrolledUp && vp) {
-                        const max = vp.scrollHeight - vp.clientHeight;
-                        vp.scrollTop = Math.min(savedST, max);
+                    if (vp) {
+                        if (wasScrolledUp) {
+                            const max = vp.scrollHeight - vp.clientHeight;
+                            vp.scrollTop = Math.min(savedST, max);
+                        } else {
+                            vp.scrollTop = vp.scrollHeight - vp.clientHeight;
+                        }
                         if (p._updateScrollLock) p._updateScrollLock();
                     }
+                    requestAnimationFrame(() => { p._progScrolling = false; });
                 }
 
                 syncResizeToPTY(p);
@@ -3707,7 +3721,10 @@
                     requestAnimationFrame(() => {
                         requestAnimationFrame(() => {
                             _fitPanelCore(p);
-                            if (p.terminal) p.terminal.scrollToBottom();
+                            if (p.terminal) {
+                                p._userScrolledUp = false;
+                                p.terminal.scrollToBottom();
+                            }
                         });
                     });
                 }
@@ -4019,10 +4036,6 @@
             termEl.appendChild(termWrapper);
             termOuter.appendChild(termEl);
 
-            const watermark = document.createElement('div');
-            watermark.className = 'terminal-watermark';
-            watermark.textContent = '\u266dconductor';
-            termOuter.appendChild(watermark);
 
             // Vertical scroll proxy — absolutely positioned at the right edge of
             // the outer wrapper, outside the horizontal scroll container.
@@ -4213,11 +4226,19 @@
                 }
             });
 
-            // Clicking anywhere on the panel sets focus; on desktop also activate terminal
+            // Clicking anywhere on the panel sets focus; on desktop also activate terminal.
+            // Save/restore scroll around focus() — it can cause xterm.js to
+            // scroll the viewport to the cursor, yanking away from scrollback.
             div.addEventListener('mousedown', (e) => {
                 if (!e.target.closest('.panel-header-actions')) {
                     setFocus(panel.id);
-                    if (panel.terminal && !('ontouchstart' in window)) panel.terminal.focus();
+                    if (panel.terminal && !('ontouchstart' in window)) {
+                        const buf = panel.terminal.buffer.active;
+                        const savedLine = buf.viewportY;
+                        const wasUp = buf.viewportY < buf.baseY;
+                        panel.terminal.focus();
+                        if (wasUp) panel.terminal.scrollToLine(savedLine);
+                    }
                 }
             });
             div.addEventListener('touchstart', (e) => {
@@ -4458,8 +4479,15 @@
                         } catch (e) { /* ignore */ }
                         if (!tappedLink) {
                             panel.terminal.focus();
+                            // Scroll to bottom on tap (opens keyboard at prompt).
+                            // Mark as programmatic so _userScrolledUp stays false.
                             const vp = target.querySelector('.xterm-viewport');
-                            if (vp) vp.scrollTop = vp.scrollHeight;
+                            if (vp) {
+                                panel._progScrolling = true;
+                                panel._userScrolledUp = false;
+                                vp.scrollTop = vp.scrollHeight;
+                                requestAnimationFrame(() => { panel._progScrolling = false; });
+                            }
                         }
                     }
                     tapMoved = false;
@@ -4536,65 +4564,24 @@
                         }
                     }
 
-                    // --- Scroll position lock ---
-                    // When user scrolls up, lock the viewport position so
-                    // xterm.js auto-scroll (during write/render) can't move it.
-                    // We distinguish user scrolls (preceded by wheel/touch/drag)
-                    // from programmatic scrolls (xterm.js auto-scroll) and
-                    // revert the latter.
+                    // --- Scroll position preservation ---
+                    // Track whether the user intentionally scrolled away
+                    // Sync custom scroll thumb on viewport scroll.
+                    // Do NOT track _userScrolledUp here — xterm.js handles
+                    // scroll preservation internally and setting the flag
+                    // from scroll events creates a feedback loop with the
+                    // shouldFollow auto-scroll.
                     const initialVp = getVpForThumb();
-                    let lockedScrollTop = null;
-                    let userWheeling = false;
-                    let userTouching = false;
-                    let restoring = false;
-
-                    target.addEventListener('wheel', () => {
-                        userWheeling = true;
-                        requestAnimationFrame(() => { userWheeling = false; });
-                    }, { passive: true });
-                    target.addEventListener('touchstart', () => {
-                        userTouching = true;
-                    }, { passive: true });
-                    target.addEventListener('touchend', () => {
-                        // Clear after a short delay so the scroll event
-                        // from the touch inertia is still counted as user.
-                        setTimeout(() => { userTouching = false; }, 300);
-                    }, { passive: true });
-
                     if (initialVp) {
                         initialVp.addEventListener('scroll', () => {
                             scheduleThumbSync();
-                            if (restoring) return;
-
-                            if (userWheeling || userTouching || dragging) {
-                                // User-initiated scroll — update lock position
-                                if (!isAtBottom(panel)) {
-                                    panel._userScrolledUp = true;
-                                    lockedScrollTop = initialVp.scrollTop;
-                                } else {
-                                    panel._userScrolledUp = false;
-                                    lockedScrollTop = null;
-                                }
-                            } else if (lockedScrollTop !== null && panel._userScrolledUp) {
-                                // Programmatic scroll (xterm.js) — revert
-                                restoring = true;
-                                initialVp.scrollTop = lockedScrollTop;
-                                restoring = false;
-                            }
                         }, { passive: true });
                     }
 
-                    // Expose lock reset for use by onData / reconnect
                     panel._unlockScroll = () => {
                         panel._userScrolledUp = false;
-                        lockedScrollTop = null;
                     };
-                    // Expose lock update for use by _fitPanelCore resize
-                    panel._updateScrollLock = () => {
-                        if (panel._userScrolledUp && initialVp) {
-                            lockedScrollTop = initialVp.scrollTop;
-                        }
-                    };
+                    panel._updateScrollLock = () => {};
 
                     // Drag the thumb to scroll the terminal
                     let dragging = false, dragStartY = 0, dragStartST = 0;
@@ -5184,7 +5171,10 @@
                         requestAnimationFrame(() => {
                             requestAnimationFrame(() => {
                                 _fitPanelCore(fp);
-                                if (fp.terminal) fp.terminal.scrollToBottom();
+                                if (fp.terminal) {
+                                    fp._userScrolledUp = false;
+                                    fp.terminal.scrollToBottom();
+                                }
                             });
                         });
                     }
@@ -5716,6 +5706,11 @@
                     panel._cursorCol = parseInt(_cuf[1], 10);
                 }
                 panel._lastWriteTime = Date.now();
+                // Let xterm.js handle scroll position natively — it preserves
+                // viewport position when the user has scrolled up and
+                // auto-scrolls when at the bottom.  No explicit shouldFollow
+                // or scrollToLine needed; those create feedback loops that
+                // fight xterm's internal scroll tracking.
                 panel.terminal.write(merged, () => {
                     if (!panel._bufferReplay) {
                         requestAnimationFrame(() => scrollToCursor(panel));
@@ -5871,10 +5866,6 @@
             termEl.appendChild(termWrapper);
             termOuter.appendChild(termEl);
 
-            const obsWatermark = document.createElement('div');
-            obsWatermark.className = 'terminal-watermark';
-            obsWatermark.textContent = '\u266dconductor';
-            termOuter.appendChild(obsWatermark);
 
             // Scroll proxies (same as normal panels)
             const scrollProxy = document.createElement('div');
@@ -5995,6 +5986,7 @@
                 let off = 0;
                 for (const c of writeBuf) { merged.set(c, off); off += c.length; }
                 writeBuf = [];
+                panel._lastWriteTime = Date.now();
                 panel.terminal.write(merged, () => {
                     requestAnimationFrame(() => scrollToCursor(panel));
                 });

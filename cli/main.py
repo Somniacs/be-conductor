@@ -602,8 +602,9 @@ def _attach_session_unix(session_name: str, stop_on_exit: bool = False):
                     # Write directly to the fd — bypasses Python buffering
                     # so the kernel PTY layer handles batching naturally,
                     # matching how a direct child process writes to the terminal.
-                    data = _rewrite_osc_title(message, session_name)
-                    mv = memoryview(data)
+                    # Pass raw bytes through without modification — injecting
+                    # extra OSC sequences can trigger terminal scroll-on-output.
+                    mv = memoryview(message)
                     while mv:
                         n = os.write(stdout_fd, mv)
                         mv = mv[n:]
