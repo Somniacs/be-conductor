@@ -2,6 +2,13 @@
 
 All notable changes to be-conductor are documented here.
 
+## v0.3.33
+
+### Fixed
+
+- **CLI scroll jumping during redraws** — the CLI now buffers synchronized terminal updates (DEC mode 2026) and writes them atomically. Screen redraws that span multiple WebSocket messages no longer cause the viewport to flash to the top
+- **PTY read fragmentation** — the server now drains the full PTY buffer in each read cycle, reducing unnecessary message splitting over WebSocket
+
 ## v0.3.32
 
 ### New
