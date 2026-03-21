@@ -44,6 +44,7 @@ class SessionRegistry:
     def __init__(self):
         self.sessions: Dict[str, Session] = {}
         self.resumable: Dict[str, dict] = {}
+        self._shutting_down = False
         self._worktree_manager = None  # Lazy-initialized
         self.notification_manager = NotificationManager()
         ensure_dirs()
@@ -87,10 +88,10 @@ class SessionRegistry:
         return {}
 
     def _load_resumable(self):
-        """Load persisted resumable-session metadata from disk on startup.
+        """Load persisted session metadata from disk on startup.
 
-        Sessions with status ``exited`` and a resume token or worktree are
-        loaded normally.  Sessions still marked ``running`` or ``stopping``
+        Every session file is loaded so nothing is silently lost across
+        restarts.  Sessions still marked ``running`` or ``stopping``
         represent a previous unclean shutdown — the process is long gone.
         If the command contains a ``--resume <id>`` flag from a previous
         resume, we recover the token so the session can be resumed again.
@@ -109,17 +110,9 @@ class SessionRegistry:
                     if m:
                         meta["resume_id"] = m.group(1)
                     meta["status"] = "exited"
-                    if meta.get("resume_id") or meta.get("worktree"):
-                        self.resumable[meta["id"]] = meta
-                        path.write_text(json.dumps(meta))
-                    else:
-                        path.unlink(missing_ok=True)
-                elif status == "exited" and (
-                    meta.get("resume_id") or meta.get("worktree")
-                ):
-                    self.resumable[meta["id"]] = meta
-                elif status == "exited":
-                    path.unlink(missing_ok=True)
+                    path.write_text(json.dumps(meta))
+
+                self.resumable[meta["id"]] = meta
             except Exception:
                 pass
 
@@ -138,9 +131,10 @@ class SessionRegistry:
         # No auto-commit here; the worktree is just a working directory.
 
         # Keep session as resumable when it has a resume token, a worktree,
-        # or was explicitly stopped via graceful stop ("Stop & keep for later").
+        # was explicitly stopped via graceful stop, or the server is
+        # shutting down (so no session is silently lost on restart).
         was_graceful = session.status == "stopping"
-        if session.resume_id or session.worktree or was_graceful:
+        if session.resume_id or session.worktree or was_graceful or self._shutting_down:
             meta = session.to_dict()
             meta["status"] = "exited"
             self.resumable[session_id] = meta
@@ -253,9 +247,6 @@ class SessionRegistry:
         has_resume_id = bool(meta.get("resume_id"))
         has_worktree = bool(meta.get("worktree"))
 
-        if not has_resume_id and not has_worktree:
-            raise ValueError(f"No resumable session '{session_id}'")
-
         if has_resume_id:
             # Command-based resume (e.g. "codex resume --last") — use as-is.
             if meta.get("resume_command"):
@@ -271,7 +262,7 @@ class SessionRegistry:
                 ).rstrip()
                 command += f" {flag} {meta['resume_id']}"
         else:
-            # Worktree without resume token — restart original command in the worktree
+            # No resume token — restart original command in same CWD.
             command = meta["command"]
 
         cwd = meta.get("cwd")
@@ -335,7 +326,7 @@ class SessionRegistry:
             await session.cleanup()
             # Try to extract resume info even after hard kill
             session._extract_resume_id()
-            if session.resume_id or session.worktree:
+            if session.resume_id or session.worktree or self._shutting_down:
                 meta = session.to_dict()
                 meta["status"] = "exited"
                 self.resumable[session_id] = meta
@@ -398,6 +389,8 @@ class SessionRegistry:
     async def cleanup_all(self):
         """Gracefully stop all sessions, preserving resume tokens.
 
+        Pre-save: Persist metadata for every running session immediately,
+        so even a hard kill mid-shutdown won't lose session records.
         Phase 0: Send ESC to every running session to break agents out of
         menus, selection prompts, or mid-thought states.
         Phase 1: Interrupt every running session (sends SIGINT / stop
@@ -409,6 +402,16 @@ class SessionRegistry:
         ids = list(self.sessions.keys())
         if not ids:
             return
+
+        self._shutting_down = True
+
+        # Pre-save — persist every running session before anything
+        # destructive happens.  If shutdown is interrupted, these files
+        # survive and _load_resumable() will pick them up on restart.
+        for sid in ids:
+            session = self.sessions.get(sid)
+            if session:
+                self._save_metadata(session)
 
         # Phase 0 — send ESC to break out of menus / thinking states
         for sid in ids:

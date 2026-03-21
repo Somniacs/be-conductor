@@ -674,6 +674,11 @@
             margin-bottom: 8px;
         }
         @keyframes file-spin { to { transform: rotate(360deg); } }
+        .file-find-cancel {
+            margin-top: 8px; background: none; border: 1px solid #3a3a6a; color: #a0a0d0;
+            padding: 6px 18px; border-radius: 4px; cursor: pointer; font-size: 12px;
+        }
+        .file-find-cancel:hover { background: #1a1a3a; color: #d0d0e8; }
         .file-content .file-rendered {
             padding: 24px 32px; color: #c0c0e0; font-size: 14px; line-height: 1.7;
             max-width: 860px; overflow-wrap: break-word;
@@ -762,6 +767,12 @@
             .file-main.mobile-viewing .file-sidebar-handle { display: flex; }
             .file-main:not(.mobile-viewing) .file-content { display: none; }
             .file-main:not(.mobile-viewing) .file-sidebar-handle { display: none; }
+            /* Larger touch targets for file sidebar items on mobile */
+            .file-sidebar-item {
+                padding: 12px 12px; min-height: 44px;
+                -webkit-tap-highlight-color: rgba(88,136,204,0.2);
+                touch-action: manipulation;
+            }
         }
 
         /* Notes drawer */
@@ -3629,7 +3640,7 @@
             const isOpen = panels.some(p => p.id === cid);
             const isFocused = focusedPanelId === cid;
             const appLabel = getCommandLabel(s.command);
-            const isResumable = s.status === 'exited' && (s.resume_id || s.worktree);
+            const isResumable = s.status === 'exited';
             const isStopping = s.status === 'stopping';
             const isResuming = _resumingSession === cid;
             // Escape single quotes in compound ID for onclick
@@ -3735,11 +3746,37 @@
             }
         }
 
+        // Save scroll position for every panel — call BEFORE any CSS
+        // change that hides/shows panels (maximize, restore, close).
+        function _saveAllScrollState() {
+            panels.forEach(p => {
+                if (!p.terminal) return;
+                const buf = p.terminal.buffer.active;
+                p._savedViewportY = buf.viewportY;
+                p._savedBaseY = buf.baseY;
+            });
+        }
+
+        // Restore scroll position for panels that were hidden and are
+        // now visible.  Only restores if the user was scrolled up
+        // (not at bottom); otherwise xterm.js stays at bottom naturally.
+        function _restoreAllScrollState() {
+            panels.forEach(p => {
+                if (!p.terminal || p._savedViewportY == null) return;
+                if (p._savedViewportY < p._savedBaseY) {
+                    p.terminal.scrollToLine(p._savedViewportY);
+                }
+                p._savedViewportY = null;
+                p._savedBaseY = null;
+            });
+        }
+
         // Double-click title bar to maximize/restore a panel
         let _maximizedPanelId = null;
         function toggleMaximize(id) {
             const panelsEl = document.getElementById('panels');
             if (!panelsEl) return;
+            _saveAllScrollState();
             if (_maximizedPanelId === id) {
                 // Restore
                 _maximizedPanelId = null;
@@ -3747,8 +3784,12 @@
                 panels.forEach(p => {
                     if (p.element) p.element.classList.remove('panel-maximized-target');
                 });
-                // Refit all visible panels
-                requestAnimationFrame(() => panels.forEach(p => fitPanel(p)));
+                // Refit all visible panels, then restore scroll after
+                // the debounced fit (100ms) has completed.
+                requestAnimationFrame(() => {
+                    panels.forEach(p => fitPanel(p));
+                    setTimeout(() => _restoreAllScrollState(), 150);
+                });
             } else {
                 // Maximize
                 _maximizedPanelId = id;
@@ -3765,13 +3806,17 @@
             closeDrawer();
             // Restore split layout if a panel is maximized
             if (_maximizedPanelId) {
+                _saveAllScrollState();
                 const panelsEl = document.getElementById('panels');
                 if (panelsEl) panelsEl.classList.remove('panel-maximized');
                 panels.forEach(p => {
                     if (p.element) p.element.classList.remove('panel-maximized-target');
                 });
                 _maximizedPanelId = null;
-                requestAnimationFrame(() => panels.forEach(p => fitPanel(p)));
+                requestAnimationFrame(() => {
+                    panels.forEach(p => fitPanel(p));
+                    setTimeout(() => _restoreAllScrollState(), 150);
+                });
             }
             const existing = panels.find(p => p.id === id);
             if (existing) {
@@ -5326,6 +5371,8 @@
         function closePanel(id) {
             const idx = panels.findIndex(p => p.id === id);
             if (idx < 0) return;
+            // Save scroll state for remaining panels before layout change
+            _saveAllScrollState();
             const panel = panels[idx];
             if (panel._resizeObserver) { panel._resizeObserver.disconnect(); panel._resizeObserver = null; }
             if (panel._scrollSyncInterval) { clearInterval(panel._scrollSyncInterval); panel._scrollSyncInterval = null; }
@@ -5345,6 +5392,8 @@
                 focusedPanelId = firstLeafId(layoutRoot);
             }
             layoutPanels();
+            // Restore scroll after layout and debounced fit settle
+            setTimeout(() => _restoreAllScrollState(), 200);
             if (panels.length === 0 && !_suppressDrawerOpen) openDrawer();
         }
         let _suppressDrawerOpen = false;
@@ -5979,6 +6028,12 @@
             let writeRaf = null;
             function flushWrites() {
                 writeRaf = null;
+                // Wait for PTY dimensions before writing — otherwise content
+                // renders at wrong size and gets corrupted on reflow.
+                if (!panel._dimensionsReady) {
+                    if (writeBuf.length) writeRaf = requestAnimationFrame(flushWrites);
+                    return;
+                }
                 if (!writeBuf.length || !panel.terminal) return;
                 let total = 0;
                 for (const c of writeBuf) total += c.length;
@@ -8880,7 +8935,11 @@
             const { server, sessionId } = parseCompoundId(cid);
             const session = sessions.find(s => s._compoundId === cid);
             const label = session ? session.name : 'this session';
-            if (!await showConfirm(`Dismiss "${label}"? The resume token will be lost.`, 'Dismiss')) return;
+            const hasResume = session && (session.resume_id || session.worktree);
+            const msg = hasResume
+                ? `Dismiss "${label}"? The resume token will be lost.`
+                : `Dismiss "${label}"?`;
+            if (!await showConfirm(msg, 'Dismiss')) return;
             try {
                 await fetch(serverUrl(server, `/sessions/${sessionId}`), { method: 'DELETE' });
                 await fetchAllSessions();
@@ -9240,13 +9299,16 @@
         // -------------------------------------------------------------------
         // File path link detection regex — matches absolute paths and ~/paths
         // that end with common text/PDF extensions
-        const _filePathExtRe = /\.(txt|md|markdown|rst|py|pyw|pyi|js|mjs|cjs|jsx|ts|tsx|html|htm|css|scss|json|jsonl|yaml|yml|toml|ini|cfg|conf|xml|sh|bash|zsh|c|h|cpp|hpp|cc|cs|java|kt|go|rs|rb|php|lua|r|R|swift|scala|ex|exs|sql|log|csv|tsv|env|patch|diff|pdf|graphql|proto|tf|cmake|mk|lock|mod|sum)$/;
+        const _filePathExtRe = /\.(txt|md|markdown|rst|org|adoc|tex|py|pyw|pyi|pyx|js|mjs|cjs|jsx|ts|tsx|mts|cts|vue|svelte|html|htm|css|scss|sass|less|styl|json|jsonl|json5|jsonc|yaml|yml|toml|ini|cfg|conf|properties|xml|xsl|xsd|svg|drawio|mermaid|mmd|sh|bash|zsh|fish|ksh|bat|cmd|ps1|c|h|cpp|hpp|cc|cxx|hxx|hh|inl|cu|cuh|cs|csx|fs|fsx|java|kt|kts|groovy|gradle|go|rs|rb|erb|rake|gemspec|php|pl|pm|lua|r|R|rmd|jl|swift|m|mm|scala|sbt|clj|cljs|cljc|ex|exs|elm|hs|lhs|ml|mli|erl|hrl|nim|zig|v|d|ada|adb|ads|asm|s|S|nasm|dart|sql|graphql|gql|proto|log|csv|tsv|env|patch|diff|pdf|png|jpe?g|gif|webp|bmp|ico|tiff?|tf|tfvars|hcl|nix|cmake|mk|meson|bzl|bazel|lock|mod|sum|glsl|hlsl|wgsl|metal|sol|typ|sml|rkt|scm|lisp|el|tcl|awk|sed|dockerfile)$/;
         // Match absolute (/...), home-relative (~/...), relative (foo/bar.ext),
         // and directory paths ending with / (e.g. libs/solosRender/)
         const _filePathRe = /((?:\/[\w.~@+-]+)+\/?|~(?:\/[\w.~@+-]+)+\/?|(?:[\w.@+-]+\/)+[\w.@+-]*)/g;
         // Bare filenames (no /) anywhere in text — extension check filters false positives.
         // Preceded by whitespace, punctuation, or start of line; followed by same or end.
         const _bareFileRe = /(?:^|(?<=[\s`'"(│\[{:,]))(\w[\w.@+-]*\.\w+)(?=[\s`'")\]},;:|]|$)/gm;
+
+        // Active file-find abort controller — allows cancelling a search.
+        let _fileFindAbort = null;
 
         function _makeFileLink(startIdx, path, bufferLineNumber, panel) {
             return {
@@ -9257,24 +9319,113 @@
                 text: path,
                 activate(_event, linkText) {
                     const server = panel.server || 'local';
-                    let resolved = linkText;
-                    if (!linkText.startsWith('/') && !linkText.startsWith('~') && panel.cwd) {
-                        resolved = panel.cwd.replace(/\/$/, '') + '/' + linkText;
-                    }
-                    const rootPath = panel.cwd || null;
-                    if (linkText.endsWith('/')) {
-                        openFileViewer(resolved, server, rootPath);
-                        return;
-                    }
-                    const ext = linkText.match(/\.([^.]+)$/);
-                    const extLower = ext ? ext[1].toLowerCase() : '';
-                    const type = extLower === 'pdf' ? 'pdf'
-                        : /^(png|jpe?g|gif|webp|bmp|ico|tiff?)$/.test(extLower) ? 'image'
-                        : 'text';
-                    openFileViewerAtFile(resolved, type, server, rootPath);
+                    const isRelative = !linkText.startsWith('/') && !linkText.startsWith('~');
+
+                    // For relative paths, fetch the live CWD from the server
+                    // so we resolve against the process's actual directory, not
+                    // the stale cwd from session creation.
+                    const cwdPromise = isRelative && panel.sessionId
+                        ? fetch(serverUrl(server, `/sessions/${panel.sessionId}`))
+                            .then(r => r.ok ? r.json() : null)
+                            .then(d => d && d.cwd ? d.cwd : panel.cwd)
+                            .catch(() => panel.cwd)
+                        : Promise.resolve(panel.cwd);
+
+                    cwdPromise.then(async cwd => {
+                        let resolved = linkText;
+                        if (isRelative && cwd) {
+                            resolved = cwd.replace(/\/$/, '') + '/' + linkText;
+                        }
+                        const rootPath = cwd || null;
+                        if (linkText.endsWith('/')) {
+                            openFileViewer(resolved, server, rootPath);
+                            if (cwd) panel.cwd = cwd;
+                            return;
+                        }
+                        const ext = linkText.match(/\.([^.]+)$/);
+                        const extLower = ext ? ext[1].toLowerCase() : '';
+                        const guessType = extLower === 'pdf' ? 'pdf'
+                            : /^(png|jpe?g|gif|webp|bmp|ico|tiff?)$/.test(extLower) ? 'image'
+                            : 'text';
+
+                        // Quick existence check before opening — avoids
+                        // the slower subdirectory search when the path is valid.
+                        const existsUrl = serverUrl(server,
+                            `/files/exists?path=${encodeURIComponent(resolved)}`);
+                        try {
+                            const check = await fetch(existsUrl);
+                            if (check.ok) {
+                                const info = await check.json();
+                                if (info.exists) {
+                                    openFileViewerAtFile(resolved, guessType, server, rootPath);
+                                    if (cwd) panel.cwd = cwd;
+                                    return;
+                                }
+                            }
+                        } catch (_) { /* network error — fall through to search */ }
+
+                        // File not at expected path — search subdirectories.
+                        _fileFindOpen(linkText, cwd || '~', server, rootPath, guessType);
+                        if (cwd) panel.cwd = cwd;
+                    });
                 },
             };
         }
+
+        function _fileFindOpen(name, root, server, rootPath, guessType) {
+            // Cancel any previous search.
+            if (_fileFindAbort) _fileFindAbort.abort();
+
+            const ac = new AbortController();
+            _fileFindAbort = ac;
+
+            // Show the file overlay with a searching spinner and cancel button.
+            if (document.activeElement) document.activeElement.blur();
+            document.getElementById('file-overlay').classList.add('open');
+            const content = document.getElementById('file-content');
+            content.innerHTML =
+                '<div class="file-loading">' +
+                    '<div class="file-spinner"></div>' +
+                    '<div>Searching for <b>' + escHtml(name) + '</b>…</div>' +
+                    '<button class="file-find-cancel" onclick="_fileFindCancel()">Cancel</button>' +
+                '</div>';
+
+            // ESC to cancel
+            const escHandler = (e) => { if (e.key === 'Escape') _fileFindCancel(); };
+            document.addEventListener('keydown', escHandler, { once: true });
+
+            const url = serverUrl(server,
+                `/files/find?name=${encodeURIComponent(name)}&root=${encodeURIComponent(root)}`);
+            fetch(url, { signal: ac.signal })
+                .then(r => {
+                    if (!r.ok) throw new Error('not found');
+                    return r.json();
+                })
+                .then(data => {
+                    document.removeEventListener('keydown', escHandler);
+                    _fileFindAbort = null;
+                    // Close the search overlay and open the found file.
+                    document.getElementById('file-overlay').classList.remove('open');
+                    openFileViewerAtFile(data.path, data.type || guessType, server, rootPath);
+                })
+                .catch(err => {
+                    document.removeEventListener('keydown', escHandler);
+                    _fileFindAbort = null;
+                    if (err.name === 'AbortError') return;
+                    content.innerHTML =
+                        '<div style="padding:16px;color:#ff9944;">File <b>' + escHtml(name) + '</b> not found under ' + escHtml(root) + '</div>';
+                });
+        }
+
+        function _fileFindCancel() {
+            if (_fileFindAbort) {
+                _fileFindAbort.abort();
+                _fileFindAbort = null;
+            }
+            document.getElementById('file-overlay').classList.remove('open');
+        }
+        // Expose for onclick in dynamically-created HTML.
+        window._fileFindCancel = _fileFindCancel;
 
         function _registerFileLinks(term, panel) {
             term.registerLinkProvider({
@@ -9327,6 +9478,8 @@
             const cb = document.getElementById('file-show-hidden');
             if (cb) cb.checked = false;
             _fileUpdateToolbar(null);
+            // Dismiss mobile keyboard by blurring the terminal textarea.
+            if (document.activeElement) document.activeElement.blur();
             document.querySelector('.file-main')?.classList.remove('mobile-viewing');
             document.getElementById('file-overlay').classList.add('open');
             document.getElementById('file-content').innerHTML = '<div class="file-empty">Select a file to view its contents</div>';
@@ -9343,6 +9496,8 @@
             _fileRawContent = null;
             const cb = document.getElementById('file-show-hidden');
             if (cb) cb.checked = false;
+            // Dismiss mobile keyboard by blurring the terminal textarea.
+            if (document.activeElement) document.activeElement.blur();
             document.querySelector('.file-main')?.classList.add('mobile-viewing');
             document.getElementById('file-overlay').classList.add('open');
             _fileActivePath = filePath;

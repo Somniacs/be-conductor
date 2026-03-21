@@ -150,6 +150,27 @@ def _render_pyte_screen(screen: pyte.Screen, in_alt: bool) -> bytes:
         buf.extend(b"\x1b[0m")
         prev = default
 
+    # Restore scroll region if the application set one.
+    if screen.margins is not None:
+        buf.extend(f"\x1b[{screen.margins.top + 1};{screen.margins.bottom + 1}r".encode())
+
+    # Restore non-default terminal modes (DECTCEM / cursor visibility
+    # is handled separately below).
+    _default_modes = {pyte.modes.DECAWM, pyte.modes.DECTCEM}
+    _mode_seqs = {
+        pyte.modes.IRM: b"\x1b[4h",         # insert mode
+        pyte.modes.LNM: b"\x1b[20h",        # line-feed / new-line mode
+        pyte.modes.DECSCNM: b"\x1b[?5h",    # reverse video
+        pyte.modes.DECOM: b"\x1b[?6h",      # origin mode
+    }
+    # Enable modes that are active but not default.
+    for mode, seq in _mode_seqs.items():
+        if mode in screen.mode:
+            buf.extend(seq)
+    # Disable auto-wrap if it was turned off (it's on by default).
+    if pyte.modes.DECAWM not in screen.mode:
+        buf.extend(b"\x1b[?7l")
+
     # Final cursor position & visibility.
     buf.extend(f"\x1b[{screen.cursor.y + 1};{screen.cursor.x + 1}H".encode())
     if not screen.cursor.hidden:
@@ -246,6 +267,10 @@ class Session:
                 asyncio.get_event_loop().remove_reader(self.pty.master_fd)
             except Exception:
                 pass
+        except Exception:
+            # Never let an unexpected error in _append_buffer / _broadcast
+            # propagate into the event loop — that would crash the server.
+            logger.exception("Unexpected error in _on_readable")
 
     # -- Windows reader (thread-based) -------------------------------------
 
@@ -261,6 +286,9 @@ class Session:
                     time.sleep(0.01)
             except OSError:
                 break
+            except RuntimeError:
+                # Event loop closed during shutdown — stop cleanly.
+                break
             except Exception:
                 break
 
@@ -270,6 +298,10 @@ class Session:
         self.buffer.extend(data)
         if len(self.buffer) > cfg.BUFFER_MAX_BYTES:
             excess = len(self.buffer) - cfg.BUFFER_MAX_BYTES
+            # Advance past any UTF-8 continuation bytes (10xxxxxx) at the
+            # cut point so we don't orphan the tail of a multi-byte char.
+            while excess < len(self.buffer) and (self.buffer[excess] & 0xC0) == 0x80:
+                excess += 1
             del self.buffer[:excess]
         # Feed the virtual terminal so screen snapshots stay current.
         try:
@@ -278,7 +310,10 @@ class Session:
             pass
         # Feed the notifier so it can detect when the agent needs attention.
         if self._notifier:
-            self._notifier.on_output(data, self.buffer)
+            try:
+                self._notifier.on_output(data, self.buffer)
+            except Exception:
+                pass
 
     def _broadcast(self, data: bytes):
         for queue in list(self.subscribers):
@@ -461,7 +496,10 @@ class Session:
 
         # Stop notification scanning.
         if self._notifier:
-            self._notifier.cancel()
+            try:
+                self._notifier.cancel()
+            except Exception:
+                pass
 
         # Now mark as exited — resume_id is already set (if found).
         self.status = "exited"
@@ -557,6 +595,19 @@ class Session:
                 pass
         self.pty.close()
 
+    @property
+    def live_cwd(self) -> str | None:
+        """Read the process's current working directory from /proc (Linux).
+
+        Falls back to the initial cwd if unavailable.
+        """
+        if self.pid and not _IS_WIN:
+            try:
+                return os.readlink(f"/proc/{self.pid}/cwd")
+            except OSError:
+                pass
+        return self.cwd
+
     def to_dict(self) -> dict:
         d = {
             "id": self.id,
@@ -567,7 +618,7 @@ class Session:
             "start_time": self.start_time,
             "created_at": self.created_at,
             "exit_code": self.exit_code,
-            "cwd": self.cwd,
+            "cwd": self.live_cwd,
             "rows": self.rows,
             "cols": self.cols,
             "resize_source": self.resize_source,

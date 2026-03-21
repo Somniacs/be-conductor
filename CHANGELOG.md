@@ -2,6 +2,28 @@
 
 All notable changes to be-conductor are documented here.
 
+## v0.3.32
+
+### New
+
+- **File search on click** — clicking a file path that doesn't exist at the expected location automatically searches subdirectories with a spinner and cancel button. Safe limits prevent slowdowns on large project trees
+- **Session persistence across restarts** — running sessions are saved before shutdown and restored on startup, so nothing is silently lost. Resumable sessions keep their tokens; others can be restarted with the same command and working directory
+- **Expanded file type support** — clickable file links and the file browser now recognise ~120 extensions including CUDA, Svelte, Vue, Julia, Dart, Zig, Nix, shader languages, Solidity, Typst, Draw.io diagrams, Mermaid, images, PDF, and many more
+- **Live working directory for file links** — relative file paths clicked in the terminal resolve against the session's actual current directory, not the one from when the session was created
+
+### Fixed
+
+- **Scroll position preserved across maximize/restore** — switching between fullscreen and split view no longer loses your scroll position. The viewport is saved before hiding and restored after the panel becomes visible again
+- **Mobile keyboard on file open** — opening the file viewer on mobile no longer triggers the on-screen keyboard
+- **Mobile folder navigation** — folder entries in the file browser now have proper touch-sized tap targets
+- **File link performance** — clicking a file that exists at the expected path opens instantly without triggering a search
+- **Observe panel corruption** — observer output no longer renders at wrong dimensions during terminal resize
+- **Observer data loss** — slow observer clients no longer silently drop output; pending data is merged instead
+- **Special character corruption** — multi-byte characters (emoji, CJK, etc.) are no longer broken when the output buffer wraps
+- **TUI app display on reconnect** — scroll regions and terminal modes (insert mode, line wrap, reverse video, etc.) are now restored correctly when reconnecting to a session
+- **File type detection** — files with compound extensions like `main.cu.bak` are now recognised by their inner extension instead of showing as binary
+- **Server stability** — fixed several edge cases that could crash the server: malformed WebSocket messages, unexpected errors during terminal output, shutdown race conditions on Windows, faulty notification plugins, empty command configurations, and file handle leaks on restart failure
+
 ## v0.3.31
 
 ### Fixed

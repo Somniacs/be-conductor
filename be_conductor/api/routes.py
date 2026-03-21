@@ -158,7 +158,12 @@ async def _broadcast_resize(session_id: str, rows: int, cols: int,
 
 def _allowed_base_commands() -> set[str]:
     """Build set of allowed base commands from current config (re-evaluated on each call)."""
-    return {shlex.split(c["command"])[0] for c in cfg.ALLOWED_COMMANDS}
+    result: set[str] = set()
+    for c in cfg.ALLOWED_COMMANDS:
+        parts = shlex.split(c["command"])
+        if parts:
+            result.add(parts[0])
+    return result
 
 # Content-type to file extension fallback mapping
 _MIME_EXTENSIONS: dict[str, str] = {
@@ -458,25 +463,75 @@ async def browse_directory(path: str = "~"):
 # ---------------------------------------------------------------------------
 
 _TEXT_EXTENSIONS: set[str] = {
-    ".txt", ".md", ".markdown", ".rst", ".org",
-    ".py", ".pyw", ".pyi", ".pyx",
-    ".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx",
-    ".html", ".htm", ".css", ".scss", ".sass", ".less",
-    ".json", ".jsonl", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf",
-    ".xml", ".svg", ".drawio", ".mermaid", ".mmd",
-    ".sh", ".bash", ".zsh", ".fish", ".bat", ".cmd", ".ps1",
-    ".c", ".h", ".cpp", ".hpp", ".cc", ".cxx", ".cs", ".java", ".kt", ".kts",
-    ".go", ".rs", ".rb", ".php", ".pl", ".pm", ".lua", ".r", ".R",
-    ".swift", ".m", ".mm", ".scala", ".clj", ".cljs", ".ex", ".exs",
-    ".hs", ".ml", ".mli", ".erl", ".hrl", ".elm", ".nim", ".zig", ".v",
-    ".sql", ".graphql", ".gql", ".proto",
+    # Documentation / prose
+    ".txt", ".md", ".markdown", ".rst", ".org", ".adoc", ".asciidoc", ".tex", ".ltx",
+    # Python
+    ".py", ".pyw", ".pyi", ".pyx", ".pxd", ".pxi",
+    # JavaScript / TypeScript
+    ".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".mts", ".cts", ".vue", ".svelte",
+    # Web
+    ".html", ".htm", ".css", ".scss", ".sass", ".less", ".styl",
+    # Data / config
+    ".json", ".jsonl", ".json5", ".jsonc",
+    ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf", ".properties",
+    ".xml", ".xsl", ".xslt", ".xsd", ".dtd", ".plist",
+    ".svg", ".drawio", ".mermaid", ".mmd",
+    # Shell / scripting
+    ".sh", ".bash", ".zsh", ".fish", ".ksh", ".csh", ".tcsh",
+    ".bat", ".cmd", ".ps1", ".psm1", ".psd1",
+    # C / C++ / CUDA
+    ".c", ".h", ".cpp", ".hpp", ".cc", ".cxx", ".hxx", ".hh", ".inl",
+    ".cu", ".cuh",
+    # C# / F#
+    ".cs", ".csx", ".fs", ".fsx", ".fsi",
+    # Java / JVM
+    ".java", ".kt", ".kts", ".groovy", ".gradle",
+    ".scala", ".sbt", ".clj", ".cljs", ".cljc", ".edn",
+    # Go / Rust
+    ".go", ".rs",
+    # Ruby / PHP / Perl / Lua
+    ".rb", ".erb", ".rake", ".gemspec",
+    ".php", ".phtml",
+    ".pl", ".pm", ".t", ".pod",
+    ".lua",
+    # R / Julia / MATLAB
+    ".r", ".R", ".rmd", ".Rmd",
+    ".jl",
+    ".mat",
+    # Swift / Objective-C
+    ".swift", ".m", ".mm",
+    # Functional
+    ".hs", ".lhs", ".ml", ".mli", ".ml", ".fs",
+    ".erl", ".hrl", ".ex", ".exs", ".elm",
+    # Systems
+    ".nim", ".zig", ".v", ".d", ".ada", ".adb", ".ads",
+    # Assembly
+    ".asm", ".s", ".S", ".nasm",
+    # Dart / Kotlin / Wasm
+    ".dart",
+    # Data / query
+    ".sql", ".graphql", ".gql", ".proto", ".avsc", ".thrift",
+    # Env / dotfiles
     ".env", ".env.example", ".env.local",
     ".gitignore", ".gitattributes", ".gitmodules",
     ".dockerignore", ".editorconfig", ".prettierrc", ".eslintrc",
+    ".npmrc", ".yarnrc", ".babelrc",
+    # Log / tabular
     ".log", ".csv", ".tsv",
+    # Infrastructure
     ".tf", ".tfvars", ".hcl",
-    ".cmake", ".mk",
+    ".nix",
+    # Build
+    ".cmake", ".mk", ".meson", ".bzl", ".bazel",
+    # Patch / diff
     ".patch", ".diff",
+    # Misc
+    ".glsl", ".hlsl", ".wgsl", ".metal",
+    ".sol",
+    ".typ",
+    ".sml", ".rkt", ".scm", ".lisp", ".cl", ".el",
+    ".tcl", ".awk", ".sed",
+    ".dockerfile",
 }
 
 _TEXT_NAMES: set[str] = {
@@ -520,11 +575,18 @@ def _classify_file(entry: Path, *, deep: bool = False) -> str:
     enough for directory listings.  With deep=True, unrecognised
     extensions trigger an 8 KB heuristic read (used when opening a file).
     """
-    if entry.suffix.lower() in _PDF_EXTENSIONS:
+    suffix = entry.suffix.lower()
+    # For compound extensions like .cu.in or .cpp.bak, also check the
+    # inner extension so template/backup files are still viewable.
+    suffixes = entry.suffixes
+    inner_suffix = suffixes[-2].lower() if len(suffixes) >= 2 else None
+    if suffix in _PDF_EXTENSIONS:
         return "pdf"
-    if entry.suffix.lower() in _IMAGE_EXTENSIONS:
+    if suffix in _IMAGE_EXTENSIONS:
         return "image"
-    if entry.suffix.lower() in _TEXT_EXTENSIONS or entry.name in _TEXT_NAMES:
+    if suffix in _TEXT_EXTENSIONS or entry.name in _TEXT_NAMES:
+        return "text"
+    if inner_suffix and (inner_suffix in _TEXT_EXTENSIONS or inner_suffix in _PDF_EXTENSIONS):
         return "text"
     if not deep:
         return "binary"
@@ -599,6 +661,98 @@ def file_browse(path: str = "~", show_hidden: bool = False, root: str | None = N
         raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/files/exists")
+def file_exists(path: str):
+    """Lightweight check — returns {"exists": true/false} without reading the file."""
+    resolved = Path(path).expanduser().resolve()
+    return {"exists": resolved.is_file()}
+
+
+@router.get("/files/find")
+async def file_find(name: str, root: str = "~", request: Request = None):
+    """Search for a file by name under root directory.
+
+    Walks subdirectories with strict resource limits.  Returns the
+    resolved path on success, 404 if not found.
+    """
+    import time as _time
+
+    root_path = Path(root).expanduser().resolve()
+    if not root_path.is_dir():
+        raise HTTPException(status_code=400, detail="Root is not a directory")
+
+    # Check direct path first (no walk needed).
+    direct = root_path / name
+    if direct.is_file():
+        ftype = _classify_file(direct, deep=True)
+        return {"path": str(direct.resolve()), "type": ftype}
+
+    # Resource limits for the walk.
+    target = Path(name).name  # bare filename to match
+    max_dirs = 5000
+    max_depth = 10
+    deadline = _time.monotonic() + 3.0  # 3-second wall-clock timeout
+    dirs_visited = 0
+
+    # Skip heavy directories that are never useful.
+    _SKIP_DIRS = {
+        ".git", ".hg", ".svn", "node_modules", "__pycache__",
+        ".venv", "venv", ".tox", ".mypy_cache", ".pytest_cache",
+        "dist", "build", ".next", ".nuxt", "target",
+    }
+
+    def _walk(directory: Path, depth: int):
+        nonlocal dirs_visited
+        if depth > max_depth or dirs_visited > max_dirs:
+            return None
+        if _time.monotonic() > deadline:
+            return None
+        # Check if client disconnected.
+        if request and hasattr(request, "is_disconnected"):
+            try:
+                import asyncio as _aio
+                loop = _aio.get_event_loop()
+                if loop.is_running():
+                    pass  # can't await here; rely on timeout
+            except Exception:
+                pass
+        try:
+            entries = list(directory.iterdir())
+        except (PermissionError, OSError):
+            return None
+        dirs_visited += 1
+
+        # Check files in this directory first.
+        for entry in entries:
+            try:
+                if entry.is_file() and entry.name == target:
+                    return entry.resolve()
+            except OSError:
+                continue
+
+        # Recurse into subdirectories.
+        for entry in entries:
+            try:
+                if entry.is_dir() and not entry.is_symlink() and entry.name not in _SKIP_DIRS:
+                    result = _walk(entry, depth + 1)
+                    if result is not None:
+                        return result
+            except OSError:
+                continue
+        return None
+
+    # Run the blocking walk in a thread so we don't block the event loop.
+    import asyncio as _aio
+    loop = _aio.get_event_loop()
+    found = await loop.run_in_executor(None, _walk, root_path, 0)
+
+    if found is None:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    ftype = _classify_file(found, deep=True)
+    return {"path": str(found), "type": ftype}
 
 
 @router.get("/files/read")
@@ -783,23 +937,25 @@ def _schedule_restart(delay: float = 1.0):
         log_path.parent.mkdir(parents=True, exist_ok=True)
         log = log_path.open("a")
 
-        popen_kwargs = dict(
-            stdin=subprocess.DEVNULL,
-            stdout=log,
-            stderr=subprocess.STDOUT,
-            cwd=str(project_root),
-            env=env,
-        )
-        if sys.platform == "win32":
-            popen_kwargs["creationflags"] = (
-                subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+        try:
+            popen_kwargs = dict(
+                stdin=subprocess.DEVNULL,
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                cwd=str(project_root),
+                env=env,
             )
-        else:
-            popen_kwargs["start_new_session"] = True
+            if sys.platform == "win32":
+                popen_kwargs["creationflags"] = (
+                    subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+                )
+            else:
+                popen_kwargs["start_new_session"] = True
 
-        cmd = [sys.executable, "-m", "be_conductor.server.app"]
-        subprocess.Popen(cmd, **popen_kwargs)
-        log.close()
+            cmd = [sys.executable, "-m", "be_conductor.server.app"]
+            subprocess.Popen(cmd, **popen_kwargs)
+        finally:
+            log.close()
         _log.info("Spawned new server process, shutting down current")
 
         # Kill ourselves — lifespan cleanup will run
@@ -1537,7 +1693,7 @@ async def observe_external_session(ws: WebSocket, file_id: str):
         try:
             while True:
                 message = await ws.receive()
-                if message["type"] == "websocket.disconnect":
+                if message.get("type") == "websocket.disconnect":
                     break
                 # Ignore all input — this is read-only
         except WebSocketDisconnect:
@@ -1651,7 +1807,7 @@ async def _stream_raw(ws: WebSocket, session: Any, source: str | None = None):
         try:
             while True:
                 message = await ws.receive()
-                if message["type"] == "websocket.disconnect":
+                if message.get("type") == "websocket.disconnect":
                     break
                 text = message.get("text")
                 raw = message.get("bytes")
@@ -1741,7 +1897,7 @@ async def _stream_typed(ws: WebSocket, session: Any):
         try:
             while True:
                 message = await ws.receive()
-                if message["type"] == "websocket.disconnect":
+                if message.get("type") == "websocket.disconnect":
                     break
 
                 text = message.get("text")

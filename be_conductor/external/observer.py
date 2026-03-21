@@ -354,7 +354,17 @@ class SessionObserver:
             try:
                 queue.put_nowait(data)
             except asyncio.QueueFull:
-                pass
+                # Never drop data — coalesce pending items to make room.
+                # Dropping bytes breaks ANSI escape sequences and garbles
+                # TUI output.
+                merged = bytearray()
+                try:
+                    while not queue.empty():
+                        merged.extend(queue.get_nowait())
+                except asyncio.QueueEmpty:
+                    pass
+                merged.extend(data)
+                queue.put_nowait(bytes(merged))
 
     def subscribe(self) -> asyncio.Queue:
         queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
