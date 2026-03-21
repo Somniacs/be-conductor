@@ -23,14 +23,9 @@ All notable changes to be-conductor are documented here.
 - **TUI app display on reconnect** — scroll regions and terminal modes (insert mode, line wrap, reverse video, etc.) are now restored correctly when reconnecting to a session
 - **File type detection** — files with compound extensions like `main.cu.bak` are now recognised by their inner extension instead of showing as binary
 - **Server stability** — fixed several edge cases that could crash the server: malformed WebSocket messages, unexpected errors during terminal output, shutdown race conditions on Windows, faulty notification plugins, empty command configurations, and file handle leaks on restart failure
-
-## v0.3.31
-
-### Fixed
-
 - **Scroll jumping in CLI and web console** — removed auto-scroll that fought xterm.js's native scroll preservation, stopped injecting OSC title sequences into CLI data stream so byte output matches a direct terminal session
 - **Click-to-focus scroll jump** — clicking into a terminal panel while reading scrollback no longer yanks the viewport
-- **File browser hang on large directories** — `_classify_file` was reading 8KB of every unrecognised file during directory listing; now extension-only classification for browsing, deep heuristic only when opening a file
+- **File browser hang on large directories** — extension-only classification for browsing, deep heuristic only when opening a file
 - **File browser spinner position** — centered the loading spinner in the sidebar
 
 ## v0.3.30
