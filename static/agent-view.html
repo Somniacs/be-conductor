@@ -269,7 +269,6 @@ function renderEvent(event) {
             } else if (block.type === 'tool_use') {
                 const details = document.createElement('details');
                 details.style.cssText = 'margin:8px 0;border:1px solid #30363d;border-radius:6px;overflow:hidden;';
-                details.open = true;
                 const summary = document.createElement('summary');
                 summary.style.cssText = 'padding:8px 12px;background:#161b22;color:#e6edf3;font-size:13px;cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px;';
                 const toolName = block.tool || 'tool';
