@@ -1102,6 +1102,24 @@ dragHandle.addEventListener('mousedown', (e) => {
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
 });
+dragHandle.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    const startY = e.touches[0].clientY;
+    const startH = inputArea.offsetHeight;
+    _manualResize = true;
+    const onMove = (ev) => {
+        const h = Math.max(60, startH + (startY - ev.touches[0].clientY));
+        inputArea.style.height = h + 'px';
+        promptEl.style.maxHeight = (h - 50) + 'px';
+        promptEl.style.height = (h - 50) + 'px';
+    };
+    const onEnd = () => {
+        document.removeEventListener('touchmove', onMove);
+        document.removeEventListener('touchend', onEnd);
+    };
+    document.addEventListener('touchmove', onMove, {passive: false});
+    document.addEventListener('touchend', onEnd);
+}, {passive: false});
 </script>
 </body>
 </html>

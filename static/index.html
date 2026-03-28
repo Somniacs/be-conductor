@@ -5288,7 +5288,14 @@
                 if (_ekHideTimer) { clearTimeout(_ekHideTimer); _ekHideTimer = null; }
                 // Don't show extra keys for agent sessions (they use text input, not terminal)
                 const fp = panels.find(p => p.id === _focusedPanelId);
-                if (fp && fp._sessionType === 'agent') { _hideExtraKeys(); }
+                if (fp && fp._sessionType === 'agent') {
+                    _hideExtraKeys();
+                    // Constrain body for agent view too (no extra keys bar)
+                    if (window.innerHeight - vh > 50) {
+                        document.body.style.height = vh + 'px';
+                        document.body.style.overflow = 'hidden';
+                    }
+                }
                 else _showExtraKeys();
                 _positionExtraKeys();
                 // On tablets in desktop browser mode the layout viewport may
