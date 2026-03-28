@@ -202,12 +202,13 @@ function _toolIcon(name) {
     return icons[name] || `<svg ${s}><circle cx="8" cy="8" r="5"/><path d="M8 5v3l2 1"/></svg>`;
 }
 
+function _basename(p) { return p ? p.split('/').pop() : ''; }
 function _toolInputSummary(name, input) {
     if (!input) return '';
     if (name === 'Bash' && input.command) return input.command;
-    if (name === 'Read' && input.file_path) return input.file_path;
-    if (name === 'Write' && input.file_path) return input.file_path;
-    if (name === 'Edit' && input.file_path) return input.file_path;
+    if (name === 'Read' && input.file_path) return _basename(input.file_path);
+    if (name === 'Write' && input.file_path) return _basename(input.file_path);
+    if (name === 'Edit' && input.file_path) return _basename(input.file_path);
     if (name === 'Glob' && input.pattern) return input.pattern;
     if (name === 'Grep' && input.pattern) return input.pattern;
     if (name === 'WebFetch' && input.url) return input.url;
