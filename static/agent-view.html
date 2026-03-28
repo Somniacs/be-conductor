@@ -334,7 +334,7 @@ function setBusy(b) {
     busy = b;
     updateSendBtn();
     promptEl.placeholder = b ? 'Queue another message...' : 'Message Claude...';
-    const _verbs = ['Composing', 'Rehearsing', 'Orchestrating', 'Harmonizing', 'Conducting', 'Tuning', 'Arranging', 'Improvising', 'Performing', 'Syncopating'];
+    const _verbs = ['Composing', 'Orchestrating', 'Harmonizing', 'Conducting', 'Arranging', 'Counterpointing', 'Modulating', 'Embellishing', 'Transposing', 'Cadencing', 'Ornamenting', 'Fuguing', 'Preludiong', 'Tempering'];
     if (b) {
         busyStartTime = Date.now();
         if (!spinnerEl) {
