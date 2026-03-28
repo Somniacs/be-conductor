@@ -175,6 +175,10 @@ window.addEventListener('message', (e) => {
 });
 
 // --- IDE Bridge ---
+function _resolvePath(p) {
+    if (!p || p.startsWith('/') || p.startsWith('~')) return p;
+    return _sessionCwd ? _sessionCwd.replace(/\/$/, '') + '/' + p : p;
+}
 const ideBridge = {
     openFile(path, line) {},
     pickFile() {},
@@ -188,13 +192,13 @@ const _isJetBrains = navigator.userAgent.includes('JBCef') || document.documentE
 
 if (typeof window.cefQuery === 'function') {
     // JetBrains JCEF with registered queries
-    ideBridge.openFile = (p, l) => window.cefQuery({request: JSON.stringify({type:'openFile', path:p, line:l||0})});
+    ideBridge.openFile = (p, l) => window.cefQuery({request: JSON.stringify({type:'openFile', path:_resolvePath(p), line:l||0})});
     ideBridge.pickFile = () => window.cefQuery({request: JSON.stringify({type:'pickFile'})});
     ideBridge.runInTerminal = (cmd) => window.cefQuery({request: JSON.stringify({type:'runInTerminal', command:cmd})});
 } else if (typeof acquireVsCodeApi !== 'undefined') {
     // VSCode webview
     const vscode = acquireVsCodeApi();
-    ideBridge.openFile = (p, l) => vscode.postMessage({type:'openFile', path:p, line:l||0});
+    ideBridge.openFile = (p, l) => vscode.postMessage({type:'openFile', path:_resolvePath(p), line:l||0});
     ideBridge.pickFile = () => vscode.postMessage({type:'pickFile'});
     ideBridge.runInTerminal = (cmd) => vscode.postMessage({type:'runInTerminal', command:cmd});
     window.addEventListener('message', e => {
@@ -203,15 +207,15 @@ if (typeof window.cefQuery === 'function') {
         }
     });
 } else if (_isJetBrains || (window.parent === window && location.protocol === 'http:' && navigator.userAgent.includes('CEF'))) {
-    // JetBrains HTMLEditorProvider — use REST API to open files
+    // JetBrains — use built-in REST API to open files in the editor
     ideBridge.openFile = (p, l) => {
-        // Use JetBrains built-in REST API (available on localhost:63342)
+        const resolved = _resolvePath(p);
         const line = l || 0;
-        fetch(`http://localhost:63342/api/file/${encodeURIComponent(p)}?line=${line}&column=0`, {mode:'no-cors'}).catch(() => {});
+        fetch(`http://localhost:63342/api/file${resolved.startsWith('/') ? '' : '/'}${resolved}?line=${line}&column=0`, {mode:'no-cors'}).catch(() => {});
     };
 } else if (window.parent !== window) {
     // Embedded in dashboard iframe
-    ideBridge.openFile = (p, l) => window.parent.postMessage({type:'openFile', path:p, line:l||0, session: SESSION_ID}, '*');
+    ideBridge.openFile = (p, l) => window.parent.postMessage({type:'openFile', path:_resolvePath(p), line:l||0, session: SESSION_ID}, '*');
 }
 
 // --- DOM refs ---
@@ -264,6 +268,7 @@ if (contextIndicator) {
 let busy = false;
 let ws = null;
 let _replayingHistory = false;
+let _sessionCwd = '';
 let _userDismissedQuestion = false;
 let retryCount = 0;
 const MAX_RETRIES = 10;
@@ -725,6 +730,7 @@ function connect() {
         const httpBase = WS_BASE.replace('ws://', 'http://').replace('wss://', 'https://');
         fetch(`${httpBase}/sessions/${SESSION_ID}`).then(r => r.json()).then(info => {
             if (info && info.cwd) {
+                _sessionCwd = info.cwd;
                 const cwdEl = welcome.querySelector('.agent-cwd');
                 if (cwdEl) cwdEl.textContent = info.cwd.replace(/^\/home\/[^/]+/, '~');
             }
