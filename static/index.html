@@ -5286,21 +5286,16 @@
             const panelsEl = document.getElementById('panels');
             if (keyboardOpen) {
                 if (_ekHideTimer) { clearTimeout(_ekHideTimer); _ekHideTimer = null; }
-                // Don't show extra keys for agent sessions (they use text input, not terminal)
-                const fp = panels.find(p => p.id === _focusedPanelId);
-                if (fp && fp._sessionType === 'agent') { _hideExtraKeys(); }
-                else _showExtraKeys();
+                _showExtraKeys();
                 _positionExtraKeys();
                 // On tablets in desktop browser mode the layout viewport may
                 // NOT resize — constrain body height to visual viewport
-                // minus the extra-keys bar. Defer to next frame so bar is rendered.
+                // minus the extra-keys bar.
                 if (window.innerHeight - vh > 50) {
-                    requestAnimationFrame(() => {
-                        const barEl = document.getElementById('extra-keys-bar');
-                        const barH = (barEl && barEl.classList.contains('visible')) ? barEl.offsetHeight : 0;
-                        document.body.style.height = (vh - barH) + 'px';
-                        document.body.style.overflow = 'hidden';
-                    });
+                    const barEl = document.getElementById('extra-keys-bar');
+                    const barH = barEl ? barEl.offsetHeight : 0;
+                    document.body.style.height = (vh - barH) + 'px';
+                    document.body.style.overflow = 'hidden';
                 }
                 if (panelsEl && !panelsEl.classList.contains('keyboard-focused')) {
                     panelsEl.classList.add('keyboard-focused');
