@@ -369,10 +369,14 @@ function renderEvent(event) {
     const ph = messagesEl.querySelector('[data-placeholder]');
     if (ph) ph.remove();
     const etype = event.type;
+    // Skip internal events
+    if (etype === 'system' || etype === 'rate_limit') return;
 
     if (etype === 'user_message') {
-        // Only dismiss question modal if the user answered (not SDK auto-answer)
-        // SDK auto-answers have no UI interaction — _userDismissedQuestion is set by sendPrompt
+        const content = (event.content || '').trim();
+        // Hide internal commands
+        if (content === '/compact') return;
+        // Dismiss question modal if user answered
         const openModal = document.getElementById('question-modal');
         if (openModal && _userDismissedQuestion) {
             openModal.remove();
@@ -384,7 +388,7 @@ function renderEvent(event) {
         }
         const div = document.createElement('div');
         div.className = 'msg msg-user';
-        div.innerHTML = `<div style="padding:10px 14px;background:var(--user-bg);border-radius:8px;border-left:3px solid var(--accent);white-space:pre-wrap;line-height:1.5;">${escHtml(event.content || '')}</div>`;
+        div.innerHTML = `<div style="padding:10px 14px;background:var(--user-bg);border-radius:8px;border-left:3px solid var(--accent);white-space:pre-wrap;line-height:1.5;">${escHtml(content)}</div>`;
         messagesEl.appendChild(div);
         // Start a new group for Claude's responses
         const group = document.createElement('div');
