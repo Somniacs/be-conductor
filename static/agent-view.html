@@ -29,8 +29,8 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--fo
 #drag-handle { height: 6px; cursor: row-resize; background: var(--bg-secondary); flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
 #drag-handle div { width: 30px; height: 2px; background: var(--border); border-radius: 1px; }
 #input-area { flex-shrink: 0; background: var(--bg-secondary); border-top: 1px solid var(--border); padding: 8px 12px; position: relative; }
-#input-box { display: flex; flex-direction: column; background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px; padding: 0; overflow: hidden; }
-#input-toolbar { display: flex; align-items: center; gap: 0; padding: 2px 4px; border-top: 1px solid var(--border); }
+#input-box { display: flex; flex-direction: column; background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px; padding: 0; }
+#input-toolbar { display: flex; align-items: center; gap: 0; padding: 2px 4px; border-top: 1px solid var(--border); border-radius: 0 0 10px 10px; }
 #prompt { width: 100%; resize: none; background: transparent; color: var(--fg); border: none; outline: none; padding: 8px 12px; font-family: inherit; font-size: 13px; height: 38px; line-height: 1.4; overflow: hidden; }
 .attach-btn, .mode-btn, .send-btn { flex-shrink: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; }
 .attach-btn { background: none; border: none; color: var(--muted); padding: 6px; border-radius: 6px; }
