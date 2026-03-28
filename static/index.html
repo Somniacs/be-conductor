@@ -1419,6 +1419,97 @@
         .panel-header button:hover { color: #c0c0e0; }
         .panel-header button.close-btn:hover { color: #ff6666; }
         .panel-header .panel-menu-btn { font-size: 14px; letter-spacing: 2px; }
+
+        /* Agent view toggle (Render | Console) */
+        .agent-view-toggle {
+            display: inline-flex;
+            border-radius: 4px;
+            overflow: hidden;
+            border: 1px solid #333;
+            margin-right: 4px;
+        }
+        .agent-view-toggle button {
+            font-size: 11px !important;
+            padding: 2px 8px !important;
+            background: transparent;
+            color: #7878a0;
+            border: none;
+            cursor: pointer;
+            line-height: 1.4;
+            white-space: nowrap;
+        }
+        .agent-view-toggle button:hover { color: #c0c0e0; background: #1a1a3a; }
+        .agent-view-toggle button.active { background: #2a2a5a; color: #d0d0ff; }
+
+        /* Agent mode selector */
+        .agent-mode-select {
+            background: #1a1a2e;
+            color: #a0a0d0;
+            border: 1px solid #444;
+            border-radius: 4px;
+            font-size: 12px;
+            padding: 4px 6px;
+            cursor: pointer;
+            outline: none;
+            flex-shrink: 0;
+        }
+        .agent-mode-select:hover { border-color: #666; }
+        .agent-mode-select:focus { border-color: #4a6cf7; }
+
+        /* Agent attachment button */
+        .agent-attach-btn {
+            background: none;
+            border: 1px solid #444;
+            border-radius: 6px;
+            color: #7878a0;
+            cursor: pointer;
+            padding: 6px 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            align-self: flex-end;
+        }
+        .agent-attach-btn:hover { color: #c0c0e0; border-color: #666; }
+
+        /* Agent attachment preview strip */
+        .agent-attachment-preview {
+            display: flex;
+            gap: 8px;
+            padding: 4px 12px 0;
+            flex-shrink: 0;
+            overflow-x: auto;
+            flex-wrap: wrap;
+        }
+        .agent-attachment-item {
+            position: relative;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 8px;
+            background: #1a1a2e;
+            border: 1px solid #333;
+            border-radius: 6px;
+            font-size: 11px;
+            color: #a0a0d0;
+        }
+        .agent-attachment-item img {
+            max-height: 40px;
+            max-width: 60px;
+            border-radius: 3px;
+            object-fit: cover;
+        }
+        .agent-attachment-item .remove-btn {
+            background: none;
+            border: none;
+            color: #888;
+            cursor: pointer;
+            font-size: 14px;
+            padding: 0 2px;
+            line-height: 1;
+        }
+        .agent-attachment-item .remove-btn:hover { color: #ff6666; }
+
         .theme-ring {
             display: inline-block;
             width: 12px; height: 12px;
@@ -3252,6 +3343,10 @@
 
         // Core fit logic — can be called directly (synchronous) or via debounce.
         function _fitPanelCore(p) {
+            // Also fit the agent console terminal if it exists and is visible
+            if (p._agentConsoleFitAddon && p._agentViewMode === 'console') {
+                try { p._agentConsoleFitAddon.fit(); } catch {}
+            }
             if (!p.fitAddon || !p._termOpened) return;
             const target = p._termWrapper || p._termEl;
 
@@ -4240,6 +4335,21 @@
                 termOuter.style.overflow = 'hidden';
                 termOuter.style.background = '#0d0d1a';
 
+                // --- Feature 1: Render/Console toggle buttons in header ---
+                const hdrActions = div.querySelector('.panel-header-actions');
+                const menuBtn = hdrActions.querySelector('.panel-menu-btn');
+                const toggleGroup = document.createElement('div');
+                toggleGroup.className = 'agent-view-toggle';
+                const renderBtn = document.createElement('button');
+                renderBtn.textContent = 'Render';
+                renderBtn.className = 'active';
+                const consoleBtn = document.createElement('button');
+                consoleBtn.textContent = 'Console';
+                toggleGroup.appendChild(renderBtn);
+                toggleGroup.appendChild(consoleBtn);
+                hdrActions.insertBefore(toggleGroup, menuBtn);
+
+                // Agent render container
                 const agentContainer = document.createElement('div');
                 agentContainer.className = 'agent-container';
                 agentContainer.style.cssText = 'flex:1;min-height:0;overflow-y:auto;padding:12px 16px;color:#e0e0e0;font-size:14px;line-height:1.6;background:#0d0d1a;';
@@ -4249,17 +4359,73 @@
                 welcomeMsg.setAttribute('data-placeholder', '1');
                 agentContainer.appendChild(welcomeMsg);
 
+                // Console container (hidden initially, holds xterm.js terminal)
+                const consoleContainer = document.createElement('div');
+                consoleContainer.className = 'agent-console-container';
+                consoleContainer.style.cssText = 'flex:1;min-height:0;display:none;background:#0d0d1a;';
+                panel._agentConsoleContainer = consoleContainer;
+                panel._agentConsoleTerminal = null;
+                panel._agentConsoleWs = null;
+                panel._agentConsoleInited = false;
+
+                // View toggle logic
+                panel._agentViewMode = 'render';
+                renderBtn.addEventListener('click', () => {
+                    if (panel._agentViewMode === 'render') return;
+                    panel._agentViewMode = 'render';
+                    renderBtn.classList.add('active');
+                    consoleBtn.classList.remove('active');
+                    agentContainer.style.display = '';
+                    consoleContainer.style.display = 'none';
+                    // Show input bar in render mode
+                    if (panel._agentDragHandle) panel._agentDragHandle.style.display = '';
+                    if (panel._agentInputBar) panel._agentInputBar.style.display = '';
+                    if (panel._agentAttachPreview && panel._agentAttachments && panel._agentAttachments.length) {
+                        panel._agentAttachPreview.style.display = 'flex';
+                    }
+                });
+                consoleBtn.addEventListener('click', () => {
+                    if (panel._agentViewMode === 'console') return;
+                    panel._agentViewMode = 'console';
+                    consoleBtn.classList.add('active');
+                    renderBtn.classList.remove('active');
+                    agentContainer.style.display = 'none';
+                    consoleContainer.style.display = '';
+                    // Hide input bar in console mode
+                    if (panel._agentDragHandle) panel._agentDragHandle.style.display = 'none';
+                    if (panel._agentInputBar) panel._agentInputBar.style.display = 'none';
+                    if (panel._agentAttachPreview) panel._agentAttachPreview.style.display = 'none';
+                    // Lazy-init console terminal on first switch
+                    if (!panel._agentConsoleInited) {
+                        panel._agentConsoleInited = true;
+                        _initAgentConsole(panel);
+                    } else if (panel._agentConsoleFitAddon) {
+                        try { panel._agentConsoleFitAddon.fit(); } catch {}
+                    }
+                });
+
+                // Pending attachments array
+                panel._agentAttachments = [];
+
                 function sendAgentPrompt() {
                     const text = textarea.value.trim();
-                    if (!text) return;
+                    if (!text && !panel._agentAttachments.length) return;
                     // Show message immediately (optimistic)
-                    renderAgentEvent(panel, {type: 'user_message', content: text});
+                    renderAgentEvent(panel, {type: 'user_message', content: text || '(attachment)'});
                     if (panel.ws && panel.ws.readyState === WebSocket.OPEN) {
-                        panel.ws.send(JSON.stringify({type: 'prompt', text}));
+                        const msg = {type: 'prompt', text: text};
+                        if (panel._agentAttachments.length) {
+                            msg.attachments = panel._agentAttachments.map(a => ({
+                                name: a.name, type: a.type, data: a.data
+                            }));
+                        }
+                        panel.ws.send(JSON.stringify(msg));
                     } else {
                         renderAgentEvent(panel, {type: 'error', error: 'Not connected to agent'});
                     }
                     textarea.value = '';
+                    panel._agentAttachments = [];
+                    _refreshAttachmentPreview(panel);
                     textarea.focus();
                 }
 
@@ -4267,6 +4433,7 @@
                 const dragHandle = document.createElement('div');
                 dragHandle.style.cssText = 'height:6px;cursor:row-resize;background:#1e1e3e;border-top:1px solid #333;flex-shrink:0;display:flex;align-items:center;justify-content:center;';
                 dragHandle.innerHTML = '<div style="width:30px;height:2px;background:#444;border-radius:1px;"></div>';
+                panel._agentDragHandle = dragHandle;
                 let dragStartY = 0, dragStartH = 0;
                 dragHandle.addEventListener('mousedown', (e) => {
                     e.preventDefault();
@@ -4284,8 +4451,27 @@
                     document.addEventListener('mouseup', onUp);
                 });
 
+                // --- Attachment preview strip ---
+                const attachPreview = document.createElement('div');
+                attachPreview.className = 'agent-attachment-preview';
+                attachPreview.style.display = 'none';
+                panel._agentAttachPreview = attachPreview;
+
                 const inputBar = document.createElement('div');
-                inputBar.style.cssText = 'display:flex;gap:8px;padding:8px 12px;flex-shrink:0;';
+                inputBar.style.cssText = 'display:flex;gap:8px;padding:8px 12px;flex-shrink:0;align-items:flex-end;';
+
+                // --- Feature 2: Mode selector ---
+                const modeSelect = document.createElement('select');
+                modeSelect.className = 'agent-mode-select';
+                modeSelect.title = 'Agent permission mode';
+                modeSelect.innerHTML = '<option value="default">Default</option><option value="plan">Plan</option><option value="acceptEdits">Auto-accept</option>';
+                modeSelect.addEventListener('change', () => {
+                    if (panel.ws && panel.ws.readyState === WebSocket.OPEN) {
+                        panel.ws.send(JSON.stringify({type: 'set_mode', mode: modeSelect.value}));
+                    }
+                });
+                panel._agentModeSelect = modeSelect;
+
                 const textarea = document.createElement('textarea');
                 textarea.rows = 2;
                 textarea.placeholder = 'Send a follow-up prompt...';
@@ -4296,14 +4482,42 @@
                         sendAgentPrompt();
                     }
                 });
+
+                // --- Feature 3: Attachment button + hidden file input ---
+                const agentFileInput = document.createElement('input');
+                agentFileInput.type = 'file';
+                agentFileInput.multiple = true;
+                agentFileInput.style.display = 'none';
+                agentFileInput.accept = 'image/*,.txt,.csv,.json,.md,.py,.js,.ts,.html,.css,.xml,.yaml,.yml,.toml,.sh,.log';
+                agentFileInput.addEventListener('change', () => {
+                    if (!agentFileInput.files) return;
+                    for (const file of agentFileInput.files) {
+                        _readAttachmentFile(panel, file);
+                    }
+                    agentFileInput.value = '';
+                });
+                div.appendChild(agentFileInput);
+                panel._agentFileInput = agentFileInput;
+
+                const attachBtn = document.createElement('button');
+                attachBtn.className = 'agent-attach-btn';
+                attachBtn.title = 'Attach file';
+                attachBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.49"/></svg>';
+                attachBtn.addEventListener('click', () => agentFileInput.click());
+
                 const sendBtn = document.createElement('button');
                 sendBtn.textContent = 'Send';
                 sendBtn.style.cssText = 'background:#4a6cf7;color:white;border:none;border-radius:6px;padding:8px 16px;cursor:pointer;font-size:13px;align-self:flex-end;';
                 sendBtn.onclick = () => sendAgentPrompt();
+
+                inputBar.appendChild(modeSelect);
                 inputBar.appendChild(textarea);
+                inputBar.appendChild(attachBtn);
                 inputBar.appendChild(sendBtn);
 
                 termOuter.appendChild(agentContainer);
+                termOuter.appendChild(consoleContainer);
+                termOuter.appendChild(attachPreview);
                 termOuter.appendChild(dragHandle);
                 termOuter.appendChild(inputBar);
                 panel._agentContainer = agentContainer;
@@ -5830,6 +6044,108 @@
                 console.error('Agent WS error:', e);
             };
             panel.ws = ws;
+        }
+
+        // --- Agent Console Terminal (Feature 1) ---
+        function _initAgentConsole(panel) {
+            if (!hasXterm || !panel._agentConsoleContainer) return;
+            const defT = THEMES['default'];
+            const term = new Terminal({
+                cursorBlink: false,
+                fontSize: window.innerWidth <= 700 ? 8 : 13,
+                fontFamily: "'JetBrains Mono', 'Cascadia Mono', Menlo, 'DejaVu Sans Mono', Consolas, monospace",
+                lineHeight: 1.2,
+                theme: {
+                    background: defT.background, foreground: defT.foreground,
+                    cursor: defT.cursor, selectionBackground: defT.selectionBackground,
+                    black: defT.black, red: defT.red, green: defT.green, yellow: defT.yellow,
+                    blue: defT.blue, magenta: defT.magenta, cyan: defT.cyan, white: defT.white,
+                    brightBlack: defT.brightBlack, brightRed: defT.brightRed,
+                    brightGreen: defT.brightGreen, brightYellow: defT.brightYellow,
+                    brightBlue: defT.brightBlue, brightMagenta: defT.brightMagenta,
+                    brightCyan: defT.brightCyan, brightWhite: defT.brightWhite,
+                },
+                scrollback: 5000,
+                convertEol: false,
+                disableStdin: true,
+            });
+            panel._agentConsoleTerminal = term;
+            term.open(panel._agentConsoleContainer);
+
+            if (typeof FitAddon !== 'undefined') {
+                const fitAddon = new FitAddon.FitAddon();
+                term.loadAddon(fitAddon);
+                panel._agentConsoleFitAddon = fitAddon;
+                try { fitAddon.fit(); } catch {}
+            }
+
+            // Connect a second WebSocket in console mode
+            let wsUrl = serverWsUrl(panel.server, `/sessions/${panel.sessionId}/stream`);
+            wsUrl += (wsUrl.includes('?') ? '&' : '?') + 'mode=console&source=browser';
+            if (panel._clientId) wsUrl += '&client_id=' + encodeURIComponent(panel._clientId);
+            if (_conductorToken) wsUrl += '&token=' + encodeURIComponent(_conductorToken);
+            const ws = new WebSocket(wsUrl);
+            ws.binaryType = 'arraybuffer';
+            ws.onmessage = (event) => {
+                if (event.data instanceof ArrayBuffer) {
+                    const bytes = new Uint8Array(event.data);
+                    if (bytes.length > 0) term.write(bytes);
+                } else if (typeof event.data === 'string' && event.data.length > 0) {
+                    term.write(event.data);
+                }
+            };
+            ws.onclose = () => { panel._agentConsoleWs = null; };
+            ws.onerror = (e) => { console.error('Agent console WS error:', e); };
+            panel._agentConsoleWs = ws;
+        }
+
+        // --- Agent Attachment Helpers (Feature 3) ---
+        function _readAttachmentFile(panel, file) {
+            const reader = new FileReader();
+            reader.onload = () => {
+                const base64 = reader.result.split(',')[1]; // strip data:... prefix
+                panel._agentAttachments.push({
+                    name: file.name,
+                    type: file.type || 'application/octet-stream',
+                    data: base64,
+                    preview: file.type && file.type.startsWith('image/') ? reader.result : null,
+                });
+                _refreshAttachmentPreview(panel);
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function _refreshAttachmentPreview(panel) {
+            const strip = panel._agentAttachPreview;
+            if (!strip) return;
+            strip.innerHTML = '';
+            if (!panel._agentAttachments.length) {
+                strip.style.display = 'none';
+                return;
+            }
+            strip.style.display = 'flex';
+            panel._agentAttachments.forEach((att, idx) => {
+                const item = document.createElement('div');
+                item.className = 'agent-attachment-item';
+                if (att.preview) {
+                    const img = document.createElement('img');
+                    img.src = att.preview;
+                    img.alt = att.name;
+                    item.appendChild(img);
+                }
+                const nameSpan = document.createElement('span');
+                nameSpan.textContent = att.name;
+                item.appendChild(nameSpan);
+                const removeBtn = document.createElement('button');
+                removeBtn.className = 'remove-btn';
+                removeBtn.innerHTML = '&times;';
+                removeBtn.addEventListener('click', () => {
+                    panel._agentAttachments.splice(idx, 1);
+                    _refreshAttachmentPreview(panel);
+                });
+                item.appendChild(removeBtn);
+                strip.appendChild(item);
+            });
         }
 
         // --- Markdown-lite renderer for agent text ---

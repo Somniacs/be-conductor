@@ -1857,7 +1857,8 @@ async def observe_external_session(ws: WebSocket, file_id: str):
 
 @router.websocket("/sessions/{session_id}/stream")
 async def stream_session(ws: WebSocket, session_id: str, typed: bool = False,
-                         source: str | None = None, client_id: str | None = None):
+                         source: str | None = None, client_id: str | None = None,
+                         mode: str | None = None):
     # Auth check
     if not _check_ws_auth(ws):
         await ws.close(code=4001, reason="Unauthorized")
@@ -1883,7 +1884,10 @@ async def stream_session(ws: WebSocket, session_id: str, typed: bool = False,
 
     try:
         if getattr(session, "session_type", "pty") == "agent":
-            await _stream_agent(ws, session)
+            if mode == "console":
+                await _stream_agent_console(ws, session)
+            else:
+                await _stream_agent(ws, session)
         elif typed:
             await _stream_typed(ws, session)
         else:
@@ -1944,12 +1948,81 @@ async def _stream_agent(ws: WebSocket, session: Any):
                         msg = json.loads(text)
                         msg_type = msg.get("type")
                         if msg_type == "prompt":
-                            session.send_input(msg.get("text", ""))
+                            attachments = msg.get("attachments")
+                            session.send_input(
+                                msg.get("text", ""),
+                                attachments=attachments,
+                            )
+                        elif msg_type == "set_mode":
+                            new_mode = msg.get("mode", "default")
+                            if hasattr(session, "set_mode"):
+                                session.set_mode(new_mode)
                         elif msg_type == "interrupt":
                             session.interrupt()
                     except (json.JSONDecodeError, TypeError):
                         # Plain text = treat as prompt
                         session.send_input(text)
+        except WebSocketDisconnect:
+            pass
+        except Exception:
+            pass
+
+    writer_task = asyncio.create_task(writer())
+    reader_task = asyncio.create_task(reader())
+
+    try:
+        done, pending = await asyncio.wait(
+            {writer_task, reader_task},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for task in pending:
+            task.cancel()
+    finally:
+        session.unsubscribe(queue)
+
+
+async def _stream_agent_console(ws: WebSocket, session: Any):
+    """Stream agent console buffer as raw ANSI bytes for xterm.js rendering.
+
+    Sends the existing console buffer on connect, then tails new events
+    converted to ANSI text in real-time.
+    """
+    # Send existing console buffer
+    buf = session.get_buffer()
+    if buf:
+        await ws.send_bytes(buf)
+
+    queue = session.subscribe()
+
+    async def writer():
+        from be_conductor.sessions.agent_session import _format_event_ansi
+        try:
+            while True:
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=30)
+                except asyncio.TimeoutError:
+                    # Send a no-op to keep the connection alive
+                    try:
+                        await ws.send_bytes(b"")
+                    except Exception:
+                        break
+                    continue
+                if event is None:
+                    break
+                text = _format_event_ansi(event)
+                if text:
+                    await ws.send_bytes(
+                        text.encode("utf-8", errors="replace")
+                    )
+        except Exception:
+            pass
+
+    async def reader():
+        try:
+            while True:
+                message = await ws.receive()
+                if message.get("type") == "websocket.disconnect":
+                    break
         except WebSocketDisconnect:
             pass
         except Exception:

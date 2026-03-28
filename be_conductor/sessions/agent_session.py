@@ -122,7 +122,7 @@ class AgentSession:
         # SDK state
         self._client: Any = None
         self._run_task: asyncio.Task | None = None
-        self._input_queue: asyncio.Queue[str] = asyncio.Queue()
+        self._input_queue: asyncio.Queue[dict | str] = asyncio.Queue()
 
         # Client tracking
         self._attached_sources: dict[str, str] = {}
@@ -195,12 +195,25 @@ class AgentSession:
                 # Wait for follow-up prompts
                 while self.status == "running":
                     try:
-                        text = await self._input_queue.get()
+                        item = await self._input_queue.get()
+                        if isinstance(item, dict):
+                            text = item.get("text", "")
+                            attachments = item.get("attachments")
+                        else:
+                            text = item
+                            attachments = None
                         self._emit_event({
                             "type": "user_message",
                             "content": text,
                         })
-                        await client.query(text)
+                        if attachments:
+                            # Build content blocks for the SDK
+                            content_blocks = self._build_prompt_blocks(
+                                text, attachments
+                            )
+                            await client.query(content_blocks)
+                        else:
+                            await client.query(text)
                         await self._stream_response(client)
                     except asyncio.CancelledError:
                         break
@@ -362,12 +375,80 @@ class AgentSession:
     # Public interface (matches SessionProtocol)
     # ------------------------------------------------------------------
 
-    def send_input(self, text: str) -> None:
-        """Enqueue a follow-up prompt."""
-        self._input_queue.put_nowait(text)
+    def send_input(
+        self,
+        text: str,
+        attachments: list[dict] | None = None,
+    ) -> None:
+        """Enqueue a follow-up prompt, optionally with file attachments."""
+        if attachments:
+            self._input_queue.put_nowait({
+                "text": text,
+                "attachments": attachments,
+            })
+        else:
+            self._input_queue.put_nowait(text)
 
     def send_input_bytes(self, data: bytes) -> None:
         self.send_input(data.decode("utf-8", errors="replace"))
+
+    def set_mode(self, mode: str) -> None:
+        """Change the agent permission mode at runtime.
+
+        Valid modes: "default", "plan", "acceptEdits".
+        """
+        if self._client is None:
+            return
+        try:
+            self._client.set_permission_mode(mode)
+        except AttributeError:
+            # SDK version may not support runtime mode changes
+            pass
+        except Exception:
+            pass
+
+    @staticmethod
+    def _build_prompt_blocks(
+        text: str,
+        attachments: list[dict],
+    ) -> list[dict]:
+        """Build SDK-compatible content blocks from text + attachments."""
+        import base64
+
+        blocks: list[dict] = []
+        for att in attachments:
+            mime = att.get("type", "application/octet-stream")
+            data = att.get("data", "")
+            if mime.startswith("image/"):
+                # Validate base64 by attempting decode
+                try:
+                    base64.b64decode(data)
+                except Exception:
+                    continue
+                blocks.append({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": mime,
+                        "data": data,
+                    },
+                })
+            else:
+                # Non-image files: send as text with filename context
+                try:
+                    decoded = base64.b64decode(data).decode(
+                        "utf-8", errors="replace"
+                    )
+                except Exception:
+                    decoded = "(binary file)"
+                name = att.get("name", "file")
+                blocks.append({
+                    "type": "text",
+                    "text": f"[Attached file: {name}]\n{decoded}",
+                })
+        if text:
+            blocks.append({"type": "text", "text": text})
+        return blocks
 
     def subscribe(self) -> asyncio.Queue:
         queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
