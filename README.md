@@ -22,18 +22,18 @@ be-conductor keeps them moving. Get notified on **Slack** or **Telegram** the mo
 
 `<agent>` is the command to run. Some examples:
 
-| Agent | Command |
-|---|---|
-| Claude Code | `be-conductor run claude research` |
-| Gemini CLI | `be-conductor run gemini research` |
-| OpenCode | `be-conductor run opencode backend` |
-| Codex CLI | `be-conductor run codex backend` |
-| Aider | `be-conductor run aider refactor` |
-| Goose | `be-conductor run goose api` |
-| GitHub Copilot | `be-conductor run copilot chat` |
-| Amp | `be-conductor run amp feature` |
-| Forge | `be-conductor run forge pair` |
-| Custom (allowlisted) | `be-conductor run python3 train` |
+| Agent | Terminal (PTY) | Agent (SDK) |
+|---|---|---|
+| Claude Code | `be-conductor run claude research` | Dashboard → + New → Agent SDK |
+| Gemini CLI | `be-conductor run gemini research` | — |
+| OpenCode | `be-conductor run opencode backend` | — |
+| Codex CLI | `be-conductor run codex backend` | — |
+| Aider | `be-conductor run aider refactor` | — |
+| Goose | `be-conductor run goose api` | — |
+| GitHub Copilot | `be-conductor run copilot chat` | — |
+| Custom | `be-conductor run python3 train` | — |
+
+Agent SDK sessions are currently available for Claude. They provide a rich structured UI instead of terminal output. Create them from the web dashboard, VSCode, or JetBrains — select "Agent SDK" as the session type.
 
 ```
 Start agents                Leave your desk         Answer from anywhere
@@ -53,35 +53,39 @@ Sessions survive disconnects. Close the browser, reopen it later — everything 
 ```
   Machine A (workstation)          Machine B (GPU box)
   ───────────────────────          ────────────────────
-  Terminal Process × N             Terminal Process × N
+  PTY Sessions × N                 PTY Sessions × N
+  Agent SDK Sessions × N           Agent SDK Sessions × N
         │                                │
-    PTY Wrapper                      PTY Wrapper
-        │                                │
-  be-conductor Server                 be-conductor Server
+  be-conductor Server              be-conductor Server
     0.0.0.0:7777                     0.0.0.0:7777
         │                                │
         └──────── Tailscale ─────────────┘
                       │
-              Browser Dashboard
-          (connects to both servers)
+    Browser Dashboard · IDE Plugins · CLI
 ```
 
-Each process runs in a PTY on your machine. Output goes into a rolling in-memory buffer. When a browser connects, it gets the full buffer first, then live output over WebSocket. The dashboard connects directly to each server — no proxy, no hub. Each server stays independent.
+Two session types run side-by-side. **PTY sessions** wrap terminal processes in a pseudo-terminal — output goes into a rolling buffer, clients see full terminal rendering via xterm.js. **Agent SDK sessions** run Claude via the Agent SDK and stream structured JSON events — clients see rich HTML with markdown, tool panels, and interactive questions. Both types are accessible from the web dashboard, IDE plugins, and CLI. The dashboard connects directly to each server — no proxy, no hub.
 
 ## Features
 
+- **Two session types** — **Terminal (PTY)** for the full Claude Code TUI experience, and **Agent (SDK)** for a rich structured UI with markdown, code blocks, tool panels, and interactive questions. Both work side-by-side.
+- **Agent SDK sessions** — powered by the Claude Agent SDK. Renders responses as rich HTML with markdown, syntax-highlighted code blocks, collapsible tool calls, tables, and thinking blocks. Interactive question modals with radio-button options. Smart send/stop button, mode selector (Default / Plan / Auto-accept), effort toggle, and animated status spinner.
+- **Shared agent view** — one `agent-view.html` rendering engine used identically across the web dashboard, JetBrains (dockable JCEF tool window), and VSCode (webview panel). Change it once, works everywhere.
 - **Run any terminal process** — AI coding agents, training jobs, builds, or any interactive command that runs in a terminal.
-- **Web dashboard** — full terminal rendering in the browser with split view, color themes, font controls, and keyboard input.
+- **Web dashboard** — full terminal rendering in the browser with split view, color themes, font controls, and keyboard input. Agent sessions render as rich structured UI in the same dashboard.
 - **Mobile-ready** — responsive layout with on-screen extra keys, horizontal and vertical touch scrolling, text selection via long-press, and auto-fullscreen when the keyboard opens.
 - **Multi-machine** — connect to multiple be-conductor servers from one dashboard; sessions are grouped by machine.
 - **Git worktree isolation** — run agents in isolated branches so parallel sessions never conflict with each other or your work.
-- **Session resume** — exited sessions with resume tokens are saved and can be relaunched with one click or from the CLI.
+- **Session resume** — exited sessions are saved and can be relaunched with one click or from the CLI. Agent sessions persist conversation history and resume via the SDK.
+- **Session cloning** — clone a running session into a new one that inherits the original's context via summary or raw buffer.
+- **Image and file attachments** — drop files onto the agent input area or click +. Images are saved for Claude to read; text files are inlined. Preview strip with thumbnails.
 - **External session discovery** — find and resume sessions started in IDEs or other terminals (Claude Code, Codex, Copilot, Gemini, Goose).
 - **Notifications** — get alerted on Slack, Telegram, Discord, or custom webhooks when a session stalls or finishes. Setup guides: [Telegram](docs/notification_telegram.md), [Slack](docs/notification_slack.md).
 - **Notes** — scoped scratchpad for capturing ideas. Notes can be global, project-scoped, or session-scoped. Push a note directly into a terminal session, filter by project or session, and sync across all connected dashboards. In multi-server setups, notes from all machines are merged and displayed with server labels.
 - **File viewer** — browse project files, view text with line numbers, render Markdown, display images, preview PDFs, and download files. Native diagram rendering for `.drawio`, `.mermaid`/`.mmd`, and `.svg` with interactive zoom/pan, fit-to-view, and background toggle. Collapsible sidebar with mobile-optimized layout.
 - **File upload** — drag-and-drop, paste, or tap to upload files into a session; insert the path or copy it to clipboard.
-- **IDE plugins** — VS Code and JetBrains plugins for managing sessions without leaving your editor.
+- **IDE plugins** — VS Code and JetBrains plugins for managing sessions without leaving your editor. Agent sessions open as native dockable panels. Terminal sessions open in the IDE's terminal.
+- **Theme support** — six color themes (Default, Dark, Mid, Bright, Bernstein, Green) applied to both terminal and agent views.
 - **HTTPS support** — enable HTTPS from the dashboard or CLI for secure access without Tailscale. Generate a self-signed certificate, upload your own, or set paths via environment variables. Enables clipboard and other secure-context browser APIs on LAN. Setup guide: [HTTPS](docs/https.md).
 - **Secure by default** — runs entirely on your machines with no cloud backend; pair with Tailscale (or self-hosted [headscale](docs/headscale.md)) for encrypted remote access, or enable HTTPS for secure LAN access without a VPN.
 

@@ -6,16 +6,24 @@ All notable changes to be-conductor are documented here.
 
 ### New
 
-- **Agent SDK sessions** — new session type powered by the Claude Agent SDK. Streams structured JSON events (text, tool calls, thinking, results) instead of raw terminal bytes. Rich rendering with markdown, syntax-highlighted code blocks, collapsible tool panels, and cost/usage metadata
-- **Shared agent view** — standalone `agent-view.html` served at `/agent/{session_id}`, used identically by the web dashboard, JetBrains (JCEF editor tab), and VSCode (webview panel). One codebase for agent rendering across all platforms
-- **IDE integration** — agent sessions open as dockable editor tabs in JetBrains (split, move, dock like code files) and as webview panels in VSCode. Clickable file paths in tool results open files in the IDE editor. File picker for attachments uses the native IDE dialog
-- **Agent input controls** — mode selector (Default / Plan / Auto-accept), effort toggle (Low / Medium / High), send/stop button, drag-resizable input area, image and file attachments
-- **Agent as default** — IDE plugins default to Agent SDK sessions, with Terminal (PTY) available as an option
+- **Agent SDK sessions** — new session type powered by the Claude Agent SDK. Streams structured JSON events (text, tool calls, thinking, results) instead of raw terminal bytes. Rich rendering with markdown, syntax-highlighted code blocks, collapsible tool panels, and tables
+- **Shared agent view** — standalone `agent-view.html` served at `/agent/{session_id}`, used identically by the web dashboard, JetBrains, and VSCode. One codebase for agent rendering across all platforms
+- **IDE integration** — agent sessions open as dockable tool windows in JetBrains (split, move, dock anywhere) and as webview panels in VSCode. Clickable file paths in tool results open files in the IDE editor
+- **Interactive questions** — `AskUserQuestion` tool calls render as a modal with radio-button options, replacing the normal input area until answered. Free-text fallback for questions without options. Close button and Esc to cancel
+- **Smart input controls** — mode selector popup (Ask before edits / Edit automatically / Plan mode) with effort toggle (Low / Medium / High). Send/stop button with four states: disabled (empty), send (blue), queued (orange), stop (black). Auto-growing textarea with drag-resizable input area
+- **Image and file attachments** — drop files onto the input area or click the + button. Images are saved to a temp directory so Claude can read them. Preview strip with thumbnails and remove buttons
+- **Animated status** — baroque-themed rotating spinner verbs (Composing, Orchestrating, Fuguing, Tempering...) with elapsed time counter
+- **Session persistence** — agent message history saved to disk, restored on resume. Conversation context maintained via SDK session resume
+- **Theme support** — agent view accepts theme parameter (default, dark, mid, bright, bernstein, green). Dashboard forwards theme changes to agent iframe in real-time
+- **Agent as default** — IDE plugins and dashboard default to Agent SDK sessions, with Terminal (PTY) available as an option
 - **Session cloning** — clone a running session into a new one that inherits the original's context via summary or raw buffer
 
 ### Fixed
 
 - **CLI scroll jumping** — removed all escape sequence rewriting (ED2/ED3 stripping, sync buffering). The scroll-to-top issue is a Claude Code bug ([anthropics/claude-code#36582](https://github.com/anthropics/claude-code/issues/36582)). CLI output is now a clean transparent passthrough
+- **Agent interrupt** — stop button sends SDK interrupt without killing the session. Per-turn error handling keeps the session alive on failures
+- **Session labels** — consistent "Claude Code" label across all clients (dashboard, JetBrains, VSCode) for both PTY and agent sessions
+- **Agent resume** — uses SDK native `resume` + `continue_conversation` instead of building shell commands. History filtered on load to remove stale events
 
 ## v0.3.33
 
