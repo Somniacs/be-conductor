@@ -70,10 +70,11 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--fo
 /* Message layout */
 .msg { margin: 0; }
 .msg-user { margin-top: 16px; }
-.msg-group { position: relative; margin-left: 16px; padding-left: 16px; padding-top: 8px; }
-.msg-group::before { content: ''; position: absolute; left: 3px; top: 8px; bottom: 8px; width: 1px; background: var(--border); }
-.msg-claude { position: relative; padding-top: 5px; padding-bottom: 5px; }
-.msg-claude::before { content: ''; position: absolute; left: -16px; top: 12px; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); z-index: 1; box-shadow: 0 0 0 3px var(--bg); }
+.msg-group { position: relative; margin-left: 8px; padding-left: 20px; padding-top: 4px; }
+.msg-group::before { content: ''; position: absolute; left: 3px; top: 0; bottom: 0; width: 1px; background: var(--border); }
+.msg-claude { padding-top: 2px; padding-bottom: 2px; }
+.msg-claude-dot { position: relative; }
+.msg-claude-dot::before { content: ''; position: absolute; left: -20px; top: 8px; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); z-index: 1; box-shadow: 0 0 0 3px var(--bg); }
 #messages::-webkit-scrollbar { width: 8px; }
 #messages::-webkit-scrollbar-track { background: transparent; }
 #messages::-webkit-scrollbar-thumb { background: #30363d; border-radius: 4px; }
@@ -414,7 +415,9 @@ function renderEvent(event) {
             return;
         }
         const wrapper = document.createElement('div');
-        wrapper.className = 'msg msg-claude';
+        const grp = document.getElementById('current-group');
+        const isFirst = grp && !grp.querySelector('.msg-claude');
+        wrapper.className = 'msg msg-claude' + (isFirst ? ' msg-claude-dot' : '');
 
         for (const block of blocks) {
             if (block.type === 'text') {
