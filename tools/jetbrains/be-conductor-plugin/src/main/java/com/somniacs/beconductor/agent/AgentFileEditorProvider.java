@@ -28,7 +28,9 @@ public class AgentFileEditorProvider implements FileEditorProvider, DumbAware {
     public @NotNull FileEditor createEditor(@NotNull Project project, @NotNull VirtualFile file) {
         String url = file.getUserData(AGENT_URL_KEY);
         String sessionId = file.getUserData(AGENT_SESSION_KEY);
-        return new AgentFileEditor(sessionId != null ? sessionId : file.getName(), url != null ? url : "about:blank");
+        AgentFileEditor editor = new AgentFileEditor(sessionId != null ? sessionId : file.getName(), url != null ? url : "about:blank");
+        editor.setFile(file);
+        return editor;
     }
 
     @Override

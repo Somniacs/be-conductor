@@ -3,6 +3,7 @@ package com.somniacs.beconductor.agent;
 import com.intellij.openapi.fileEditor.FileEditor;
 import com.intellij.openapi.fileEditor.FileEditorState;
 import com.intellij.openapi.util.UserDataHolderBase;
+import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.ui.jcef.JBCefApp;
 import com.intellij.ui.jcef.JBCefBrowser;
 import org.jetbrains.annotations.Nls;
@@ -21,6 +22,7 @@ public class AgentFileEditor extends UserDataHolderBase implements FileEditor {
     private final String name;
     private final JBCefBrowser browser;
     private final JPanel panel;
+    private VirtualFile file;
 
     public AgentFileEditor(String sessionId, String url) {
         this.name = sessionId + " (Agent)";
@@ -62,6 +64,15 @@ public class AgentFileEditor extends UserDataHolderBase implements FileEditor {
 
     @Override
     public void removePropertyChangeListener(@NotNull PropertyChangeListener listener) {}
+
+    public void setFile(@NotNull VirtualFile file) {
+        this.file = file;
+    }
+
+    @Override
+    public @NotNull VirtualFile getFile() {
+        return file;
+    }
 
     @Override
     public void dispose() {
