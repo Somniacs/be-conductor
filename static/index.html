@@ -2641,8 +2641,8 @@
                     <button onclick="setSessionMode('resume')">Resume</button>
                 </div>
                 <div class="session-mode-toggle" id="session-type-toggle">
-                    <button class="active" onclick="setSessionType('pty')">Terminal</button>
-                    <button onclick="setSessionType('agent')">Agent SDK</button>
+                    <button onclick="setSessionType('pty')">Terminal</button>
+                    <button class="active" onclick="setSessionType('agent')">Agent SDK</button>
                 </div>
                 <div class="session-mode-toggle" id="resume-sub-toggle" style="display:none;">
                     <button class="active" onclick="setResumeSubMode('manual')">Manual</button>
@@ -3497,6 +3497,8 @@
             sel.innerHTML = allowedCommands.map(c =>
                 `<option value="${c.command}">${c.label}</option>`
             ).join('');
+            // Update Agent SDK toggle visibility based on selected command
+            if (typeof onCommandChange === 'function') onCommandChange();
         }
 
         // --- Directory Browser ---
@@ -7932,7 +7934,7 @@
         }
 
         let _newSessionMode = 'new';
-        let _newSessionType = 'pty';
+        let _newSessionType = 'agent';
         let _resumeSubMode = 'manual';  // 'manual' or 'browse'
         let _externalSessions = [];
         let _selectedExternal = null;  // file_id or null
@@ -8018,6 +8020,16 @@
 
         function onCommandChange() {
             if (_newSessionMode === 'resume') updateResumeFields();
+            // Agent SDK only available for claude
+            const command = document.getElementById('new-command').value;
+            const isClaude = command === 'claude' || command.startsWith('claude ');
+            const typeToggle = document.getElementById('session-type-toggle');
+            if (typeToggle) {
+                typeToggle.style.display = isClaude ? '' : 'none';
+                if (!isClaude && _newSessionType === 'agent') {
+                    setSessionType('pty');
+                }
+            }
             validateNewSession();
         }
 
@@ -8382,6 +8394,9 @@
             dialog.classList.toggle('open');
             if (dialog.classList.contains('open')) {
                 updateServerSelectorVisibility();
+                // Apply default session type (agent) — hides command dropdown etc.
+                setSessionType(_newSessionType);
+                onCommandChange();
                 document.getElementById('new-name').focus();
                 validateNewSession();
             }
