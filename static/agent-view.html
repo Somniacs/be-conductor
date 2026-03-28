@@ -36,6 +36,8 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--fo
 .send-btn:hover { background: #3b82f6; }
 .send-btn.busy { background: #1a1a1a; border: 1px solid #444; }
 .send-btn.busy:hover { background: #2a2a2a; }
+.send-btn.queued { background: #b45309; }
+.send-btn.queued:hover { background: #d97706; }
 .send-btn.disabled { background: #333; opacity: 0.4; cursor: default; }
 .send-btn.disabled:hover { background: #333; }
 .agent-spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #30363d; border-top-color: #8b949e; border-radius: 50%; animation: spin 0.8s linear infinite; }
@@ -446,9 +448,9 @@ function updateSendBtn() {
         sendBtn.className = 'send-btn busy';
         sendBtn.title = 'Stop (Esc)';
     } else if (busy && hasText) {
-        // Busy, has text → send (queue) button
+        // Busy, has text → send (queue) button, orange to indicate queued
         sendBtn.innerHTML = SEND_ICON;
-        sendBtn.className = 'send-btn';
+        sendBtn.className = 'send-btn queued';
         sendBtn.title = 'Send (queued)';
     } else if (!busy && hasText) {
         // Idle, has text → send button
