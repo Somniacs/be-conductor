@@ -309,10 +309,7 @@ function renderEvent(event) {
 
     } else if (etype === 'session_end') {
         setBusy(false);
-        const div = document.createElement('div');
-        div.style.cssText = 'margin:16px 0;padding:10px;color:#8b949e;font-size:12px;text-align:center;border-top:1px solid #21262d;';
-        div.textContent = `Session ended (exit ${event.exit_code ?? 0})`;
-        messagesEl.appendChild(div);
+        // Don't render — the session list already shows status
     }
 
     autoScroll();

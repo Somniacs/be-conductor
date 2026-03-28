@@ -347,8 +347,9 @@ class AgentSession:
             try:
                 data = _json.loads(path.read_text(encoding="utf-8"))
                 if isinstance(data, list):
+                    # Filter out stale session_end events from previous runs
+                    data = [e for e in data if e.get("type") not in ("session_end",)]
                     self._message_history = data
-                    # Rebuild console buffer from loaded history
                     for event in data:
                         self._append_console(event)
             except Exception:
