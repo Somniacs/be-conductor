@@ -341,8 +341,16 @@ function connect() {
     ws.onopen = () => {
         retryCount = 0;
         const ph = messagesEl.querySelector('[data-placeholder]');
-        if (ph) ph.textContent = 'Connected. Waiting for response...';
+        if (ph) ph.remove();
         promptEl.focus();
+        // Fetch session info for cwd
+        const httpBase = WS_BASE.replace('ws://', 'http://').replace('wss://', 'https://');
+        fetch(`${httpBase}/sessions/${SESSION_ID}`).then(r => r.json()).then(info => {
+            if (info && info.cwd) {
+                const cwdEl = welcome.querySelector('.agent-cwd');
+                if (cwdEl) cwdEl.textContent = info.cwd.replace(/^\/home\/[^/]+/, '~');
+            }
+        }).catch(() => {});
     };
 
     ws.onmessage = (e) => {
@@ -370,11 +378,18 @@ function connect() {
     ws.onerror = () => {};
 }
 
+// Welcome header
+const welcome = document.createElement('div');
+welcome.style.cssText = 'padding:16px 0 12px;border-bottom:1px solid #21262d;margin-bottom:12px;';
+welcome.innerHTML = `<div style="font-size:15px;color:#e0e0e0;font-weight:500;">&#x266d;conductor <span style="color:#8b949e;font-weight:400;">&middot;</span> <span style="color:#4a6cf7;">Claude</span></div>`
+    + `<div class="agent-cwd" style="font-size:12px;color:#8b949e;margin-top:4px;"></div>`;
+messagesEl.appendChild(welcome);
+
 // Show connecting placeholder
 const placeholder = document.createElement('div');
 placeholder.setAttribute('data-placeholder', '1');
-placeholder.style.cssText = 'padding:20px;color:#8b949e;text-align:center;';
-placeholder.textContent = 'Connecting to agent...';
+placeholder.style.cssText = 'padding:12px;color:#8b949e;font-size:13px;';
+placeholder.textContent = 'Connecting...';
 messagesEl.appendChild(placeholder);
 connect();
 
