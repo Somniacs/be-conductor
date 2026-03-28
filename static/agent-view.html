@@ -321,8 +321,8 @@ function _mdToHtml(text) {
     // Lists
     h = h.replace(/^- (.+)$/gm, '<div style="padding-left:16px;margin:1px 0;line-height:1.5;">&#8226; $1</div>');
     h = h.replace(/^(\d+)\. (.+)$/gm, '<div style="padding-left:16px;margin:1px 0;line-height:1.5;">$1. $2</div>');
-    // Remove blank lines between consecutive list items (prevent spacer divs)
-    h = h.replace(/<\/div>\n\n<div style="padding-left/g, '</div><div style="padding-left');
+    // Remove all whitespace between consecutive list items
+    h = h.replace(/<\/div>\s+<div style="padding-left/g, '</div><div style="padding-left');
     // Paragraphs
     h = h.replace(/\n\n/g, '<div style="height:8px;"></div>');
     h = h.replace(/\n/g, '<br>');
