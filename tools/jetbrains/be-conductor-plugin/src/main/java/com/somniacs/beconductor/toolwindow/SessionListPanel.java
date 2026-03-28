@@ -985,7 +985,7 @@ public class SessionListPanel extends JPanel {
             // Name + session type badge + command
             component.append(session.name, SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES);
             if (session.isAgent()) {
-                component.append("  SDK", new SimpleTextAttributes(
+                component.append("  GUI", new SimpleTextAttributes(
                         SimpleTextAttributes.STYLE_BOLD, new Color(0x4a, 0x6c, 0xf7)));
                 component.append(" \u00b7 ", SimpleTextAttributes.GRAYED_ATTRIBUTES);
             } else {

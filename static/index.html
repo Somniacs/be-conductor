@@ -2642,7 +2642,7 @@
                 </div>
                 <div class="session-mode-toggle" id="session-type-toggle">
                     <button onclick="setSessionType('pty')">Terminal</button>
-                    <button class="active" onclick="setSessionType('agent')">Agent SDK</button>
+                    <button class="active" onclick="setSessionType('agent')">GUI</button>
                 </div>
                 <div class="session-mode-toggle" id="resume-sub-toggle" style="display:none;">
                     <button class="active" onclick="setResumeSubMode('manual')">Manual</button>
@@ -3738,7 +3738,7 @@
             let wtBadge = '';
             let subtitle = escHtml(appLabel);
             if (s.session_type === 'agent') {
-                subtitle = '<span style="color:#4a6cf7;font-weight:600;">SDK</span> &middot; ' + subtitle;
+                subtitle = '<span style="color:#4a6cf7;font-weight:600;">GUI</span> &middot; ' + subtitle;
             }
             if (s.worktree) {
                 const branch = s.worktree.branch || '';

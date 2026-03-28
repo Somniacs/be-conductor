@@ -10,8 +10,8 @@ class SessionItem extends vscode.TreeItem {
 
         const resumable = isResumable(session);
         const isAgent = session.session_type === 'agent';
-        this.description = isAgent ? 'SDK · ' + session.command : session.command;
-        this.tooltip = `${session.name}\nCommand: ${session.command}\nType: ${isAgent ? 'Agent (SDK)' : 'Terminal (PTY)'}\nStatus: ${session.status}` +
+        this.description = isAgent ? 'GUI · ' + session.command : session.command;
+        this.tooltip = `${session.name}\nCommand: ${session.command}\nType: ${isAgent ? 'GUI' : 'Terminal'}\nStatus: ${session.status}` +
             (session.cwd ? `\nDirectory: ${session.cwd}` : '') +
             (session.worktree ? `\nWorktree: ${session.worktree.branch}` : '') +
             (resumable ? '\nResumable' : '');

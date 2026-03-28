@@ -145,7 +145,7 @@ public class NewSessionDialog extends DialogWrapper {
         c.weightx = 0;
         panel.add(new JBLabel("Type:"), c);
 
-        sessionTypeCombo = new JComboBox<>(new String[]{"Agent (SDK)", "Terminal (PTY)"});
+        sessionTypeCombo = new JComboBox<>(new String[]{"GUI", "Terminal"});
         sessionTypeCombo.setSelectedIndex(0);
         c.gridx = 1;
         c.gridwidth = 2;

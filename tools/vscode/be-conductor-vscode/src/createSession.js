@@ -193,15 +193,15 @@ async function createSessionFlow(callbacks) {
         // Server unreachable or git check failed — skip worktree option
     }
 
-    // Step 5: Session type (Agent SDK is default)
+    // Step 5: Session type (GUI is default)
     const typeItems = [
         {
-            label: '$(symbol-event) Agent (SDK)',
-            description: 'Interactive agent panel with structured messages',
+            label: '$(symbol-event) GUI',
+            description: 'Interactive panel with structured messages',
             _type: 'agent',
         },
         {
-            label: '$(terminal) Terminal (PTY)',
+            label: '$(terminal) Terminal',
             description: 'Classic terminal session',
             _type: 'pty',
         },
