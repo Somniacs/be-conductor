@@ -509,10 +509,48 @@ public class SessionListPanel extends JPanel {
         attachedSessions.add(name);
     }
 
-    /** Open an agent session in the system browser, pointing to the be-conductor dashboard. */
-    private void openAgentInBrowser(String sessionId) {
+    /** Open an agent session in an embedded JCEF browser panel inside the IDE (static entry point). */
+    public static void openAgentSession(com.intellij.openapi.project.Project proj, String sessionId) {
         String url = "http://127.0.0.1:7777?focus=" + java.net.URLEncoder.encode(sessionId, java.nio.charset.StandardCharsets.UTF_8);
-        BrowserUtil.browse(url);
+        ApplicationManager.getApplication().invokeLater(() -> {
+            if (proj == null || proj.isDisposed()) return;
+            try {
+                if (!com.intellij.ui.jcef.JBCefApp.isSupported()) {
+                    BrowserUtil.browse(url);
+                    return;
+                }
+                com.intellij.ui.jcef.JBCefBrowser browser = new com.intellij.ui.jcef.JBCefBrowser(url);
+                com.intellij.openapi.wm.ToolWindow tw = com.intellij.openapi.wm.ToolWindowManager
+                    .getInstance(proj).getToolWindow("be-conductor");
+                if (tw != null) {
+                    for (com.intellij.ui.content.Content c : tw.getContentManager().getContents()) {
+                        if (c.getDisplayName().equals(sessionId + " (SDK)")) {
+                            tw.getContentManager().setSelectedContent(c);
+                            tw.show();
+                            return;
+                        }
+                    }
+                    javax.swing.JPanel wrapper = new javax.swing.JPanel(new java.awt.BorderLayout());
+                    wrapper.add(browser.getComponent(), java.awt.BorderLayout.CENTER);
+                    com.intellij.ui.content.Content content = tw.getContentManager()
+                        .getFactory().createContent(wrapper, sessionId + " (SDK)", true);
+                    content.setCloseable(true);
+                    content.setDisposer(() -> browser.dispose());
+                    tw.getContentManager().addContent(content);
+                    tw.getContentManager().setSelectedContent(content);
+                    tw.show();
+                } else {
+                    BrowserUtil.browse(url);
+                }
+            } catch (Exception ex) {
+                BrowserUtil.browse(url);
+            }
+        });
+    }
+
+    /** Open an agent session in an embedded JCEF browser panel inside the IDE. */
+    private void openAgentInBrowser(String sessionId) {
+        openAgentSession(project, sessionId);
     }
 
     private void stopSession(String id, String mode) {

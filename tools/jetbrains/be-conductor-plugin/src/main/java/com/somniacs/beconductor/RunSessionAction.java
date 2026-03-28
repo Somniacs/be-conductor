@@ -68,9 +68,10 @@ public class RunSessionAction extends AnAction {
                 ApiModels.RunRequest request = new ApiModels.RunRequest(name, command, cwd, worktree, "agent");
                 ApiModels.SessionResponse session = client.createSession(request);
                 String sessionId = session != null ? session.id : name;
-                String url = "http://127.0.0.1:7777?focus=" + URLEncoder.encode(sessionId, StandardCharsets.UTF_8);
-                BrowserUtil.browse(url);
-                javax.swing.SwingUtilities.invokeLater(() -> BeConductorToolWindowFactory.refreshAll(project));
+                javax.swing.SwingUtilities.invokeLater(() -> {
+                    BeConductorToolWindowFactory.refreshAll(project);
+                    SessionListPanel.openAgentSession(project, sessionId);
+                });
             } catch (Exception ex) {
                 LOG.warn("be-conductor: failed to create agent session", ex);
                 javax.swing.SwingUtilities.invokeLater(() ->
