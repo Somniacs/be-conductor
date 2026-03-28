@@ -216,7 +216,7 @@ class AgentSession:
             resume=resume_id,
             continue_conversation=bool(resume_id),
             include_partial_messages=True,
-            setting_sources=["project"],
+            setting_sources=["user", "project"],
         )
         # Try to add hooks (SDK version may not support them)
         if hooks_config:
