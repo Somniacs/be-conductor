@@ -15,10 +15,14 @@
     --error: #f85149;
     --muted: #8b949e;
     --code-bg: #0d1117;
+    --user-bg: #161b30;
+    --tool-bg: #0d1117;
+    --tool-header: #161b22;
+    --success-bg: #0d1a0d;
+    --error-bg: #1a0d0d;
     --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
     --font-mono: 'JetBrains Mono', 'Cascadia Mono', Menlo, Consolas, monospace;
 }
-/* Theme overrides applied via JS from URL param ?theme=name */
 *, *::before, *::after { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 14px; height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
 #messages { flex: 1; overflow-y: auto; padding: 12px 16px; min-height: 0; }
@@ -41,7 +45,7 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--fo
 .send-btn.queued:hover { background: #d97706; }
 .send-btn.disabled { background: #333; opacity: 0.4; cursor: default; }
 .send-btn.disabled:hover { background: #333; }
-.agent-spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #30363d; border-top-color: #8b949e; border-radius: 50%; animation: spin 0.8s linear infinite; }
+.agent-spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--muted); border-radius: 50%; animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .right-group { display: flex; align-items: center; gap: 4px; flex-shrink: 0; position: relative; }
 .mode-popup { display: none; position: absolute; bottom: 100%; right: 0; margin-bottom: 8px; background: #1c2028; border: 1px solid var(--border); border-radius: 10px; padding: 8px 0; min-width: 300px; z-index: 100; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
@@ -96,35 +100,62 @@ const WS_BASE = params.get('ws') || window.__WS_BASE || location.origin.replace(
 
 // --- Theme ---
 const THEMES = {
-    default:   { bg: '#12122a', fg: '#d0d0e0', secondary: '#1a1a3a', border: '#2a2a5a', accent: '#8080ff', muted: '#8888bb', codeBg: '#0a0a20' },
-    dark:      { bg: '#000000', fg: '#c0c0c0', secondary: '#111111', border: '#333333', accent: '#6688cc', muted: '#888888', codeBg: '#0a0a0a' },
-    mid:       { bg: '#1e1e2e', fg: '#cdd6f4', secondary: '#28283e', border: '#45475a', accent: '#89b4fa', muted: '#a6adc8', codeBg: '#181825' },
-    bright:    { bg: '#fafafa', fg: '#383a42', secondary: '#f0f0f0', border: '#d0d0d0', accent: '#4078f2', muted: '#909090', codeBg: '#e8e8e8' },
-    bernstein: { bg: '#1a0e00', fg: '#ffb000', secondary: '#2a1a00', border: '#4a2800', accent: '#ffb000', muted: '#805800', codeBg: '#120800' },
-    green:     { bg: '#001a00', fg: '#33ff00', secondary: '#002a00', border: '#0a4400', accent: '#33ff00', muted: '#1a8000', codeBg: '#001200' },
+    default: {
+        bg: '#12122a', fg: '#d0d0e0', secondary: '#1a1a3a', border: '#2a2a5a',
+        accent: '#7c8cff', muted: '#8888bb', codeBg: '#0a0a20',
+        userBg: '#1a1a44', toolBg: '#141430', toolHeader: '#1a1a3a',
+        successBg: '#0a1a0a', errorBg: '#1a0a0a',
+    },
+    dark: {
+        bg: '#0a0a0a', fg: '#c8c8c8', secondary: '#141414', border: '#2a2a2a',
+        accent: '#6699dd', muted: '#777777', codeBg: '#060606',
+        userBg: '#111122', toolBg: '#0e0e0e', toolHeader: '#161616',
+        successBg: '#0a120a', errorBg: '#120a0a',
+    },
+    mid: {
+        bg: '#1e1e2e', fg: '#cdd6f4', secondary: '#262640', border: '#45475a',
+        accent: '#89b4fa', muted: '#a6adc8', codeBg: '#181825',
+        userBg: '#232345', toolBg: '#1c1c30', toolHeader: '#262640',
+        successBg: '#1a2a1a', errorBg: '#2a1a1a',
+    },
+    bright: {
+        bg: '#ffffff', fg: '#24292f', secondary: '#f6f8fa', border: '#d0d7de',
+        accent: '#0969da', muted: '#656d76', codeBg: '#f0f2f5',
+        userBg: '#ddf4ff', toolBg: '#f6f8fa', toolHeader: '#eaeef2',
+        successBg: '#dafbe1', errorBg: '#ffebe9',
+    },
+    bernstein: {
+        bg: '#1a0e00', fg: '#ffb000', secondary: '#241400', border: '#4a2800',
+        accent: '#ffc040', muted: '#996600', codeBg: '#120800',
+        userBg: '#241800', toolBg: '#1e1000', toolHeader: '#2a1800',
+        successBg: '#1a1400', errorBg: '#1a0800',
+    },
+    green: {
+        bg: '#001a00', fg: '#33ff00', secondary: '#002200', border: '#0a4400',
+        accent: '#44ff22', muted: '#1a8800', codeBg: '#001200',
+        userBg: '#002800', toolBg: '#001e00', toolHeader: '#003000',
+        successBg: '#002a00', errorBg: '#1a0a00',
+    },
 };
-const themeName = params.get('theme') || window.__THEME || 'default';
-const theme = THEMES[themeName] || THEMES.default;
 const root = document.documentElement;
-root.style.setProperty('--bg', theme.bg);
-root.style.setProperty('--fg', theme.fg);
-root.style.setProperty('--bg-secondary', theme.secondary);
-root.style.setProperty('--border', theme.border);
-root.style.setProperty('--accent', theme.accent);
-root.style.setProperty('--muted', theme.muted);
-root.style.setProperty('--code-bg', theme.codeBg);
-// Listen for theme changes from parent (dashboard iframe)
+function applyTheme(t) {
+    root.style.setProperty('--bg', t.bg);
+    root.style.setProperty('--fg', t.fg);
+    root.style.setProperty('--bg-secondary', t.secondary);
+    root.style.setProperty('--border', t.border);
+    root.style.setProperty('--accent', t.accent);
+    root.style.setProperty('--muted', t.muted);
+    root.style.setProperty('--code-bg', t.codeBg);
+    root.style.setProperty('--user-bg', t.userBg);
+    root.style.setProperty('--tool-bg', t.toolBg);
+    root.style.setProperty('--tool-header', t.toolHeader);
+    root.style.setProperty('--success-bg', t.successBg);
+    root.style.setProperty('--error-bg', t.errorBg);
+}
+const themeName = params.get('theme') || window.__THEME || 'default';
+applyTheme(THEMES[themeName] || THEMES.default);
 window.addEventListener('message', (e) => {
-    if (e.data && e.data.type === 'setTheme' && THEMES[e.data.theme]) {
-        const t = THEMES[e.data.theme];
-        root.style.setProperty('--bg', t.bg);
-        root.style.setProperty('--fg', t.fg);
-        root.style.setProperty('--bg-secondary', t.secondary);
-        root.style.setProperty('--border', t.border);
-        root.style.setProperty('--accent', t.accent);
-        root.style.setProperty('--muted', t.muted);
-        root.style.setProperty('--code-bg', t.codeBg);
-    }
+    if (e.data && e.data.type === 'setTheme' && THEMES[e.data.theme]) applyTheme(THEMES[e.data.theme]);
 });
 
 // --- IDE Bridge ---
@@ -185,8 +216,8 @@ function _mdToHtml(text) {
     let h = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     // Fenced code blocks
     h = h.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
-        const label = lang ? `<div style="font-size:11px;color:#666;padding:4px 10px;background:#161b22;border-radius:6px 6px 0 0;border-bottom:1px solid #30363d;">${lang}</div>` : '';
-        return `<div style="margin:8px 0;border-radius:6px;overflow:hidden;border:1px solid #30363d;">${label}<pre style="margin:0;padding:10px 12px;background:#0d1117;overflow-x:auto;font-size:13px;line-height:1.45;color:#e6edf3;"><code>${code}</code></pre></div>`;
+        const label = lang ? `<div style="font-size:11px;color:#666;padding:4px 10px;background:var(--tool-header);border-radius:6px 6px 0 0;border-bottom:1px solid var(--border);">${lang}</div>` : '';
+        return `<div style="margin:8px 0;border-radius:6px;overflow:hidden;border:1px solid var(--border);">${label}<pre style="margin:0;padding:10px 12px;background:var(--code-bg);overflow-x:auto;font-size:13px;line-height:1.45;color:var(--fg);"><code>${code}</code></pre></div>`;
     });
     // Tables: detect lines starting with |
     h = h.replace(/((?:^\|.+\|$\n?)+)/gm, (tableBlock) => {
@@ -198,7 +229,7 @@ function _mdToHtml(text) {
             if (/^\|[\s-:|]+\|$/.test(row.trim())) return;
             const cells = row.split('|').filter((c, j, a) => j > 0 && j < a.length - 1);
             const tag = i === 0 ? 'th' : 'td';
-            const bgStyle = i === 0 ? 'background:#161b22;font-weight:600;' : (i % 2 === 0 ? 'background:#0d1117;' : '');
+            const bgStyle = i === 0 ? 'background:var(--tool-header);font-weight:600;' : (i % 2 === 0 ? 'background:var(--code-bg);' : '');
             html += '<tr>';
             cells.forEach(cell => {
                 html += `<${tag} style="padding:6px 10px;border:1px solid #30363d;text-align:left;${bgStyle}">${cell.trim()}</${tag}>`;
@@ -209,15 +240,15 @@ function _mdToHtml(text) {
         return html;
     });
     // Inline code
-    h = h.replace(/`([^`]+)`/g, '<code style="background:#1a1f2b;padding:2px 5px;border-radius:3px;font-size:0.9em;color:#e6edf3;">$1</code>');
+    h = h.replace(/`([^`]+)`/g, '<code style="background:var(--tool-bg);padding:2px 5px;border-radius:3px;font-size:0.9em;color:var(--fg);">$1</code>');
     // Bold
     h = h.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
     // Italic
     h = h.replace(/\*(.+?)\*/g, '<em>$1</em>');
     // Headers
-    h = h.replace(/^### (.+)$/gm, '<div style="font-size:15px;font-weight:600;color:#e6edf3;margin:12px 0 4px;">$1</div>');
-    h = h.replace(/^## (.+)$/gm, '<div style="font-size:16px;font-weight:600;color:#e6edf3;margin:14px 0 6px;">$1</div>');
-    h = h.replace(/^# (.+)$/gm, '<div style="font-size:18px;font-weight:600;color:#e6edf3;margin:16px 0 8px;">$1</div>');
+    h = h.replace(/^### (.+)$/gm, '<div style="font-size:15px;font-weight:600;color:var(--fg);margin:12px 0 4px;">$1</div>');
+    h = h.replace(/^## (.+)$/gm, '<div style="font-size:16px;font-weight:600;color:var(--fg);margin:14px 0 6px;">$1</div>');
+    h = h.replace(/^# (.+)$/gm, '<div style="font-size:18px;font-weight:600;color:var(--fg);margin:16px 0 8px;">$1</div>');
     // Lists
     h = h.replace(/^- (.+)$/gm, '<div style="padding-left:16px;">&#8226; $1</div>');
     h = h.replace(/^(\d+)\. (.+)$/gm, '<div style="padding-left:16px;">$1. $2</div>');
@@ -273,8 +304,8 @@ function renderEvent(event) {
     if (etype === 'user_message') {
         const div = document.createElement('div');
         div.style.cssText = 'margin:16px 0;';
-        div.innerHTML = `<div style="font-size:11px;color:#8b949e;margin-bottom:4px;font-weight:500;">You</div>
-            <div style="padding:10px 14px;background:#161b30;border-radius:8px;border-left:3px solid #4a6cf7;white-space:pre-wrap;line-height:1.5;">${escHtml(event.content || '')}</div>`;
+        div.innerHTML = `<div style="font-size:11px;color:var(--muted);margin-bottom:4px;font-weight:500;">You</div>
+            <div style="padding:10px 14px;background:var(--user-bg);border-radius:8px;border-left:3px solid var(--accent);white-space:pre-wrap;line-height:1.5;">${escHtml(event.content || '')}</div>`;
         messagesEl.appendChild(div);
 
     } else if (etype === 'assistant_message') {
@@ -283,7 +314,7 @@ function renderEvent(event) {
         const wrapper = document.createElement('div');
         wrapper.style.cssText = 'margin:16px 0;';
         const label = document.createElement('div');
-        label.style.cssText = 'font-size:11px;color:#8b949e;margin-bottom:6px;font-weight:500;';
+        label.style.cssText = 'font-size:11px;color:var(--muted);margin-bottom:6px;font-weight:500;';
         label.textContent = 'Claude';
         wrapper.appendChild(label);
 
@@ -298,7 +329,7 @@ function renderEvent(event) {
                 const details = document.createElement('details');
                 details.style.cssText = 'margin:8px 0;border:1px solid #21262d;border-radius:6px;overflow:hidden;';
                 const summary = document.createElement('summary');
-                summary.style.cssText = 'padding:6px 10px;background:#161b22;color:#8b949e;font-size:13px;cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px;';
+                summary.style.cssText = 'padding:6px 10px;background:var(--tool-header);color:var(--muted);font-size:13px;cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px;';
                 const thinkLen = (block.thinking || '').length;
                 const thinkSec = busyStartTime ? Math.round((Date.now() - busyStartTime) / 1000) : 0;
                 summary.innerHTML = `<span style="color:#e0e0e0;">&#x25CF;</span> Thought for ${thinkSec || '?'}s <span style="color:#666;">&#x203A;</span>`;
@@ -323,14 +354,14 @@ function renderEvent(event) {
                 const details = document.createElement('details');
                 details.style.cssText = 'margin:8px 0;border:1px solid #30363d;border-radius:6px;overflow:hidden;';
                 const summary = document.createElement('summary');
-                summary.style.cssText = 'padding:8px 12px;background:#161b22;color:#e6edf3;font-size:13px;cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px;';
+                summary.style.cssText = 'padding:8px 12px;background:var(--tool-header);color:var(--fg);font-size:13px;cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px;';
                 const toolName = block.tool || 'tool';
                 const inputSummary = _toolInputSummary(toolName, block.input);
-                summary.innerHTML = `<span>${_toolIcon(toolName)}</span><strong style="color:#f0a020;">${escHtml(toolName)}</strong><span style="color:#8b949e;font-weight:400;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${makeFileLinksClickable(escHtml(inputSummary))}</span>`;
+                summary.innerHTML = `<span>${_toolIcon(toolName)}</span><strong style="color:var(--accent);">${escHtml(toolName)}</strong><span style="color:var(--muted);font-weight:400;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${makeFileLinksClickable(escHtml(inputSummary))}</span>`;
                 const content = document.createElement('div');
-                content.style.cssText = 'padding:8px 12px;background:#0d1117;';
+                content.style.cssText = 'padding:8px 12px;background:var(--tool-bg);';
                 const pre = document.createElement('pre');
-                pre.style.cssText = 'margin:0;font-size:12px;color:#8b949e;overflow-x:auto;max-height:200px;white-space:pre-wrap;line-height:1.4;';
+                pre.style.cssText = 'margin:0;font-size:12px;color:var(--muted);overflow-x:auto;max-height:200px;white-space:pre-wrap;line-height:1.4;';
                 try { pre.textContent = JSON.stringify(block.input, null, 2); } catch { pre.textContent = String(block.input); }
                 content.appendChild(pre);
                 details.appendChild(summary);
@@ -340,7 +371,7 @@ function renderEvent(event) {
             } else if (block.type === 'tool_result') {
                 const div = document.createElement('div');
                 const isErr = block.is_error;
-                div.style.cssText = `margin:4px 0 8px 0;padding:8px 12px;background:#0d1117;border-radius:0 0 6px 6px;border-top:1px solid ${isErr ? '#f8514933' : '#30363d'};font-size:12px;color:${isErr ? '#f85149' : '#8b949e'};max-height:300px;overflow-y:auto;white-space:pre-wrap;line-height:1.4;`;
+                div.style.cssText = `margin:4px 0 8px 0;padding:8px 12px;background:var(--tool-bg);border-radius:0 0 6px 6px;border-top:1px solid ${isErr ? 'var(--error)' : 'var(--border)'};font-size:12px;color:${isErr ? 'var(--error)' : 'var(--muted)'};max-height:300px;overflow-y:auto;white-space:pre-wrap;line-height:1.4;`;
                 const raw = String(block.content || '');
                 const truncated = raw.length > 3000 ? raw.slice(0, 3000) + '\n...(truncated)' : raw;
                 div.innerHTML = makeFileLinksClickable(escHtml(truncated));
@@ -365,7 +396,7 @@ function renderEvent(event) {
     } else if (etype === 'error') {
         setBusy(false);
         const div = document.createElement('div');
-        div.style.cssText = 'margin:12px 0;padding:10px 14px;background:#1a0d0d;border:1px solid #3a1a1a;border-radius:8px;color:#f85149;font-size:13px;';
+        div.style.cssText = 'margin:12px 0;padding:10px 14px;background:var(--error-bg);border:1px solid var(--error);border-radius:8px;color:var(--error);font-size:13px;';
         div.innerHTML = `<strong>Error</strong> &mdash; ${escHtml(event.error || 'Unknown error')}`;
         messagesEl.appendChild(div);
 
@@ -513,7 +544,7 @@ function setBusy(b) {
         busyStartTime = Date.now();
         if (!spinnerEl) {
             spinnerEl = document.createElement('div');
-            spinnerEl.style.cssText = 'padding:8px 0;color:#8b949e;font-size:13px;display:flex;align-items:center;gap:8px;';
+            spinnerEl.style.cssText = 'padding:8px 0;color:var(--muted);font-size:13px;display:flex;align-items:center;gap:8px;';
             spinnerEl.innerHTML = '<span class="agent-spinner"></span><span class="spinner-text"></span>';
             messagesEl.appendChild(spinnerEl);
         }
@@ -568,7 +599,7 @@ setBusy(false);
 function connect() {
     if (!SESSION_ID) {
         const ph = document.createElement('div');
-        ph.style.cssText = 'padding:20px;color:#8b949e;text-align:center;';
+        ph.style.cssText = 'padding:20px;color:var(--muted);text-align:center;';
         ph.textContent = 'No session ID provided.';
         messagesEl.appendChild(ph);
         return;
@@ -620,14 +651,14 @@ function connect() {
 // Welcome header
 const welcome = document.createElement('div');
 welcome.style.cssText = 'padding:16px 0 12px;border-bottom:1px solid #21262d;margin-bottom:12px;';
-welcome.innerHTML = `<div style="font-size:15px;color:#e0e0e0;font-weight:500;"><span style="color:#4a6cf7;">Claude</span> <span style="color:#8b949e;font-weight:400;">&middot;</span> &#x266d;conductor</div>`
-    + `<div class="agent-cwd" style="font-size:12px;color:#8b949e;margin-top:4px;"></div>`;
+welcome.innerHTML = `<div style="font-size:15px;color:#e0e0e0;font-weight:500;"><span style="color:#4a6cf7;">Claude</span> <span style="color:var(--muted);font-weight:400;">&middot;</span> &#x266d;conductor</div>`
+    + `<div class="agent-cwd" style="font-size:12px;color:var(--muted);margin-top:4px;"></div>`;
 messagesEl.appendChild(welcome);
 
 // Show connecting placeholder
 const placeholder = document.createElement('div');
 placeholder.setAttribute('data-placeholder', '1');
-placeholder.style.cssText = 'padding:12px;color:#8b949e;font-size:13px;';
+placeholder.style.cssText = 'padding:12px;color:var(--muted);font-size:13px;';
 placeholder.textContent = 'Connecting...';
 messagesEl.appendChild(placeholder);
 connect();
@@ -814,7 +845,7 @@ let effortIdx = 2;
 
 // Build popup
 const popupHeader = document.createElement('div');
-popupHeader.style.cssText = 'padding:8px 14px;font-size:12px;color:#8b949e;font-weight:600;';
+popupHeader.style.cssText = 'padding:8px 14px;font-size:12px;color:var(--muted);font-weight:600;';
 popupHeader.textContent = 'Modes';
 modePopup.appendChild(popupHeader);
 
@@ -822,10 +853,10 @@ MODES.forEach((m, idx) => {
     const item = document.createElement('div');
     item.className = 'mode-item' + (idx === modeIdx ? ' active' : '');
     item.innerHTML = `
-        <div style="color:#8b949e;flex-shrink:0;margin-top:2px;">${m.icon}</div>
+        <div style="color:var(--muted);flex-shrink:0;margin-top:2px;">${m.icon}</div>
         <div style="flex:1;">
             <div style="font-size:13px;color:#e0e0e0;font-weight:500;">${m.label}</div>
-            <div style="font-size:11px;color:#8b949e;margin-top:2px;">${m.desc}</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:2px;">${m.desc}</div>
         </div>
         <div class="mode-check" style="color:#4a6cf7;flex-shrink:0;margin-top:2px;display:${idx === modeIdx ? 'block' : 'none'};">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 8l3.5 3.5L13 5"/></svg>
@@ -848,7 +879,7 @@ modePopup.appendChild(sep);
 const effortRow = document.createElement('div');
 effortRow.style.cssText = 'padding:8px 14px;display:flex;align-items:center;gap:10px;';
 effortRow.innerHTML = `
-    <div style="color:#8b949e;flex-shrink:0;">
+    <div style="color:var(--muted);flex-shrink:0;">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 10h2l2-4 3 8 2-6h3"/></svg>
     </div>
     <div style="flex:1;font-size:13px;color:#e0e0e0;">Effort</div>`;
