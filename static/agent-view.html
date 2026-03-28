@@ -73,7 +73,7 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--fo
 .msg-group { position: relative; margin-left: 8px; padding-left: 20px; padding-top: 4px; }
 .msg-group:empty { display: none; }
 .msg-group::before { content: ''; position: absolute; left: 3px; top: 0; bottom: 0; width: 1px; background: var(--border); }
-.msg-group:has(.msg-claude-dot:last-child)::before { bottom: 14px; }
+.msg-group.single-dot::before { display: none; }
 .msg-claude { padding-top: 2px; padding-bottom: 2px; }
 .msg-claude-dot { position: relative; }
 .msg-claude-dot::before { content: ''; position: absolute; left: -20px; top: 8px; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); z-index: 1; box-shadow: 0 0 0 3px var(--bg); }
@@ -419,9 +419,8 @@ function renderEvent(event) {
             return;
         }
         const wrapper = document.createElement('div');
-        const grp = document.getElementById('current-group');
-        const isFirst = grp && !grp.querySelector('.msg-claude');
-        wrapper.className = 'msg msg-claude' + (isFirst ? ' msg-claude-dot' : '');
+        const hasText = blocks.some(b => b.type === 'text');
+        wrapper.className = 'msg msg-claude' + (hasText ? ' msg-claude-dot' : '');
 
         for (const block of blocks) {
             if (block.type === 'text') {
@@ -503,6 +502,11 @@ function autoScroll() {
     if (spinnerEl && spinnerEl.parentNode === messagesEl) {
         messagesEl.appendChild(spinnerEl);
     }
+    // Hide line for groups with only one dot
+    messagesEl.querySelectorAll('.msg-group').forEach(g => {
+        const dots = g.querySelectorAll('.msg-claude-dot');
+        g.classList.toggle('single-dot', dots.length <= 1);
+    });
     if (messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 100) {
         messagesEl.scrollTop = messagesEl.scrollHeight;
     }
