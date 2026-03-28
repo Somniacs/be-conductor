@@ -5288,14 +5288,7 @@
                 if (_ekHideTimer) { clearTimeout(_ekHideTimer); _ekHideTimer = null; }
                 // Don't show extra keys for agent sessions (they use text input, not terminal)
                 const fp = panels.find(p => p.id === _focusedPanelId);
-                if (fp && fp._sessionType === 'agent') {
-                    _hideExtraKeys();
-                    // Constrain body for agent view too (no extra keys bar)
-                    if (window.innerHeight - vh > 50) {
-                        document.body.style.height = vh + 'px';
-                        document.body.style.overflow = 'hidden';
-                    }
-                }
+                if (fp && fp._sessionType === 'agent') { _hideExtraKeys(); }
                 else _showExtraKeys();
                 _positionExtraKeys();
                 // On tablets in desktop browser mode the layout viewport may
@@ -9800,26 +9793,6 @@
         // Handle messages from agent iframe
         window.addEventListener('message', (e) => {
             if (!e.data) return;
-            // Keyboard resize from agent iframe — shrink panel to fit
-            if (e.data.type === 'keyboardResize') {
-                const vh = e.data.height;
-                if (vh && vh < window.innerHeight - 100) {
-                    // Keyboard open — constrain body
-                    document.body.style.height = vh + 'px';
-                    document.body.style.overflow = 'hidden';
-                    const panelsEl = document.getElementById('panels');
-                    if (panelsEl && !panelsEl.classList.contains('keyboard-focused')) {
-                        panelsEl.classList.add('keyboard-focused');
-                    }
-                } else {
-                    // Keyboard closed — restore
-                    document.body.style.height = '';
-                    document.body.style.overflow = '';
-                    const panelsEl = document.getElementById('panels');
-                    if (panelsEl) panelsEl.classList.remove('keyboard-focused');
-                }
-                return;
-            }
             if (e.data.type !== 'openFile') return;
             let path = e.data.path;
             if (!path) return;

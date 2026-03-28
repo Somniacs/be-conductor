@@ -216,17 +216,11 @@ if (typeof acquireVsCodeApi !== 'undefined') {
 }
 
 // --- Mobile keyboard resize ---
+// Use visualViewport to resize the agent view when mobile keyboard opens.
+// The dashboard handles its own layout — we only resize within our iframe.
 if (window.visualViewport) {
     const onResize = () => {
         document.body.style.height = window.visualViewport.height + 'px';
-        // Notify parent (dashboard) about keyboard state
-        if (window.parent !== window) {
-            window.parent.postMessage({
-                type: 'keyboardResize',
-                height: window.visualViewport.height,
-                session: SESSION_ID,
-            }, '*');
-        }
     };
     window.visualViewport.addEventListener('resize', onResize);
     window.visualViewport.addEventListener('scroll', onResize);
