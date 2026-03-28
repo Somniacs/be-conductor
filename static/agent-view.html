@@ -70,9 +70,10 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--fo
 /* Message layout */
 .msg { margin: 0; }
 .msg-user { margin-top: 16px; }
-.msg-group { margin-left: 15px; border-left: 1px solid var(--border); padding-top: 2px; }
-.msg-claude { position: relative; padding-left: 18px; padding-top: 6px; padding-bottom: 6px; }
-.msg-claude::before { content: ''; position: absolute; left: -4px; top: 12px; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); z-index: 1; }
+.msg-group { position: relative; margin-left: 12px; padding-left: 20px; }
+.msg-group::before { content: ''; position: absolute; left: 3px; top: 0; bottom: 0; width: 1px; background: var(--border); }
+.msg-claude { position: relative; padding-top: 6px; padding-bottom: 6px; }
+.msg-claude::before { content: ''; position: absolute; left: -17px; top: 12px; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); z-index: 1; box-shadow: 0 0 0 2px var(--bg); }
 #messages::-webkit-scrollbar { width: 8px; }
 #messages::-webkit-scrollbar-track { background: transparent; }
 #messages::-webkit-scrollbar-thumb { background: #30363d; border-radius: 4px; }
