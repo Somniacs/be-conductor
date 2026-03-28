@@ -189,13 +189,15 @@ class AgentSession:
             async with ClaudeSDKClient(options=options) as client:
                 self._client = client
 
-                # Send initial prompt
-                self._emit_event({
-                    "type": "user_message",
-                    "content": self.prompt,
-                })
-                await client.query(self.prompt)
-                await self._stream_response(client)
+                # Send initial prompt (skip if empty or just a command name)
+                initial = self.prompt.strip()
+                if initial and initial not in ("claude", "claude-agent", "Resume session"):
+                    self._emit_event({
+                        "type": "user_message",
+                        "content": initial,
+                    })
+                    await client.query(initial)
+                    await self._stream_response(client)
 
                 # Wait for follow-up prompts
                 while self.status == "running":
