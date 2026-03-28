@@ -184,6 +184,8 @@ _IS_WIN = sys.platform == "win32"
 class Session:
     """A single managed terminal session backed by a PTY."""
 
+    session_type: str = "pty"
+
     def __init__(self, name: str, command: str, session_id: str | None = None,
                  cwd: str | None = None, on_exit=None, env: dict | None = None,
                  resume_pattern: str | None = None,
@@ -654,6 +656,7 @@ class Session:
     def to_dict(self) -> dict:
         d = {
             "id": self.id,
+            "session_type": self.session_type,
             "name": self.name,
             "command": self.command,
             "status": self.status,

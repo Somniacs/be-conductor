@@ -2637,6 +2637,10 @@
                     <button class="active" onclick="setSessionMode('new')">New</button>
                     <button onclick="setSessionMode('resume')">Resume</button>
                 </div>
+                <div class="session-mode-toggle" id="session-type-toggle">
+                    <button class="active" onclick="setSessionType('pty')">Terminal</button>
+                    <button onclick="setSessionType('agent')">Agent SDK</button>
+                </div>
                 <div class="session-mode-toggle" id="resume-sub-toggle" style="display:none;">
                     <button class="active" onclick="setResumeSubMode('manual')">Manual</button>
                     <button onclick="setResumeSubMode('browse')">Browse</button>
@@ -3434,6 +3438,7 @@
         }
 
         function scrollToCursor(panel) {
+            if (!panel.terminal) return;
             const col = panel._cursorCol;
             if (!col || !panel._termEl) return;
             // Only auto-scroll if user was recently typing
@@ -3721,6 +3726,9 @@
             let wtIcon = '';
             let wtBadge = '';
             let subtitle = escHtml(appLabel);
+            if (s.session_type === 'agent') {
+                subtitle = '<span style="color:#4a6cf7;font-weight:600;">SDK</span> &middot; ' + subtitle;
+            }
             if (s.worktree) {
                 const branch = s.worktree.branch || '';
                 const shortBranch = branch.replace('be-conductor/', '');
@@ -3744,7 +3752,7 @@
             }
 
             return `
-                <div class="session-item ${isFocused ? 'focused' : isOpen ? 'open' : ''}" ${clickable ? `onclick="focusSession('${cidEsc}', '${nameEsc}', event)"` : ''}>
+                <div class="session-item ${isFocused ? 'focused' : isOpen ? 'open' : ''}" ${clickable ? `onclick="focusSession('${cidEsc}', '${nameEsc}', event, '${s.session_type || 'pty'}')"` : ''}>
                     ${wtIcon}
                     <div class="session-name">
                         <div>${escHtml(s.name)}</div>
@@ -3846,7 +3854,7 @@
             }
         }
 
-        async function focusSession(id, name, evt) {
+        async function focusSession(id, name, evt, sessionType) {
             closeDrawer();
             // Restore split layout if a panel is maximized
             if (_maximizedPanelId) {
@@ -3871,11 +3879,11 @@
             }
             // If no panels open, open directly
             if (panels.length === 0) {
-                openSession(id, name, 'right');
+                openSession(id, name, 'right', sessionType);
                 return;
             }
             // Show placement menu at the click position
-            showPlacementMenu(id, name, evt);
+            showPlacementMenu(id, name, evt, sessionType);
         }
 
         function showPlacementMenu(id, name, evt) {
@@ -3950,8 +3958,14 @@
             document.getElementById('pm-status').textContent = '';
         });
 
-        function openSession(id, name, direction) {
+        function openSession(id, name, direction, sessionType) {
             if (panels.find(p => p.id === id)) return;
+
+            // Auto-detect session type from session list if not provided
+            if (!sessionType) {
+                const match = sessions.find(s => s._compoundId === id || s.id === id);
+                if (match) sessionType = match.session_type || 'pty';
+            }
 
             const { server, sessionId } = parseCompoundId(id);
             const panel = {
@@ -3960,6 +3974,7 @@
                 element: null, _resizeObserver: null, _theme: 'default',
                 _sizeChecked: false, _dimensionsReady: true, _ptyRows: null, _ptyCols: null,
                 _clientId: (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36)),
+                _sessionType: sessionType || 'pty',
             };
             panels.push(panel);
             buildPanelElement(panel);
@@ -4215,7 +4230,90 @@
             panel._scrollThumb = scrollThumb;
             panel._hScrollProxy = hScrollProxy;
 
-            if (hasXterm) {
+            // Agent sessions: replace terminal with structured message view
+            if (panel._sessionType === 'agent') {
+                termEl.style.display = 'none';
+                scrollProxy.style.display = 'none';
+                hScrollProxy.style.display = 'none';
+                termOuter.style.display = 'flex';
+                termOuter.style.flexDirection = 'column';
+                termOuter.style.overflow = 'hidden';
+                termOuter.style.background = '#0d0d1a';
+
+                const agentContainer = document.createElement('div');
+                agentContainer.className = 'agent-container';
+                agentContainer.style.cssText = 'flex:1;min-height:0;overflow-y:auto;padding:12px 16px;color:#e0e0e0;font-size:14px;line-height:1.6;background:#0d0d1a;';
+                const welcomeMsg = document.createElement('div');
+                welcomeMsg.style.cssText = 'color:#666;font-size:13px;padding:20px 0;';
+                welcomeMsg.textContent = 'Connecting to agent...';
+                welcomeMsg.setAttribute('data-placeholder', '1');
+                agentContainer.appendChild(welcomeMsg);
+
+                function sendAgentPrompt() {
+                    const text = textarea.value.trim();
+                    if (!text) return;
+                    // Show message immediately (optimistic)
+                    renderAgentEvent(panel, {type: 'user_message', content: text});
+                    if (panel.ws && panel.ws.readyState === WebSocket.OPEN) {
+                        panel.ws.send(JSON.stringify({type: 'prompt', text}));
+                    } else {
+                        renderAgentEvent(panel, {type: 'error', error: 'Not connected to agent'});
+                    }
+                    textarea.value = '';
+                    textarea.focus();
+                }
+
+                // Drag handle to resize input area
+                const dragHandle = document.createElement('div');
+                dragHandle.style.cssText = 'height:6px;cursor:row-resize;background:#1e1e3e;border-top:1px solid #333;flex-shrink:0;display:flex;align-items:center;justify-content:center;';
+                dragHandle.innerHTML = '<div style="width:30px;height:2px;background:#444;border-radius:1px;"></div>';
+                let dragStartY = 0, dragStartH = 0;
+                dragHandle.addEventListener('mousedown', (e) => {
+                    e.preventDefault();
+                    dragStartY = e.clientY;
+                    dragStartH = textarea.offsetHeight;
+                    const onMove = (ev) => {
+                        const delta = dragStartY - ev.clientY;
+                        textarea.style.height = Math.max(40, dragStartH + delta) + 'px';
+                    };
+                    const onUp = () => {
+                        document.removeEventListener('mousemove', onMove);
+                        document.removeEventListener('mouseup', onUp);
+                    };
+                    document.addEventListener('mousemove', onMove);
+                    document.addEventListener('mouseup', onUp);
+                });
+
+                const inputBar = document.createElement('div');
+                inputBar.style.cssText = 'display:flex;gap:8px;padding:8px 12px;flex-shrink:0;';
+                const textarea = document.createElement('textarea');
+                textarea.rows = 2;
+                textarea.placeholder = 'Send a follow-up prompt...';
+                textarea.style.cssText = 'flex:1;resize:none;background:#1a1a2e;color:#e0e0e0;border:1px solid #444;border-radius:6px;padding:8px;font-family:inherit;font-size:13px;height:50px;';
+                textarea.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        sendAgentPrompt();
+                    }
+                });
+                const sendBtn = document.createElement('button');
+                sendBtn.textContent = 'Send';
+                sendBtn.style.cssText = 'background:#4a6cf7;color:white;border:none;border-radius:6px;padding:8px 16px;cursor:pointer;font-size:13px;align-self:flex-end;';
+                sendBtn.onclick = () => sendAgentPrompt();
+                inputBar.appendChild(textarea);
+                inputBar.appendChild(sendBtn);
+
+                termOuter.appendChild(agentContainer);
+                termOuter.appendChild(dragHandle);
+                termOuter.appendChild(inputBar);
+                panel._agentContainer = agentContainer;
+                panel._agentInputBar = inputBar;
+                panel._agentTextarea = textarea;
+                // Connect immediately — don't wait for xterm.js block
+                connectAgentWebSocket(panel);
+            }
+
+            if (hasXterm && panel._sessionType !== 'agent') {
                 const defT = THEMES['default'];
                 const term = new Terminal({
                     cursorBlink: true,
@@ -4566,7 +4664,7 @@
                                 }
                             }
                         } catch (e) { /* ignore */ }
-                        if (!tappedLink) {
+                        if (!tappedLink && panel.terminal) {
                             panel.terminal.focus();
                             // Scroll to bottom on tap (opens keyboard at prompt).
                             // Mark as programmatic so _userScrolledUp stays false.
@@ -4807,10 +4905,10 @@
                     }
                 }
 
-                // Connect WebSocket — on connect, we'll fetch PTY dimensions
-                // and resize xterm.js to match (host terminal is the authority).
+                // Connect WebSocket — route based on session type.
                 if (!panel.ws) {
                     if (panel._isObserve) connectObserveWebSocket(panel);
+                    else if (panel._sessionType === 'agent') connectAgentWebSocket(panel);
                     else connectWebSocket(panel);
                 }
 
@@ -4832,6 +4930,7 @@
                     panel._resizeObserver.observe(outerObs);
                 }
             }
+
         }
 
         // Rearrange existing panel elements into the layout using the binary tree.
@@ -5688,7 +5787,210 @@
             }
         });
 
-        // --- WebSocket ---
+        // --- Agent Session WebSocket + Rendering ---
+
+        function connectAgentWebSocket(panel) {
+            let wsUrl = serverWsUrl(panel.server, `/sessions/${panel.sessionId}/stream`);
+            wsUrl += (wsUrl.includes('?') ? '&' : '?') + 'source=browser';
+            if (panel._clientId) wsUrl += '&client_id=' + encodeURIComponent(panel._clientId);
+            if (_conductorToken) wsUrl += '&token=' + encodeURIComponent(_conductorToken);
+            const ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                setServerConnectedStatus(panel.server, true);
+                // Clear the "Connecting..." placeholder
+                if (panel._agentContainer) {
+                    const placeholder = panel._agentContainer.querySelector('div');
+                    if (placeholder && placeholder.textContent === 'Connecting to agent...') {
+                        placeholder.textContent = 'Connected. Waiting for response...';
+                    }
+                }
+                if (panel._agentTextarea) panel._agentTextarea.focus();
+            };
+
+            ws.onmessage = (event) => {
+                if (typeof event.data !== 'string') return;
+                try {
+                    const msg = JSON.parse(event.data);
+                    if (msg.type === 'history') {
+                        for (const m of (msg.messages || [])) renderAgentEvent(panel, m);
+                    } else if (msg.type === 'ping') {
+                        return;
+                    } else {
+                        renderAgentEvent(panel, msg);
+                    }
+                } catch (e) { /* ignore non-JSON */ }
+            };
+
+            ws.onclose = (e) => {
+                panel.ws = null;
+                console.log('Agent WS closed:', e.code, e.reason);
+            };
+            ws.onerror = (e) => {
+                console.error('Agent WS error:', e);
+            };
+            panel.ws = ws;
+        }
+
+        // --- Markdown-lite renderer for agent text ---
+        function _mdToHtml(text) {
+            if (!text) return '';
+            // Escape HTML
+            let h = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+            // Fenced code blocks: ```lang\n...\n```
+            h = h.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
+                const label = lang ? `<div style="font-size:11px;color:#666;padding:4px 10px;background:#161b22;border-radius:6px 6px 0 0;border-bottom:1px solid #30363d;">${lang}</div>` : '';
+                return `<div style="margin:8px 0;border-radius:6px;overflow:hidden;border:1px solid #30363d;">${label}<pre style="margin:0;padding:10px 12px;background:#0d1117;overflow-x:auto;font-size:13px;line-height:1.45;color:#e6edf3;"><code>${code}</code></pre></div>`;
+            });
+            // Inline code
+            h = h.replace(/`([^`]+)`/g, '<code style="background:#1a1f2b;padding:2px 5px;border-radius:3px;font-size:0.9em;color:#e6edf3;">$1</code>');
+            // Bold
+            h = h.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+            // Italic
+            h = h.replace(/\*(.+?)\*/g, '<em>$1</em>');
+            // Headers
+            h = h.replace(/^### (.+)$/gm, '<div style="font-size:15px;font-weight:600;color:#e6edf3;margin:12px 0 4px;">$1</div>');
+            h = h.replace(/^## (.+)$/gm, '<div style="font-size:16px;font-weight:600;color:#e6edf3;margin:14px 0 6px;">$1</div>');
+            h = h.replace(/^# (.+)$/gm, '<div style="font-size:18px;font-weight:600;color:#e6edf3;margin:16px 0 8px;">$1</div>');
+            // Unordered lists
+            h = h.replace(/^- (.+)$/gm, '<div style="padding-left:16px;">&#8226; $1</div>');
+            // Numbered lists
+            h = h.replace(/^(\d+)\. (.+)$/gm, '<div style="padding-left:16px;">$1. $2</div>');
+            // Line breaks (preserve paragraphs)
+            h = h.replace(/\n\n/g, '<div style="height:8px;"></div>');
+            h = h.replace(/\n/g, '<br>');
+            return h;
+        }
+
+        function _toolIcon(name) {
+            const icons = {
+                'Bash': '&#x1F4BB;', 'Read': '&#x1F4C4;', 'Write': '&#x270F;&#xFE0F;',
+                'Edit': '&#x270F;&#xFE0F;', 'Glob': '&#x1F50D;', 'Grep': '&#x1F50D;',
+                'WebFetch': '&#x1F310;', 'WebSearch': '&#x1F310;', 'Agent': '&#x1F916;',
+                'TodoWrite': '&#x2611;&#xFE0F;',
+            };
+            return icons[name] || '&#x1F527;';
+        }
+
+        function _toolInputSummary(name, input) {
+            if (!input) return '';
+            if (name === 'Bash' && input.command) return input.command;
+            if (name === 'Read' && input.file_path) return input.file_path;
+            if (name === 'Write' && input.file_path) return input.file_path;
+            if (name === 'Edit' && input.file_path) return input.file_path;
+            if (name === 'Glob' && input.pattern) return input.pattern;
+            if (name === 'Grep' && input.pattern) return input.pattern;
+            if (name === 'WebFetch' && input.url) return input.url;
+            if (name === 'WebSearch' && input.query) return input.query;
+            try { return JSON.stringify(input).slice(0, 120); } catch { return ''; }
+        }
+
+        function renderAgentEvent(panel, event) {
+            const c = panel._agentContainer;
+            if (!c) return;
+            // Remove placeholder
+            const ph = c.querySelector('[data-placeholder]');
+            if (ph) ph.remove();
+            const etype = event.type;
+
+            if (etype === 'user_message') {
+                const div = document.createElement('div');
+                div.style.cssText = 'margin:16px 0;';
+                div.innerHTML = `<div style="font-size:11px;color:#8b949e;margin-bottom:4px;font-weight:500;">You</div>
+                    <div style="padding:10px 14px;background:#161b30;border-radius:8px;border-left:3px solid #4a6cf7;white-space:pre-wrap;line-height:1.5;">${escHtml(event.content || '')}</div>`;
+                c.appendChild(div);
+
+            } else if (etype === 'assistant_message') {
+                const wrapper = document.createElement('div');
+                wrapper.style.cssText = 'margin:16px 0;';
+                const label = document.createElement('div');
+                label.style.cssText = 'font-size:11px;color:#8b949e;margin-bottom:6px;font-weight:500;';
+                label.textContent = 'Claude';
+                wrapper.appendChild(label);
+
+                for (const block of (event.content || [])) {
+                    if (block.type === 'text') {
+                        const div = document.createElement('div');
+                        div.style.cssText = 'line-height:1.6;color:#e0e0e0;';
+                        div.innerHTML = _mdToHtml(block.text);
+                        wrapper.appendChild(div);
+
+                    } else if (block.type === 'thinking') {
+                        const details = document.createElement('details');
+                        details.style.cssText = 'margin:8px 0;border:1px solid #21262d;border-radius:6px;overflow:hidden;';
+                        const summary = document.createElement('summary');
+                        summary.style.cssText = 'padding:6px 10px;background:#161b22;color:#8b949e;font-size:12px;cursor:pointer;user-select:none;';
+                        summary.textContent = 'Thinking...';
+                        const content = document.createElement('div');
+                        content.style.cssText = 'padding:8px 10px;font-size:12px;color:#7d8590;white-space:pre-wrap;max-height:300px;overflow-y:auto;';
+                        content.textContent = block.thinking || '';
+                        details.appendChild(summary);
+                        details.appendChild(content);
+                        wrapper.appendChild(details);
+
+                    } else if (block.type === 'tool_use') {
+                        const details = document.createElement('details');
+                        details.style.cssText = 'margin:8px 0;border:1px solid #30363d;border-radius:6px;overflow:hidden;';
+                        details.open = true;
+                        const summary = document.createElement('summary');
+                        summary.style.cssText = 'padding:8px 12px;background:#161b22;color:#e6edf3;font-size:13px;cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px;';
+                        const toolName = block.tool || 'tool';
+                        const inputSummary = _toolInputSummary(toolName, block.input);
+                        summary.innerHTML = `<span>${_toolIcon(toolName)}</span><strong style="color:#f0a020;">${escHtml(toolName)}</strong><span style="color:#8b949e;font-weight:400;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(inputSummary)}</span>`;
+                        const content = document.createElement('div');
+                        content.style.cssText = 'padding:8px 12px;background:#0d1117;';
+                        const pre = document.createElement('pre');
+                        pre.style.cssText = 'margin:0;font-size:12px;color:#8b949e;overflow-x:auto;max-height:200px;white-space:pre-wrap;line-height:1.4;';
+                        try { pre.textContent = JSON.stringify(block.input, null, 2); } catch { pre.textContent = String(block.input); }
+                        content.appendChild(pre);
+                        details.appendChild(summary);
+                        details.appendChild(content);
+                        wrapper.appendChild(details);
+
+                    } else if (block.type === 'tool_result') {
+                        const div = document.createElement('div');
+                        const isErr = block.is_error;
+                        div.style.cssText = `margin:4px 0 8px 0;padding:8px 12px;background:#0d1117;border-radius:0 0 6px 6px;border-top:1px solid ${isErr ? '#f8514933' : '#30363d'};font-size:12px;color:${isErr ? '#f85149' : '#8b949e'};max-height:300px;overflow-y:auto;white-space:pre-wrap;line-height:1.4;`;
+                        const content = String(block.content || '');
+                        div.textContent = content.length > 3000 ? content.slice(0, 3000) + '\n...(truncated)' : content;
+                        wrapper.appendChild(div);
+                    }
+                }
+                c.appendChild(wrapper);
+
+            } else if (etype === 'result') {
+                const div = document.createElement('div');
+                div.style.cssText = 'margin:16px 0;padding:10px 14px;background:#0d1a0d;border:1px solid #1a3a1a;border-radius:8px;font-size:13px;color:#3fb950;';
+                let html = '<strong>Done</strong>';
+                if (event.result) html += ` &mdash; ${escHtml(event.result).slice(0, 200)}`;
+                const meta = [];
+                if (event.num_turns) meta.push(`${event.num_turns} turns`);
+                if (event.duration_ms) meta.push(`${(event.duration_ms / 1000).toFixed(1)}s`);
+                if (event.total_cost_usd) meta.push(`$${Number(event.total_cost_usd).toFixed(4)}`);
+                if (meta.length) html += `<div style="font-size:11px;color:#8b949e;margin-top:4px;">${meta.join(' &middot; ')}</div>`;
+                div.innerHTML = html;
+                c.appendChild(div);
+
+            } else if (etype === 'error') {
+                const div = document.createElement('div');
+                div.style.cssText = 'margin:12px 0;padding:10px 14px;background:#1a0d0d;border:1px solid #3a1a1a;border-radius:8px;color:#f85149;font-size:13px;';
+                div.innerHTML = `<strong>Error</strong> &mdash; ${escHtml(event.error || 'Unknown error')}`;
+                c.appendChild(div);
+
+            } else if (etype === 'session_end') {
+                const div = document.createElement('div');
+                div.style.cssText = 'margin:16px 0;padding:10px;color:#8b949e;font-size:12px;text-align:center;border-top:1px solid #21262d;';
+                div.textContent = `Session ended (exit ${event.exit_code ?? 0})`;
+                c.appendChild(div);
+            }
+
+            // Auto-scroll to bottom (unless user scrolled up)
+            if (c.scrollHeight - c.scrollTop - c.clientHeight < 100) {
+                c.scrollTop = c.scrollHeight;
+            }
+        }
+
+        // --- PTY WebSocket ---
         function connectWebSocket(panel) {
             const isReconnect = !!panel.ws;
 
@@ -7895,6 +8197,7 @@
         }
 
         let _newSessionMode = 'new';
+        let _newSessionType = 'pty';
         let _resumeSubMode = 'manual';  // 'manual' or 'browse'
         let _externalSessions = [];
         let _selectedExternal = null;  // file_id or null
@@ -7918,6 +8221,33 @@
             }
             updateResumeFields();
             updateRunButton();
+            validateNewSession();
+        }
+
+        function setSessionType(type) {
+            _newSessionType = type;
+            const toggle = document.getElementById('session-type-toggle');
+            if (toggle) {
+                toggle.children[0].classList.toggle('active', type === 'pty');
+                toggle.children[1].classList.toggle('active', type === 'agent');
+            }
+            const cmdRow = document.getElementById('new-command');
+            const cmdLabel = cmdRow ? cmdRow.previousElementSibling : null;
+            const worktreeRow = document.getElementById('worktree-row');
+            const worktreePreview = document.getElementById('worktree-branch-preview');
+            const resumeTokenRow = document.getElementById('resume-token-row');
+            if (type === 'agent') {
+                // Hide command dropdown, worktree, resume controls
+                if (cmdRow) cmdRow.style.display = 'none';
+                if (cmdLabel) cmdLabel.style.display = 'none';
+                if (worktreeRow) worktreeRow.style.display = 'none';
+                if (worktreePreview) worktreePreview.style.display = 'none';
+                if (resumeTokenRow) resumeTokenRow.style.display = 'none';
+            } else {
+                if (cmdRow) cmdRow.style.display = '';
+                if (cmdLabel) cmdLabel.style.display = '';
+                if (worktreeRow) worktreeRow.style.display = '';
+            }
             validateNewSession();
         }
 
@@ -8368,10 +8698,15 @@
             }
 
             const name = document.getElementById('new-name').value.trim();
-            if (!name || !command) return;
 
             let body;
-            if (_newSessionMode === 'resume') {
+            if (_newSessionType === 'agent') {
+                // Agent sessions: command = initial prompt
+                if (!name) return;
+                const cwd = selectedCwd || null;
+                body = { name, command: command || 'Hello', cwd, session_type: 'agent' };
+            } else if (_newSessionMode === 'resume') {
+                if (!name || !command) return;
                 const cmdConfig = allowedCommands.find(c => c.command === command);
                 let finalCommand;
                 if (cmdConfig && cmdConfig.resume_command) {
@@ -8384,6 +8719,7 @@
                 const cwd = selectedCwd || null;
                 body = { name, command: finalCommand, cwd };
             } else {
+                if (!name || !command) return;
                 const cwd = selectedCwd || null;
                 const useWorktree = document.getElementById('new-worktree').checked;
                 body = { name, command, cwd };
@@ -8411,7 +8747,7 @@
                     _suppressDrawerOpen = false;
                     await fetchAllSessions();
                     const cid = compoundId(_newSessionServer, created.id);
-                    openSession(cid, created.name);
+                    openSession(cid, created.name, null, created.session_type || 'pty');
                 } else {
                     const err = await resp.json();
                     showAlert(err.detail || 'Failed to create session');

@@ -19,6 +19,9 @@ dependencies = [
     "pywinpty>=2.0; sys_platform == 'win32'",
 ]
 
+[project.optional-dependencies]
+agent = ["claude-agent-sdk>=0.1.0"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["be_conductor", "cli"]
 

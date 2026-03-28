@@ -18,6 +18,8 @@ import json
 import logging
 import re
 import shlex
+import time
+from pathlib import Path
 from typing import Dict, Optional
 
 from be_conductor.notifications.manager import (
@@ -28,6 +30,45 @@ from be_conductor.utils import config as cfg
 from be_conductor.utils.config import SESSIONS_DIR, ensure_dirs
 
 log = logging.getLogger(__name__)
+
+SPAWN_CONTEXT_DIR = Path(cfg.CONDUCTOR_DIR) / "spawn-context"
+
+
+async def _wait_for_file(path: Path, timeout: float = 60,
+                         interval: float = 1.0) -> bool:
+    """Poll until *path* exists and is non-empty, or *timeout* elapses."""
+    start = time.monotonic()
+    while time.monotonic() - start < timeout:
+        if path.exists() and path.stat().st_size > 0:
+            return True
+        await asyncio.sleep(interval)
+    return False
+
+
+async def _deliver_context(session: "Session", message: str,
+                           context_file: Path | None = None,
+                           timeout: float = 15.0):
+    """Wait for the agent to initialise, then type *message* into the PTY.
+
+    If *context_file* is given, delete it after delivery so spawn-context
+    doesn't accumulate stale files.
+    """
+    start = time.monotonic()
+    while not session.buffer and session.status == "running":
+        if time.monotonic() - start > timeout:
+            break
+        await asyncio.sleep(0.3)
+    # Brief extra settle time for the prompt to fully render.
+    await asyncio.sleep(0.5)
+    if session.status == "running":
+        session.send_input(message)
+        # Give the agent time to read the file before deleting.
+        if context_file:
+            await asyncio.sleep(5)
+            try:
+                context_file.unlink(missing_ok=True)
+            except Exception:
+                pass
 
 
 class SessionRegistry:
@@ -145,7 +186,9 @@ class SessionRegistry:
     async def create(self, name: str, command: str, cwd: str | None = None,
                      env: dict | None = None, rows: int | None = None,
                      cols: int | None = None, source: str | None = None,
-                     worktree: bool = False) -> Session:
+                     worktree: bool = False,
+                     session_type: str = "pty",
+                     agent_options: dict | None = None) -> Session:
         if name in self.sessions:
             existing = self.sessions[name]
             if existing.status == "running":
@@ -188,20 +231,34 @@ class SessionRegistry:
             patterns=notif_patterns,
         )
 
-        session = Session(
-            name=name,
-            command=command,
-            session_id=name,
-            cwd=session_cwd,
-            on_exit=self._on_session_exit,
-            env=env,
-            resume_pattern=agent_cfg.get("resume_pattern"),
-            resume_flag=agent_cfg.get("resume_flag"),
-            resume_command=agent_cfg.get("resume_command"),
-            stop_sequence=agent_cfg.get("stop_sequence"),
-            worktree=worktree_info,
-            notifier=notifier,
-        )
+        if session_type == "agent":
+            from be_conductor.sessions.agent_session import AgentSession
+            session = AgentSession(
+                name=name,
+                prompt=command,  # "command" = initial prompt for agent sessions
+                session_id=name,
+                cwd=session_cwd,
+                on_exit=self._on_session_exit,
+                env=env,
+                worktree=worktree_info,
+                notifier=notifier,
+                agent_options=agent_options,
+            )
+        else:
+            session = Session(
+                name=name,
+                command=command,
+                session_id=name,
+                cwd=session_cwd,
+                on_exit=self._on_session_exit,
+                env=env,
+                resume_pattern=agent_cfg.get("resume_pattern"),
+                resume_flag=agent_cfg.get("resume_flag"),
+                resume_command=agent_cfg.get("resume_command"),
+                stop_sequence=agent_cfg.get("stop_sequence"),
+                worktree=worktree_info,
+                notifier=notifier,
+            )
         start_rows, start_cols = rows or 24, cols or 80
         await session.start(rows=start_rows, cols=start_cols)
         # Record initial size so the web client knows the PTY dimensions.
@@ -233,13 +290,14 @@ class SessionRegistry:
             if live and live.status == "exited" and live.resume_id:
                 meta = live.to_dict()
                 self.sessions.pop(session_id, None)
-                if live._monitor_task:
+                if hasattr(live, '_monitor_task') and live._monitor_task:
                     live._monitor_task.cancel()
                     try:
                         await live._monitor_task
                     except asyncio.CancelledError:
                         pass
-                live.pty.close()
+                if hasattr(live, 'pty'):
+                    live.pty.close()
 
         if not meta:
             raise ValueError(f"No resumable session '{session_id}'")
@@ -283,8 +341,10 @@ class SessionRegistry:
         # Create the resumed session (don't create a new worktree — reuse existing)
         # Only remove the resumable entry after successful creation so a
         # failed resume (e.g. command not found) doesn't lose the session.
+        st = meta.get("session_type", "pty")
         session = await self.create(meta["name"], command, cwd=cwd,
-                                    rows=rows, cols=cols)
+                                    rows=rows, cols=cols,
+                                    session_type=st)
         self.resumable.pop(session_id, None)
         self._delete_metadata(session_id)
 
@@ -297,6 +357,104 @@ class SessionRegistry:
                 worktree_data["repo_path"], meta["name"], worktree_data
             )
 
+        return session
+
+    async def spawn(self, parent_id: str, name: str,
+                    command: str | None = None, cwd: str | None = None,
+                    worktree: bool = False, raw: bool = False,
+                    context_lines: int = 500,
+                    context_message: str | None = None,
+                    rows: int | None = None, cols: int | None = None,
+                    source: str | None = None,
+                    on_timeout=None) -> Session:
+        """Create a new session that inherits context from *parent_id*.
+
+        By default, asks the parent session to write a summary to a
+        context file (summarize mode).  If *raw* is True, the parent's
+        terminal buffer is extracted and written directly instead.
+
+        *on_timeout* — optional async callback invoked when the summary
+        wait times out.  Must return ``"wait"`` (extend by another 120 s)
+        or ``"raw"`` (fall back to raw buffer immediately).
+
+        The new session receives a short prompt pointing it at the
+        context file once its agent has initialised.
+        """
+        parent = self.sessions.get(parent_id)
+        if not parent or parent.status != "running":
+            raise ValueError("Source session not found or not running")
+
+        SPAWN_CONTEXT_DIR.mkdir(parents=True, exist_ok=True)
+        context_file = SPAWN_CONTEXT_DIR / f"{name}.md"
+
+        if raw:
+            # Instant: dump stripped buffer to file.
+            text = parent.get_buffer_text(max_lines=context_lines)
+            context_file.write_text(text, encoding="utf-8")
+        else:
+            # Ask the parent agent to write a focused summary.
+            prompt = (
+                f"Please write a concise summary of our current session to "
+                f"{context_file}. Include: current task/goal, key decisions, "
+                f"important files, and current progress. Keep it under 100 "
+                f"lines. Then continue your work.\n"
+            )
+            parent.send_input(prompt)
+            ok = await _wait_for_file(context_file, timeout=120)
+            while not ok:
+                if on_timeout:
+                    decision = await on_timeout()
+                    if decision == "wait":
+                        ok = await _wait_for_file(context_file, timeout=120)
+                        continue
+                # Fall back to raw buffer extraction.
+                log.warning("Spawn summarize timed out for '%s'; "
+                            "falling back to buffer extraction", parent_id)
+                text = parent.get_buffer_text(max_lines=context_lines)
+                context_file.write_text(text, encoding="utf-8")
+                break
+
+        # Inherit command and cwd from parent unless overridden.
+        # Strip --resume flag so the clone starts a fresh session.
+        effective_cmd = command or parent.command
+        if effective_cmd and not command:
+            import shlex
+            try:
+                parts = shlex.split(effective_cmd)
+                cleaned = []
+                skip_next = False
+                for i, p in enumerate(parts):
+                    if skip_next:
+                        skip_next = False
+                        continue
+                    if p == '--resume' or p == '-r':
+                        # Skip the flag and its argument
+                        if i + 1 < len(parts) and not parts[i + 1].startswith('-'):
+                            skip_next = True
+                        continue
+                    if p.startswith('--resume='):
+                        continue
+                    cleaned.append(p)
+                effective_cmd = shlex.join(cleaned)
+            except ValueError:
+                pass  # malformed command — use as-is
+        effective_cwd = cwd or parent.live_cwd or parent.cwd
+
+        # For worktree spawns from a worktree parent, use the repo root.
+        if worktree and parent.worktree:
+            effective_cwd = parent.worktree.get("repo_path", effective_cwd)
+
+        session = await self.create(
+            name, effective_cmd, cwd=effective_cwd,
+            rows=rows, cols=cols, source=source, worktree=worktree,
+        )
+
+        # Schedule context delivery once the agent is ready.
+        msg = context_message or (
+            f"Read the context from the previous session at {context_file} "
+            f"and continue the work.\n"
+        )
+        asyncio.ensure_future(_deliver_context(session, msg, context_file=context_file))
         return session
 
     def get(self, session_id: str) -> Optional[Session]:

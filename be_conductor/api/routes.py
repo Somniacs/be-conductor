@@ -56,6 +56,7 @@ _observers: dict[str, SessionObserver] = {}
 
 # Set of active WebSocket connections for notification broadcast.
 _notification_ws: dict[WebSocket, str] = {}  # ws → session_id
+_pending_clone_decisions: dict[str, asyncio.Future | None] = {}  # clone_id → decision future
 
 # Notification ack — set by browser when it sees a notification (tab visible).
 _notification_ack: asyncio.Event = asyncio.Event()
@@ -209,13 +210,15 @@ _KEY_MAP: dict[str, str] = {
 
 class RunRequest(BaseModel):
     name: str
-    command: str
+    command: str              # for agent sessions this is the initial prompt
     cwd: str | None = None
     source: str | None = None  # "cli" bypasses whitelist; dashboard is restricted
     env: dict[str, str] | None = None
     rows: int | None = None  # initial PTY size (avoids resize race on startup)
     cols: int | None = None
     worktree: bool = False  # create an isolated git worktree for this session
+    session_type: str = "pty"  # "pty" or "agent"
+    agent_options: dict | None = None  # model, allowed_tools, permission_mode, etc.
 
 
 class InputRequest(BaseModel):
@@ -239,6 +242,19 @@ class ResizeRequest(BaseModel):
     client_id: str | None = None
 
 
+class CloneRequest(BaseModel):
+    name: str
+    command: str | None = None
+    cwd: str | None = None
+    worktree: bool = False
+    raw: bool = False
+    context_lines: int = 500
+    context_message: str | None = None
+    rows: int | None = None
+    cols: int | None = None
+    source: str | None = None
+
+
 # ---------------------------------------------------------------------------
 # Response models (gives typed OpenAPI schemas)
 # ---------------------------------------------------------------------------
@@ -249,10 +265,12 @@ class HealthResponse(BaseModel):
 
 
 class SessionResponse(BaseModel):
+    model_config = {"extra": "allow"}   # pass through agent-specific fields
     id: str
     name: str
     command: str
     status: str
+    session_type: str = "pty"
     pid: int | None = None
     start_time: float | None = None
     created_at: str | None = None
@@ -268,6 +286,7 @@ class SessionResponse(BaseModel):
     resume_command: str | None = None
     ws_url: str | None = None
     worktree: dict | None = None
+    message_count: int | None = None
 
 
 class StatusResponse(BaseModel):
@@ -1149,24 +1168,28 @@ async def create_session(req: RunRequest, request: Request):
             detail="Invalid session name. Use letters, numbers, hyphens, underscores, or spaces (max 64 chars).",
         )
 
-    # Validate command against whitelist (CLI is unrestricted, dashboard is restricted)
-    if req.source != "cli":
-        try:
-            base_cmd = shlex.split(req.command)[0]
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid command")
+    # Agent sessions bypass command whitelist (command = prompt, not a shell command)
+    if req.session_type != "agent":
+        # Validate command against whitelist (CLI is unrestricted, dashboard is restricted)
+        if req.source != "cli":
+            try:
+                base_cmd = shlex.split(req.command)[0]
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid command")
 
-        allowed = _allowed_base_commands()
-        if base_cmd not in allowed:
-            raise HTTPException(
-                status_code=403,
-                detail=f"Command '{base_cmd}' is not allowed. Permitted: {', '.join(sorted(allowed))}",
-            )
+            allowed = _allowed_base_commands()
+            if base_cmd not in allowed:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Command '{base_cmd}' is not allowed. Permitted: {', '.join(sorted(allowed))}",
+                )
 
     try:
         session = await registry.create(req.name, req.command, cwd=req.cwd, env=req.env,
                                         rows=req.rows, cols=req.cols, source=req.source,
-                                        worktree=req.worktree)
+                                        worktree=req.worktree,
+                                        session_type=req.session_type,
+                                        agent_options=req.agent_options)
         d = session.to_dict()
         d["ws_url"] = _ws_url_for(request, session.id)
         return d
@@ -1268,6 +1291,115 @@ async def resume_session(session_id: str, req: ResumeRequest | None = None):
         raise HTTPException(status_code=400, detail=f"Command not found: {e}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/sessions/{session_id}/clone")
+async def clone_session(session_id: str, req: CloneRequest, request: Request):
+    """Clone a running session into a new one, passing context.
+
+    Returns immediately with status ``"preparing"``.  Once the new
+    session is ready, a ``clone_ready`` event is broadcast to all
+    connected WebSocket clients.
+    """
+    req.name = req.name.strip()
+    if not _SAFE_NAME.match(req.name):
+        raise HTTPException(status_code=400, detail="Invalid session name.")
+
+    parent = registry.get(session_id)
+    if not parent:
+        raise HTTPException(status_code=404, detail="Source session not found")
+    if parent.status != "running":
+        raise HTTPException(status_code=409,
+                            detail="Source session is not running")
+
+    # Validate command against allowlist when request comes from dashboard.
+    if req.command and req.source != "cli":
+        try:
+            base_cmd = shlex.split(req.command)[0]
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid command")
+        allowed = {
+            shlex.split(e["command"])[0]
+            for e in cfg.ALLOWED_COMMANDS
+            if "command" in e
+        }
+        if base_cmd not in allowed:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Command '{base_cmd}' not allowed",
+            )
+
+    clone_id = f"clone-{req.name}"
+
+    # Future resolved by /clone-decide endpoint when summary times out.
+    _pending_clone_decisions[clone_id] = None  # placeholder
+
+    async def _on_timeout():
+        """Broadcast timeout event and wait for user decision."""
+        evt = asyncio.Future()
+        _pending_clone_decisions[clone_id] = evt
+        msg = json.dumps({
+            "type": "clone_timeout",
+            "clone_id": clone_id,
+            "parent_id": session_id,
+            "name": req.name,
+        })
+        for ws in list(_notification_ws):
+            try:
+                await ws.send_text(msg)
+            except Exception:
+                pass
+        try:
+            return await asyncio.wait_for(evt, timeout=300)
+        except asyncio.TimeoutError:
+            return "raw"
+
+    async def _do_clone():
+        try:
+            session = await registry.spawn(
+                parent_id=session_id, name=req.name, command=req.command,
+                cwd=req.cwd, worktree=req.worktree, raw=req.raw,
+                context_lines=req.context_lines,
+                context_message=req.context_message,
+                rows=req.rows, cols=req.cols, source=req.source,
+                on_timeout=_on_timeout if not req.raw else None,
+            )
+            # Broadcast clone_ready to all connected WebSocket clients.
+            d = session.to_dict()
+            d["ws_url"] = _ws_url_for(request, session.id)
+            msg = json.dumps({"type": "clone_ready", "session": d})
+            dead: list[WebSocket] = []
+            for ws in list(_notification_ws):
+                try:
+                    await ws.send_text(msg)
+                except Exception:
+                    dead.append(ws)
+            for ws in dead:
+                _notification_ws.pop(ws, None)
+        except Exception as e:
+            log.error("Clone failed for '%s': %s", req.name, e)
+        finally:
+            _pending_clone_decisions.pop(clone_id, None)
+
+    asyncio.ensure_future(_do_clone())
+
+    return {
+        "status": "preparing",
+        "clone_id": clone_id,
+        "parent_id": session_id,
+        "name": req.name,
+    }
+
+
+@router.post("/clone-decide/{clone_id}")
+async def clone_decide(clone_id: str, body: dict):
+    """Resolve a pending clone timeout: ``{"action": "wait"}`` or ``{"action": "raw"}``."""
+    action = body.get("action", "raw")
+    fut = _pending_clone_decisions.get(clone_id)
+    if fut and not fut.done():
+        fut.set_result(action)
+        return {"status": "ok"}
+    raise HTTPException(status_code=404, detail="No pending clone decision")
 
 
 @router.post("/sessions/{session_id}/stop", response_model=StatusResponse)
@@ -1738,19 +1870,21 @@ async def stream_session(ws: WebSocket, session_id: str, typed: bool = False,
 
     await ws.accept()
 
-    # Track CLI/browser connections for resize authority
+    # Track CLI/browser/IDE connections for resize authority and attach tracking
     is_cli = source == "cli" and client_id
-    is_browser = source == "browser" and client_id
+    is_browser = source and source != "cli" and client_id
     if is_cli:
         session.cli_connected(client_id)
     elif is_browser:
-        session.browser_connected(client_id)
+        session.browser_connected(client_id, source=source or "browser")
 
     # Track this WebSocket for notification broadcast.
     _notification_ws[ws] = session_id
 
     try:
-        if typed:
+        if getattr(session, "session_type", "pty") == "agent":
+            await _stream_agent(ws, session)
+        elif typed:
             await _stream_typed(ws, session)
         else:
             await _stream_raw(ws, session, source=source)
@@ -1762,16 +1896,94 @@ async def stream_session(ws: WebSocket, session_id: str, typed: bool = False,
             session.browser_disconnected(client_id)
 
 
+async def _stream_agent(ws: WebSocket, session: Any):
+    """Structured JSON WebSocket protocol for Agent SDK sessions.
+
+    Replays message history, then streams live events as typed JSON.
+    """
+    # Replay history to the new subscriber
+    history = session.get_message_history()
+    if history:
+        await ws.send_json({"type": "history", "messages": history})
+
+    queue = session.subscribe()
+
+    async def writer():
+        try:
+            while True:
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=30)
+                except asyncio.TimeoutError:
+                    try:
+                        await ws.send_json({"type": "ping"})
+                    except Exception:
+                        break
+                    continue
+                if event is None:
+                    await ws.send_json({
+                        "type": "session_end",
+                        "exit_code": getattr(session, "exit_code", None),
+                    })
+                    break
+                try:
+                    await ws.send_json(event)
+                except Exception:
+                    break
+        except Exception:
+            pass
+
+    async def reader():
+        try:
+            while True:
+                message = await ws.receive()
+                if message.get("type") == "websocket.disconnect":
+                    break
+                text = message.get("text")
+                if text:
+                    try:
+                        msg = json.loads(text)
+                        msg_type = msg.get("type")
+                        if msg_type == "prompt":
+                            session.send_input(msg.get("text", ""))
+                        elif msg_type == "interrupt":
+                            session.interrupt()
+                    except (json.JSONDecodeError, TypeError):
+                        # Plain text = treat as prompt
+                        session.send_input(text)
+        except WebSocketDisconnect:
+            pass
+        except Exception:
+            pass
+
+    writer_task = asyncio.create_task(writer())
+    reader_task = asyncio.create_task(reader())
+
+    try:
+        done, pending = await asyncio.wait(
+            {writer_task, reader_task},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for task in pending:
+            task.cancel()
+    finally:
+        session.unsubscribe(queue)
+
+
 async def _stream_raw(ws: WebSocket, session: Any, source: str | None = None):
     """Original raw binary WebSocket protocol (dashboard default)."""
     # CLI clients get a clean pyte snapshot (no historical cursor movements
     # that cause scroll-jumping in the host terminal emulator).
     # Dashboard gets the raw buffer so scrollback history is preserved.
+    queue = session.subscribe()
+
     buffer = session.get_screen_snapshot(clean=(source == "cli"))
     if buffer:
+        if source == "cli":
+            # Wrap in DEC 2026 sync markers so VTE terminals (GNOME Terminal)
+            # render the clear+redraw atomically instead of pushing the
+            # current screen into scrollback first (which causes scroll-to-top).
+            buffer = b"\x1b[?2026h" + buffer + b"\x1b[?2026l"
         await ws.send_bytes(buffer)
-
-    queue = session.subscribe()
 
     async def writer():
         try:
