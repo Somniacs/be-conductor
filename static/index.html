@@ -5293,12 +5293,14 @@
                 _positionExtraKeys();
                 // On tablets in desktop browser mode the layout viewport may
                 // NOT resize — constrain body height to visual viewport
-                // minus the extra-keys bar.
+                // minus the extra-keys bar. Defer to next frame so bar is rendered.
                 if (window.innerHeight - vh > 50) {
-                    const barEl = document.getElementById('extra-keys-bar');
-                    const barH = barEl ? barEl.offsetHeight : 0;
-                    document.body.style.height = (vh - barH) + 'px';
-                    document.body.style.overflow = 'hidden';
+                    requestAnimationFrame(() => {
+                        const barEl = document.getElementById('extra-keys-bar');
+                        const barH = (barEl && barEl.classList.contains('visible')) ? barEl.offsetHeight : 0;
+                        document.body.style.height = (vh - barH) + 'px';
+                        document.body.style.overflow = 'hidden';
+                    });
                 }
                 if (panelsEl && !panelsEl.classList.contains('keyboard-focused')) {
                     panelsEl.classList.add('keyboard-focused');
