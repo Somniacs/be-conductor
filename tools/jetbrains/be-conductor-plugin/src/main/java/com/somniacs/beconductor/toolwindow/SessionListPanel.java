@@ -523,26 +523,43 @@ public class SessionListPanel extends JPanel {
     }
 
     /**
-     * Open (or focus) an agent session as its own tool window.
-     * Tool windows can be docked to any edge, floated, or split — full IDE freedom.
+     * Open (or focus) an agent session in the editor area — can be docked,
+     * split, and placed alongside code files like a normal editor tab.
      */
     private static void openAgentPanel(com.intellij.openapi.project.Project proj, String sessionId) {
-        String twId = "Agent: " + sessionId;
+        String baseUrl = "http://127.0.0.1:7777";
+        String wsBase = "ws://127.0.0.1:7777";
+        String url = baseUrl + "/agent/" + java.net.URLEncoder.encode(sessionId, java.nio.charset.StandardCharsets.UTF_8)
+                + "?session=" + java.net.URLEncoder.encode(sessionId, java.nio.charset.StandardCharsets.UTF_8)
+                + "&ws=" + java.net.URLEncoder.encode(wsBase, java.nio.charset.StandardCharsets.UTF_8);
 
-        // If already open, just focus it
+        // Try HTMLEditorProvider — opens in the editor area (dockable like code files)
+        try {
+            com.intellij.openapi.fileEditor.impl.HTMLEditorProvider.openEditor(
+                    proj,
+                    sessionId + " (Agent)",
+                    url,
+                    "<html><body style='background:#0d0d1a;color:#e0e0e0;padding:40px;font-family:sans-serif;'>"
+                    + "<p>Loading agent session...</p></body></html>"
+            );
+            return;
+        } catch (Exception | NoClassDefFoundError e) {
+            LOG.info("be-conductor: HTMLEditorProvider not available, falling back to tool window");
+        }
+
+        // Fallback: register a tool window
+        String twId = "Agent: " + sessionId;
         com.intellij.openapi.wm.ToolWindow existing =
                 com.intellij.openapi.wm.ToolWindowManager.getInstance(proj).getToolWindow(twId);
         if (existing != null) {
             existing.show();
             return;
         }
-
-        // Register a new tool window for this agent session
         com.intellij.openapi.wm.ToolWindowManager twm =
                 com.intellij.openapi.wm.ToolWindowManager.getInstance(proj);
         com.intellij.openapi.wm.ToolWindow tw = twm.registerToolWindow(
                 twId,
-                true,  // canCloseContent
+                true,
                 com.intellij.openapi.wm.ToolWindowAnchor.BOTTOM
         );
         tw.setTitle(sessionId);

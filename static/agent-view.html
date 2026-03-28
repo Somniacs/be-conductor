@@ -167,13 +167,16 @@ const ideBridge = {
     _onFileData: null,
 };
 
+// Detect JetBrains (JCEF or HTMLEditorProvider)
+const _isJetBrains = navigator.userAgent.includes('JBCef') || document.documentElement.getAttribute('data-jb-editor') !== null;
+
 if (typeof window.cefQuery === 'function') {
-    // JetBrains JCEF — open file in IDE editor
+    // JetBrains JCEF with registered queries
     ideBridge.openFile = (p, l) => window.cefQuery({request: JSON.stringify({type:'openFile', path:p, line:l||0})});
     ideBridge.pickFile = () => window.cefQuery({request: JSON.stringify({type:'pickFile'})});
     ideBridge.runInTerminal = (cmd) => window.cefQuery({request: JSON.stringify({type:'runInTerminal', command:cmd})});
 } else if (typeof acquireVsCodeApi !== 'undefined') {
-    // VSCode webview — open file in IDE editor
+    // VSCode webview
     const vscode = acquireVsCodeApi();
     ideBridge.openFile = (p, l) => vscode.postMessage({type:'openFile', path:p, line:l||0});
     ideBridge.pickFile = () => vscode.postMessage({type:'pickFile'});
@@ -183,8 +186,15 @@ if (typeof window.cefQuery === 'function') {
             ideBridge._onFileData(e.data);
         }
     });
+} else if (_isJetBrains || (window.parent === window && location.protocol === 'http:' && navigator.userAgent.includes('CEF'))) {
+    // JetBrains HTMLEditorProvider — use REST API to open files
+    ideBridge.openFile = (p, l) => {
+        // Use JetBrains built-in REST API (available on localhost:63342)
+        const line = l || 0;
+        fetch(`http://localhost:63342/api/file/${encodeURIComponent(p)}?line=${line}&column=0`, {mode:'no-cors'}).catch(() => {});
+    };
 } else if (window.parent !== window) {
-    // Embedded in dashboard iframe — open file in be-conductor file viewer
+    // Embedded in dashboard iframe
     ideBridge.openFile = (p, l) => window.parent.postMessage({type:'openFile', path:p, line:l||0, session: SESSION_ID}, '*');
 }
 
