@@ -216,6 +216,7 @@ const inputArea = document.getElementById('input-area');
 let busy = false;
 let ws = null;
 let _replayingHistory = false;
+let _userDismissedQuestion = false;
 let retryCount = 0;
 const MAX_RETRIES = 10;
 const pendingAttachments = [];
@@ -325,14 +326,16 @@ function renderEvent(event) {
     const etype = event.type;
 
     if (etype === 'user_message') {
-        // Dismiss any open question modal (answered by this or another client)
+        // Only dismiss question modal if the user answered (not SDK auto-answer)
+        // SDK auto-answers have no UI interaction — _userDismissedQuestion is set by sendPrompt
         const openModal = document.getElementById('question-modal');
-        if (openModal) {
+        if (openModal && _userDismissedQuestion) {
             openModal.remove();
             const inputBox = document.getElementById('input-box');
             const handle = document.getElementById('drag-handle');
             if (inputBox) inputBox.style.display = '';
             if (handle) handle.style.display = '';
+            _userDismissedQuestion = false;
         }
         const div = document.createElement('div');
         div.className = 'msg';
@@ -340,15 +343,6 @@ function renderEvent(event) {
         messagesEl.appendChild(div);
 
     } else if (etype === 'assistant_message') {
-        // Dismiss question modal if still open (answered elsewhere)
-        const qm = document.getElementById('question-modal');
-        if (qm) {
-            qm.remove();
-            const ib = document.getElementById('input-box');
-            const dh = document.getElementById('drag-handle');
-            if (ib) ib.style.display = '';
-            if (dh) dh.style.display = '';
-        }
         if (!busy) setBusy(true);
         const blocks = event.content || [];
         const hasVisibleContent = blocks.some(b => b.type !== 'tool_use' || b.tool !== 'AskUserQuestion');
@@ -736,6 +730,7 @@ connect();
 function sendPrompt() {
     const text = promptEl.value.trim();
     if (!text && !pendingAttachments.length) return;
+    _userDismissedQuestion = true;
     renderEvent({type: 'user_message', content: text || '(attachment)'});
     // Build message before clearing
     const msg = {type: 'prompt', text};
