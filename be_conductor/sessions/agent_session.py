@@ -211,7 +211,6 @@ class AgentSession:
                             text = item
                             attachments = None
                         if attachments:
-                            # Build prompt with attachment context
                             prompt_with_files = self._build_prompt_with_attachments(
                                 text, attachments
                             )
@@ -220,13 +219,28 @@ class AgentSession:
                             await client.query(text)
                         await self._stream_response(client)
                     except asyncio.CancelledError:
-                        break
+                        # Interrupt — stay in the loop, wait for next prompt
+                        continue
+                    except Exception as turn_err:
+                        # Per-turn error — don't kill the session
+                        err_msg = str(turn_err)
+                        # Ignore known interrupt-related errors
+                        if "interrupt" in err_msg.lower() or "cancel" in err_msg.lower():
+                            continue
+                        self._emit_event({
+                            "type": "error",
+                            "error": err_msg,
+                        })
+                        # Stay in the loop — user can retry
 
         except Exception as e:
-            self._emit_event({"type": "error", "error": str(e)})
+            # Fatal error (SDK connection failed, etc.)
+            err_msg = str(e)
+            if err_msg and "interrupt" not in err_msg.lower():
+                self._emit_event({"type": "error", "error": err_msg})
         finally:
             self._client = None
-            if self.status == "running":
+            if self.status not in ("exited", "killed"):
                 self.status = "exited"
                 self.exit_code = 0
             self._emit_event({
@@ -246,7 +260,12 @@ class AgentSession:
             RateLimitEvent,
         )
 
-        async for message in client.receive_response():
+        try:
+            response_iter = client.receive_response()
+        except Exception:
+            return
+
+        async for message in response_iter:
             if isinstance(message, AssistantMessage):
                 self._emit_event(self._format_assistant(message))
             elif isinstance(message, ResultMessage):
