@@ -64,12 +64,8 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--fo
 .attachment-item .remove-btn:hover { color: #ff6666; }
 .file-link { color: var(--accent); text-decoration: none; }
 .file-link:hover { text-decoration: underline; }
-/* Timeline */
-.tl { position: relative; padding-left: 18px; margin: 0; padding-top: 6px; padding-bottom: 6px; }
-.tl-dot { position: absolute; left: 0; top: 8px; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); z-index: 1; }
-.tl-dot.user { background: var(--accent); }
-.tl-dot.claude { background: var(--muted); }
-.tl-dot.error { background: var(--error); }
+/* Message spacing */
+.msg { margin: 12px 0; }
 #messages::-webkit-scrollbar { width: 8px; }
 #messages::-webkit-scrollbar-track { background: transparent; }
 #messages::-webkit-scrollbar-thumb { background: #30363d; border-radius: 4px; }
@@ -339,8 +335,8 @@ function renderEvent(event) {
             if (handle) handle.style.display = '';
         }
         const div = document.createElement('div');
-        div.className = 'tl';
-        div.innerHTML = `<div class="tl-dot user"></div><div style="padding:10px 14px;background:var(--user-bg);border-radius:8px;border-left:3px solid var(--accent);white-space:pre-wrap;line-height:1.5;">${escHtml(event.content || '')}</div>`;
+        div.className = 'msg';
+        div.innerHTML = `<div style="padding:10px 14px;background:var(--user-bg);border-radius:8px;border-left:3px solid var(--accent);white-space:pre-wrap;line-height:1.5;">${escHtml(event.content || '')}</div>`;
         messagesEl.appendChild(div);
 
     } else if (etype === 'assistant_message') {
@@ -369,8 +365,7 @@ function renderEvent(event) {
             return;
         }
         const wrapper = document.createElement('div');
-        wrapper.className = 'tl';
-        wrapper.innerHTML = '<div class="tl-dot claude"></div>';
+        wrapper.className = 'msg';
 
         for (const block of blocks) {
             if (block.type === 'text') {
@@ -443,8 +438,8 @@ function renderEvent(event) {
     } else if (etype === 'error') {
         setBusy(false);
         const div = document.createElement('div');
-        div.className = 'tl';
-        div.innerHTML = `<div class="tl-dot error"></div><div style="padding:10px 14px;background:var(--error-bg);border:1px solid var(--error);border-radius:8px;color:var(--error);font-size:13px;"><strong>Error</strong> &mdash; ${escHtml(event.error || 'Unknown error')}</div>`;
+        div.className = 'msg';
+        div.innerHTML = `<div style="padding:10px 14px;background:var(--error-bg);border:1px solid var(--error);border-radius:8px;color:var(--error);font-size:13px;"><strong>Error</strong> &mdash; ${escHtml(event.error || 'Unknown error')}</div>`;
         messagesEl.appendChild(div);
 
     } else if (etype === 'session_end') {
@@ -455,14 +450,12 @@ function renderEvent(event) {
     autoScroll();
 }
 
-function updateTimeline() {}
 
 function autoScroll() {
     // Keep spinner at the very bottom
     if (spinnerEl && spinnerEl.parentNode === messagesEl) {
         messagesEl.appendChild(spinnerEl);
     }
-    updateTimeline();
     if (messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 100) {
         messagesEl.scrollTop = messagesEl.scrollHeight;
     }
