@@ -96,7 +96,7 @@ class AgentSession:
     ):
         self.id = session_id or name
         self.name = name
-        self.command = "claude-agent"
+        self.command = "claude"
         self.prompt = prompt
         self.cwd = cwd
         self.worktree = worktree
