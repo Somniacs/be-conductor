@@ -636,9 +636,27 @@ function connect() {
         try {
             const msg = JSON.parse(e.data);
             if (msg.type === 'history') {
+                const msgs = msg.messages || [];
                 _replayingHistory = true;
-                for (const m of (msg.messages || [])) renderEvent(m);
+                for (const m of msgs) renderEvent(m);
                 _replayingHistory = false;
+                // If the last event was an unanswered question, show the modal now
+                const last = msgs[msgs.length - 1];
+                if (last && last.type === 'question') {
+                    renderEvent(last);
+                } else if (last && last.type === 'assistant_message') {
+                    const blocks = last.content || [];
+                    const lastBlock = blocks[blocks.length - 1];
+                    if (lastBlock && lastBlock.type === 'tool_use' && lastBlock.tool === 'AskUserQuestion') {
+                        const questions = lastBlock.input.questions || [lastBlock.input];
+                        questions.forEach(q => {
+                            showQuestionModal(q, (answer) => {
+                                promptEl.value = answer;
+                                sendPrompt();
+                            });
+                        });
+                    }
+                }
             } else if (msg.type === 'ping') {
                 return;
             } else {
