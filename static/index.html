@@ -4247,8 +4247,9 @@
 
                 const iframe = document.createElement('iframe');
                 const wsBase = serverWsUrl(panel.server, '');
-                iframe.src = serverUrl(panel.server, `/agent/${panel.sessionId}?session=${encodeURIComponent(panel.sessionId)}&ws=${encodeURIComponent(wsBase)}`);
-                iframe.style.cssText = 'flex:1;border:none;width:100%;min-height:0;background:#0d0d1a;';
+                const agentTheme = panel._theme || 'default';
+                iframe.src = serverUrl(panel.server, `/agent/${panel.sessionId}?session=${encodeURIComponent(panel.sessionId)}&ws=${encodeURIComponent(wsBase)}&theme=${encodeURIComponent(agentTheme)}`);
+                iframe.style.cssText = 'flex:1;border:none;width:100%;min-height:0;';
                 termOuter.appendChild(iframe);
                 panel._agentIframe = iframe;
             }
@@ -5400,10 +5401,18 @@
 
         function setTheme(id, themeKey) {
             const panel = panels.find(p => p.id === id);
-            if (!panel || !panel.terminal) return;
+            if (!panel) return;
             const t = THEMES[themeKey];
             if (!t) return;
             panel._theme = themeKey;
+            // Forward theme to agent iframe
+            if (panel._agentIframe && panel._agentIframe.contentWindow) {
+                panel._agentIframe.contentWindow.postMessage({type: 'setTheme', theme: themeKey}, '*');
+                panel.element.style.background = t.background;
+                closePanelMenus();
+                return;
+            }
+            if (!panel.terminal) return;
             const themeObj = {
                 background: t.background, foreground: t.foreground,
                 cursor: t.cursor, selectionBackground: t.selectionBackground,
