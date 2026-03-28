@@ -6,6 +6,9 @@ const { NAME_PATTERN, AGENTS } = require('./config');
 /** Map of session name -> VS Code Terminal instance (for focus-on-click). */
 const terminalMap = new Map();
 
+/** Map of session name -> VS Code WebviewPanel instance (for agent sessions). */
+const webviewPanels = new Map();
+
 // Clean up terminal references when they close.
 vscode.window.onDidCloseTerminal((t) => {
     for (const [name, term] of terminalMap) {
@@ -222,11 +225,27 @@ async function createSessionFlow(callbacks) {
  * @param {string} name - session name
  * @param {string} [cwd] - working directory (defaults to first workspace folder)
  */
-function attachSession(name, cwd) {
+async function attachSession(name, cwd) {
     if (terminalMap.has(name)) {
         // Already attached — just focus
         terminalMap.get(name).show();
         return;
+    }
+
+    // Warn if attached elsewhere
+    try {
+        const api = require('./api');
+        const session = await api.getSession(name);
+        if (session && session.attached_clients && session.attached_clients.length > 0) {
+            const sources = [...new Set(session.attached_clients.map(c => c.source))];
+            const choice = await vscode.window.showWarningMessage(
+                `"${name}" is already attached in: ${sources.join(', ')}. Open here as well?`,
+                'Yes', 'Cancel'
+            );
+            if (choice !== 'Yes') return;
+        }
+    } catch (_) {
+        // If the check fails, proceed anyway
     }
 
     const workDir = cwd ||
@@ -260,8 +279,56 @@ function focusTerminal(name) {
     return false;
 }
 
+/**
+ * Open an agent session in a webview panel that loads the be-conductor dashboard.
+ * @param {string} sessionId - session ID (compound or plain)
+ * @param {string} name - session display name
+ */
+function openAgentWebview(sessionId, name) {
+    // If already open, just reveal the panel
+    if (webviewPanels.has(name)) {
+        webviewPanels.get(name).reveal();
+        return;
+    }
+
+    const { getServerUrl } = require('./config');
+    const baseUrl = getServerUrl();
+    const dashboardUrl = `${baseUrl}?focus=${encodeURIComponent(sessionId)}`;
+
+    const panel = vscode.window.createWebviewPanel(
+        'be-conductor.agentSession',
+        `${name} (SDK)`,
+        vscode.ViewColumn.One,
+        {
+            enableScripts: true,
+            retainContextWhenHidden: true,
+        }
+    );
+
+    panel.webview.html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; }
+        iframe { border: none; width: 100%; height: 100%; }
+    </style>
+</head>
+<body>
+    <iframe src="${dashboardUrl}" allow="clipboard-read; clipboard-write"></iframe>
+</body>
+</html>`;
+
+    webviewPanels.set(name, panel);
+
+    panel.onDidDispose(() => {
+        webviewPanels.delete(name);
+    });
+}
+
 module.exports = {
-    createSessionFlow, attachSession, focusTerminal, terminalMap,
+    createSessionFlow, attachSession, focusTerminal, openAgentWebview,
+    terminalMap, webviewPanels,
     setWorkspaceState, getTrackedSessions, trackSession, untrackSession, clearTrackedSessions,
     getRunningAtClose, setRunningAtClose,
 };

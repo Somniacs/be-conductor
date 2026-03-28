@@ -31,6 +31,7 @@ public class NewSessionDialog extends DialogWrapper {
     private JComboBox<String> commandCombo;
     private TextFieldWithBrowseButton cwdField;
     private JBCheckBox worktreeCheckbox;
+    private JComboBox<String> sessionTypeCombo;
     private JBLabel branchPreview;
     private JBLabel gitStatus;
 
@@ -136,9 +137,25 @@ public class NewSessionDialog extends DialogWrapper {
         c.weightx = 1.0;
         panel.add(cwdField, c);
 
-        // Row 3: Worktree checkbox + git status
+        // Row 3: Session type
         c.gridx = 0;
         c.gridy = 3;
+        c.gridwidth = 1;
+        c.fill = GridBagConstraints.NONE;
+        c.weightx = 0;
+        panel.add(new JBLabel("Type:"), c);
+
+        sessionTypeCombo = new JComboBox<>(new String[]{"Terminal (PTY)", "Agent (SDK)"});
+        sessionTypeCombo.setSelectedIndex(0);
+        c.gridx = 1;
+        c.gridwidth = 2;
+        c.fill = GridBagConstraints.HORIZONTAL;
+        c.weightx = 1.0;
+        panel.add(sessionTypeCombo, c);
+
+        // Row 4: Worktree checkbox + git status
+        c.gridx = 0;
+        c.gridy = 4;
         c.gridwidth = 1;
         c.fill = GridBagConstraints.NONE;
         c.weightx = 0;
@@ -160,9 +177,9 @@ public class NewSessionDialog extends DialogWrapper {
         c.weightx = 0;
         panel.add(gitStatus, c);
 
-        // Row 4: Branch preview
+        // Row 5: Branch preview
         c.gridx = 1;
-        c.gridy = 4;
+        c.gridy = 5;
         c.gridwidth = 2;
         c.fill = GridBagConstraints.HORIZONTAL;
         c.weightx = 1.0;
@@ -279,6 +296,11 @@ public class NewSessionDialog extends DialogWrapper {
 
     public boolean isWorktreeEnabled() {
         return worktreeCheckbox.isSelected();
+    }
+
+    /** @return "pty" or "agent" */
+    public String getSessionType() {
+        return sessionTypeCombo.getSelectedIndex() == 1 ? "agent" : "pty";
     }
 
     /** Simple listener that fires a callback on any document change. */

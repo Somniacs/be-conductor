@@ -161,10 +161,15 @@ public class SessionListPanel extends JPanel {
         JPanel sessionActions = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 1));
 
         attachBtn = createToolbarButton("Attach", AllIcons.Debugger.Console,
-                "Open terminal attached to this session");
+                "Open terminal attached to this session (or dashboard for SDK sessions)");
         attachBtn.addActionListener(e -> {
             ApiModels.SessionResponse s = sessionList.getSelectedValue();
-            if (s != null) attachSession(s.name, s.cwd);
+            if (s == null) return;
+            if (s.isAgent()) {
+                openAgentInBrowser(s.id);
+            } else {
+                attachSession(s.name, s.cwd);
+            }
         });
         sessionActions.add(attachBtn);
 
@@ -172,7 +177,7 @@ public class SessionListPanel extends JPanel {
                 "Resume this session (double-click also works)");
         resumeBtn.addActionListener(e -> {
             ApiModels.SessionResponse s = sessionList.getSelectedValue();
-            if (s != null) resumeSession(s.id, s.name, s.cwd);
+            if (s != null) resumeSession(s.id, s.name, s.cwd, s.isAgent());
         });
         sessionActions.add(resumeBtn);
 
@@ -253,9 +258,13 @@ public class SessionListPanel extends JPanel {
                     ApiModels.SessionResponse s = sessionList.getSelectedValue();
                     if (s == null) return;
                     if ("running".equals(s.status)) {
-                        attachSession(s.name, s.cwd);
+                        if (s.isAgent()) {
+                            openAgentInBrowser(s.id);
+                        } else {
+                            attachSession(s.name, s.cwd);
+                        }
                     } else if (isResumable(s)) {
-                        resumeSession(s.id, s.name, s.cwd);
+                        resumeSession(s.id, s.name, s.cwd, s.isAgent());
                     }
                 }
             }
@@ -308,8 +317,12 @@ public class SessionListPanel extends JPanel {
         boolean resumable = s != null && isResumable(s);
         boolean exited = s != null && "exited".equals(s.status);
         boolean hasWorktree = s != null && s.worktree != null;
+        boolean isAgent = s != null && s.isAgent();
 
-        attachBtn.setEnabled(running && !attachedSessions.contains(s.name));
+        // Agent sessions can always "attach" (opens browser), PTY sessions check terminal tracking
+        attachBtn.setEnabled(running && (isAgent || !attachedSessions.contains(s.name)));
+        attachBtn.setText(isAgent ? "Open" : "Attach");
+        attachBtn.setToolTipText(isAgent ? "Open agent session in dashboard" : "Open terminal attached to this session");
         resumeBtn.setEnabled(resumable);
         stopBtn.setEnabled(alive);
         killBtn.setEnabled(alive);
@@ -375,9 +388,19 @@ public class SessionListPanel extends JPanel {
 
         if (alive) {
             if ("running".equals(session.status)) {
-                JMenuItem attachItem = new JMenuItem("Attach");
-                attachItem.addActionListener(e -> attachSession(session.name, session.cwd));
-                menu.add(attachItem);
+                if (session.isAgent()) {
+                    JMenuItem openItem = new JMenuItem("Open in Dashboard");
+                    openItem.addActionListener(e -> openAgentInBrowser(session.id));
+                    menu.add(openItem);
+                } else {
+                    JMenuItem attachItem = new JMenuItem("Attach");
+                    attachItem.addActionListener(e -> attachSession(session.name, session.cwd));
+                    menu.add(attachItem);
+                }
+
+                JMenuItem cloneItem = new JMenuItem("Clone");
+                cloneItem.addActionListener(e -> cloneSession(session));
+                menu.add(cloneItem);
                 menu.addSeparator();
 
                 JMenuItem stopItem = new JMenuItem("Stop (resume)");
@@ -391,7 +414,7 @@ public class SessionListPanel extends JPanel {
         } else {
             if (isResumable(session)) {
                 JMenuItem resumeItem = new JMenuItem("Resume");
-                resumeItem.addActionListener(e -> resumeSession(session.id, session.name, session.cwd));
+                resumeItem.addActionListener(e -> resumeSession(session.id, session.name, session.cwd, session.isAgent()));
                 menu.add(resumeItem);
                 menu.addSeparator();
             }
@@ -433,6 +456,32 @@ public class SessionListPanel extends JPanel {
 
     private void attachSession(String name, String cwd) {
         if (attachedSessions.contains(name)) return;
+
+        // Warn if already attached elsewhere
+        try {
+            List<ApiModels.SessionResponse> allSessions = BeConductorClient.getInstance().listSessions();
+            for (ApiModels.SessionResponse s : allSessions) {
+                if (s.name.equals(name) && s.attached_clients != null && !s.attached_clients.isEmpty()) {
+                    Set<String> sources = new java.util.LinkedHashSet<>();
+                    for (ApiModels.AttachedClient c : s.attached_clients) {
+                        if (c.source != null) sources.add(c.source);
+                    }
+                    int result = JOptionPane.showConfirmDialog(
+                            this,
+                            "\"" + name + "\" is already attached in: " + String.join(", ", sources)
+                                    + ".\n\nOpen here as well?",
+                            "Session Already Attached",
+                            JOptionPane.YES_NO_OPTION,
+                            JOptionPane.WARNING_MESSAGE
+                    );
+                    if (result != JOptionPane.YES_OPTION) return;
+                    break;
+                }
+            }
+        } catch (Exception ignored) {
+            // If check fails, proceed anyway
+        }
+
         attachedSessions.add(name);
         trackSession(project, name);
 
@@ -458,6 +507,12 @@ public class SessionListPanel extends JPanel {
     /** Called externally (e.g. from RunSessionAction) to mark a session as attached. */
     public static void markAttached(String name) {
         attachedSessions.add(name);
+    }
+
+    /** Open an agent session in the system browser, pointing to the be-conductor dashboard. */
+    private void openAgentInBrowser(String sessionId) {
+        String url = "http://127.0.0.1:7777?focus=" + java.net.URLEncoder.encode(sessionId, java.nio.charset.StandardCharsets.UTF_8);
+        BrowserUtil.browse(url);
     }
 
     private void stopSession(String id, String mode) {
@@ -508,12 +563,20 @@ public class SessionListPanel extends JPanel {
     }
 
     private void resumeSession(String id, String name, String cwd) {
+        resumeSession(id, name, cwd, false);
+    }
+
+    private void resumeSession(String id, String name, String cwd, boolean isAgent) {
         int[] dims = estimateTerminalDimensions();
         ApplicationManager.getApplication().executeOnPooledThread(() -> {
             try {
                 BeConductorClient.getInstance().resumeSession(id, dims[0], dims[1]);
                 SwingUtilities.invokeLater(() -> {
-                    attachSession(name, cwd);
+                    if (isAgent) {
+                        openAgentInBrowser(id);
+                    } else {
+                        attachSession(name, cwd);
+                    }
                     refresh();
                 });
             } catch (Exception e) {
@@ -548,6 +611,55 @@ public class SessionListPanel extends JPanel {
                         ))
                 );
             }
+        });
+    }
+
+    private void cloneSession(ApiModels.SessionResponse session) {
+        SwingUtilities.invokeLater(() -> {
+            String name = JOptionPane.showInputDialog(
+                    this,
+                    "Name for the cloned session:",
+                    "Clone Session",
+                    JOptionPane.PLAIN_MESSAGE,
+                    null, null,
+                    session.name + "-clone"
+            ) instanceof String s ? s.trim() : null;
+            if (name == null || name.isEmpty()) return;
+
+            String cloneName = name;
+            ApplicationManager.getApplication().executeOnPooledThread(() -> {
+                try {
+                    BeConductorClient.getInstance().cloneSession(
+                            session.id, new ApiModels.CloneRequest(cloneName));
+                    SwingUtilities.invokeLater(() -> {
+                        Notifications.Bus.notify(new Notification(
+                                "be-conductor", "Clone Started",
+                                "Cloning \"" + session.name + "\" into \"" + cloneName + "\"...",
+                                NotificationType.INFORMATION
+                        ));
+                    });
+                    // Poll until the cloned session appears (up to 90s)
+                    for (int i = 0; i < 90; i++) {
+                        Thread.sleep(1000);
+                        List<ApiModels.SessionResponse> sessions =
+                                BeConductorClient.getInstance().listSessions();
+                        for (ApiModels.SessionResponse s : sessions) {
+                            if (s.name.equals(cloneName) && "running".equals(s.status)) {
+                                refresh();
+                                return;
+                            }
+                        }
+                    }
+                    refresh();
+                } catch (Exception e) {
+                    SwingUtilities.invokeLater(() ->
+                            Notifications.Bus.notify(new Notification(
+                                    "be-conductor", "Clone Failed", e.getMessage(),
+                                    NotificationType.ERROR
+                            ))
+                    );
+                }
+            });
         });
     }
 
@@ -729,8 +841,12 @@ public class SessionListPanel extends JPanel {
                     continue;
                 }
                 if ("running".equals(s.status)) {
-                    // Still running — just re-attach
-                    SwingUtilities.invokeLater(() -> attachSession(s.name, s.cwd));
+                    // Still running — just re-attach (browser for agent, terminal for pty)
+                    if (s.isAgent()) {
+                        SwingUtilities.invokeLater(() -> openAgentInBrowser(s.id));
+                    } else {
+                        SwingUtilities.invokeLater(() -> attachSession(s.name, s.cwd));
+                    }
                     reattached.add(name);
                 } else if ("exited".equals(s.status) && (s.resume_id != null || s.worktree != null)
                         && wasRunning.contains(name)) {
@@ -738,7 +854,11 @@ public class SessionListPanel extends JPanel {
                     try {
                         ApiModels.SessionResponse resumed_s = client.resumeSession(s.id, dims[0], dims[1]);
                         String resumedCwd = resumed_s != null ? resumed_s.cwd : s.cwd;
-                        SwingUtilities.invokeLater(() -> attachSession(s.name, resumedCwd));
+                        if (s.isAgent()) {
+                            SwingUtilities.invokeLater(() -> openAgentInBrowser(s.id));
+                        } else {
+                            SwingUtilities.invokeLater(() -> attachSession(s.name, resumedCwd));
+                        }
                         resumed.add(name);
                     } catch (Exception e) {
                         untrackSession(project, name);
@@ -803,9 +923,16 @@ public class SessionListPanel extends JPanel {
                 component.setIcon(AllIcons.RunConfigurations.TestIgnored);
             }
 
-            // Name + command
+            // Name + session type badge + command
             component.append(session.name, SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES);
-            component.append("  " + session.command, SimpleTextAttributes.GRAYED_ATTRIBUTES);
+            if (session.isAgent()) {
+                component.append("  SDK", new SimpleTextAttributes(
+                        SimpleTextAttributes.STYLE_BOLD, new Color(0x4a, 0x6c, 0xf7)));
+                component.append(" \u00b7 ", SimpleTextAttributes.GRAYED_ATTRIBUTES);
+            } else {
+                component.append("  ", SimpleTextAttributes.GRAYED_ATTRIBUTES);
+            }
+            component.append(session.command, SimpleTextAttributes.GRAYED_ATTRIBUTES);
 
             // Worktree branch + commits ahead
             if (session.worktree != null) {

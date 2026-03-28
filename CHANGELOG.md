@@ -4,6 +4,11 @@ All notable changes to be-conductor are documented here.
 
 ## v0.3.33
 
+### New
+
+- **Session cloning** — clone a running session into a new one that inherits the original's context. By default the source session writes a summary to a context file; the new session reads it and continues in parallel. Use `--raw` to pass the raw terminal buffer instead. Available via CLI (`be-conductor clone`), the dashboard ("..." menu → Clone), and both IDE plugins (right-click → Clone)
+- **Attachment tracking** — the server now tracks which frontends (CLI, browser, VS Code, JetBrains) are connected to each session. All frontends show a warning before attaching to a session that's already open elsewhere, preventing accidental multi-attach confusion. The session list shows an "attached" indicator with the source
+
 ### Fixed
 
 - **CLI scroll jumping during redraws** — the CLI now buffers synchronized terminal updates (DEC mode 2026) and writes them atomically. Screen redraws that span multiple WebSocket messages no longer cause the viewport to flash to the top

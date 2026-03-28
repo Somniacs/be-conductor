@@ -3343,10 +3343,6 @@
 
         // Core fit logic — can be called directly (synchronous) or via debounce.
         function _fitPanelCore(p) {
-            // Also fit the agent console terminal if it exists and is visible
-            if (p._agentConsoleFitAddon && p._agentViewMode === 'console') {
-                try { p._agentConsoleFitAddon.fit(); } catch {}
-            }
             if (!p.fitAddon || !p._termOpened) return;
             const target = p._termWrapper || p._termEl;
 
@@ -4335,21 +4331,7 @@
                 termOuter.style.overflow = 'hidden';
                 termOuter.style.background = '#0d0d1a';
 
-                // --- Feature 1: Render/Console toggle buttons in header ---
-                const hdrActions = div.querySelector('.panel-header-actions');
-                const menuBtn = hdrActions.querySelector('.panel-menu-btn');
-                const toggleGroup = document.createElement('div');
-                toggleGroup.className = 'agent-view-toggle';
-                const renderBtn = document.createElement('button');
-                renderBtn.textContent = 'Render';
-                renderBtn.className = 'active';
-                const consoleBtn = document.createElement('button');
-                consoleBtn.textContent = 'Console';
-                toggleGroup.appendChild(renderBtn);
-                toggleGroup.appendChild(consoleBtn);
-                hdrActions.insertBefore(toggleGroup, menuBtn);
-
-                // Agent render container
+                // Agent message container
                 const agentContainer = document.createElement('div');
                 agentContainer.className = 'agent-container';
                 agentContainer.style.cssText = 'flex:1;min-height:0;overflow-y:auto;padding:12px 16px;color:#e0e0e0;font-size:14px;line-height:1.6;background:#0d0d1a;';
@@ -4359,89 +4341,269 @@
                 welcomeMsg.setAttribute('data-placeholder', '1');
                 agentContainer.appendChild(welcomeMsg);
 
-                // Console container (hidden initially, holds xterm.js terminal)
-                const consoleContainer = document.createElement('div');
-                consoleContainer.className = 'agent-console-container';
-                consoleContainer.style.cssText = 'flex:1;min-height:0;display:none;background:#0d0d1a;';
-                panel._agentConsoleContainer = consoleContainer;
-                panel._agentConsoleTerminal = null;
-                panel._agentConsoleWs = null;
-                panel._agentConsoleInited = false;
-
-                // View toggle logic
-                panel._agentViewMode = 'render';
-                renderBtn.addEventListener('click', () => {
-                    if (panel._agentViewMode === 'render') return;
-                    panel._agentViewMode = 'render';
-                    renderBtn.classList.add('active');
-                    consoleBtn.classList.remove('active');
-                    agentContainer.style.display = '';
-                    consoleContainer.style.display = 'none';
-                    // Show input bar in render mode
-                    if (panel._agentDragHandle) panel._agentDragHandle.style.display = '';
-                    if (panel._agentInputBar) panel._agentInputBar.style.display = '';
-                    if (panel._agentAttachPreview && panel._agentAttachments && panel._agentAttachments.length) {
-                        panel._agentAttachPreview.style.display = 'flex';
-                    }
-                });
-                consoleBtn.addEventListener('click', () => {
-                    if (panel._agentViewMode === 'console') return;
-                    panel._agentViewMode = 'console';
-                    consoleBtn.classList.add('active');
-                    renderBtn.classList.remove('active');
-                    agentContainer.style.display = 'none';
-                    consoleContainer.style.display = '';
-                    // Hide input bar in console mode
-                    if (panel._agentDragHandle) panel._agentDragHandle.style.display = 'none';
-                    if (panel._agentInputBar) panel._agentInputBar.style.display = 'none';
-                    if (panel._agentAttachPreview) panel._agentAttachPreview.style.display = 'none';
-                    // Lazy-init console terminal on first switch
-                    if (!panel._agentConsoleInited) {
-                        panel._agentConsoleInited = true;
-                        _initAgentConsole(panel);
-                    } else if (panel._agentConsoleFitAddon) {
-                        try { panel._agentConsoleFitAddon.fit(); } catch {}
-                    }
-                });
-
-                // Pending attachments array
+                // Pending attachments
                 panel._agentAttachments = [];
+
+                function _setAgentBusy(busy) {
+                    panel._agentBusy = busy;
+                    if (panel._agentSendBtn) {
+                        panel._agentSendBtn.innerHTML = busy ? panel._agentStopIcon : panel._agentSendIcon;
+                        panel._agentSendBtn.style.background = busy ? '#b91c1c' : '#2563eb';
+                        panel._agentSendBtn.title = busy ? 'Stop agent' : 'Send (Enter)';
+                    }
+                }
 
                 function sendAgentPrompt() {
                     const text = textarea.value.trim();
                     if (!text && !panel._agentAttachments.length) return;
-                    // Show message immediately (optimistic)
                     renderAgentEvent(panel, {type: 'user_message', content: text || '(attachment)'});
                     if (panel.ws && panel.ws.readyState === WebSocket.OPEN) {
-                        const msg = {type: 'prompt', text: text};
+                        const msg = {type: 'prompt', text};
                         if (panel._agentAttachments.length) {
                             msg.attachments = panel._agentAttachments.map(a => ({
                                 name: a.name, type: a.type, data: a.data
                             }));
                         }
                         panel.ws.send(JSON.stringify(msg));
+                        _setAgentBusy(true);
                     } else {
                         renderAgentEvent(panel, {type: 'error', error: 'Not connected to agent'});
                     }
                     textarea.value = '';
+                    textarea.style.height = '38px';
                     panel._agentAttachments = [];
                     _refreshAttachmentPreview(panel);
                     textarea.focus();
                 }
 
+                // --- Attachment preview strip ---
+                const attachPreview = document.createElement('div');
+                attachPreview.className = 'agent-attachment-preview';
+                attachPreview.style.display = 'none';
+                panel._agentAttachPreview = attachPreview;
+
+                // --- Input area (VSCode Claude-style) ---
+                const inputWrapper = document.createElement('div');
+                inputWrapper.style.cssText = 'flex-shrink:0;background:#161b22;border-top:1px solid #30363d;padding:8px 12px;';
+
+                // Top row: attachment preview
+                inputWrapper.appendChild(attachPreview);
+
+                // Input box with rounded border
+                const inputBox = document.createElement('div');
+                inputBox.style.cssText = 'display:flex;align-items:flex-end;gap:0;background:#0d1117;border:1px solid #30363d;border-radius:10px;padding:4px;';
+
+                // Left: + button (attachments)
+                const attachBtn = document.createElement('button');
+                attachBtn.title = 'Attach file or image';
+                attachBtn.style.cssText = 'background:none;border:none;color:#8b949e;cursor:pointer;padding:6px;display:flex;align-items:center;border-radius:6px;flex-shrink:0;';
+                attachBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 2a.75.75 0 01.75.75v4.5h4.5a.75.75 0 010 1.5h-4.5v4.5a.75.75 0 01-1.5 0v-4.5h-4.5a.75.75 0 010-1.5h4.5v-4.5A.75.75 0 018 2z"/></svg>';
+                attachBtn.addEventListener('mouseover', () => { attachBtn.style.color = '#e0e0e0'; attachBtn.style.background = '#1a1f2b'; });
+                attachBtn.addEventListener('mouseout', () => { attachBtn.style.color = '#8b949e'; attachBtn.style.background = 'none'; });
+
+                // Hidden file input
+                const agentFileInput = document.createElement('input');
+                agentFileInput.type = 'file';
+                agentFileInput.multiple = true;
+                agentFileInput.style.display = 'none';
+                agentFileInput.accept = 'image/*,.txt,.csv,.json,.md,.py,.js,.ts,.html,.css,.xml,.yaml,.yml,.toml,.sh,.log';
+                agentFileInput.addEventListener('change', () => {
+                    if (!agentFileInput.files) return;
+                    for (const file of agentFileInput.files) _readAttachmentFile(panel, file);
+                    agentFileInput.value = '';
+                });
+                div.appendChild(agentFileInput);
+                panel._agentFileInput = agentFileInput;
+                attachBtn.addEventListener('click', () => agentFileInput.click());
+
+                // Textarea (auto-grows)
+                const textarea = document.createElement('textarea');
+                textarea.rows = 1;
+                textarea.placeholder = 'Message Claude...';
+                textarea.style.cssText = 'flex:1;resize:none;background:transparent;color:#e0e0e0;border:none;outline:none;padding:6px 8px;font-family:inherit;font-size:13px;height:38px;max-height:200px;line-height:1.4;';
+                textarea.addEventListener('input', () => {
+                    textarea.style.height = '38px';
+                    textarea.style.height = Math.min(200, textarea.scrollHeight) + 'px';
+                });
+                textarea.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        sendAgentPrompt();
+                    }
+                });
+
+                // Right side: mode + send
+                const rightGroup = document.createElement('div');
+                rightGroup.style.cssText = 'display:flex;align-items:center;gap:4px;flex-shrink:0;';
+
+                // Mode & Effort popup (VSCode Claude style)
+                const _modes = [
+                    {value: 'default', label: 'Ask before edits', desc: 'Claude will ask for approval before making each edit',
+                     icon: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2a5 5 0 00-5 5c0 1.5.7 2.8 1.7 3.7L5 14h6l.3-3.3A5 5 0 008 2z"/><path d="M6 14v1h4v-1"/></svg>'},
+                    {value: 'acceptEdits', label: 'Edit automatically', desc: 'Claude will edit your selected text or the whole file',
+                     icon: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13h8M5.5 3.5l5 5M4 10l-1 3 3-1 7-7-2-2z"/></svg>'},
+                    {value: 'plan', label: 'Plan mode', desc: 'Claude will explore the code and present a plan before editing',
+                     icon: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="1.5" width="10" height="13" rx="1.5"/><path d="M6 5h4M6 8h4M6 11h2"/></svg>'},
+                ];
+                const _efforts = ['low', 'medium', 'high'];
+                let _modeIdx = 0;
+                let _effortIdx = 2; // default: high
+
+                // Popup container
+                const modePopup = document.createElement('div');
+                modePopup.style.cssText = 'display:none;position:absolute;bottom:100%;right:0;margin-bottom:8px;background:#1c2028;border:1px solid #30363d;border-radius:10px;padding:8px 0;min-width:300px;z-index:100;box-shadow:0 8px 24px rgba(0,0,0,0.4);';
+
+                // Header
+                const popupHeader = document.createElement('div');
+                popupHeader.style.cssText = 'padding:8px 14px;font-size:12px;color:#8b949e;font-weight:600;display:flex;justify-content:space-between;align-items:center;';
+                popupHeader.innerHTML = '<span>Modes</span>';
+                modePopup.appendChild(popupHeader);
+
+                // Mode items
+                _modes.forEach((m, idx) => {
+                    const item = document.createElement('div');
+                    item.style.cssText = 'padding:8px 14px;cursor:pointer;display:flex;align-items:flex-start;gap:10px;';
+                    item.addEventListener('mouseover', () => { item.style.background = '#2a2f3a'; });
+                    item.addEventListener('mouseout', () => { item.style.background = idx === _modeIdx ? '#1a2744' : 'transparent'; });
+                    item._modeIdx = idx;
+                    item.addEventListener('click', () => {
+                        _modeIdx = idx;
+                        _updateModeUI();
+                        if (panel.ws && panel.ws.readyState === WebSocket.OPEN) {
+                            panel.ws.send(JSON.stringify({type: 'set_mode', mode: m.value}));
+                        }
+                        modePopup.style.display = 'none';
+                    });
+                    item.innerHTML = `
+                        <div style="color:#8b949e;flex-shrink:0;margin-top:2px;">${m.icon}</div>
+                        <div style="flex:1;">
+                            <div style="font-size:13px;color:#e0e0e0;font-weight:500;">${m.label}</div>
+                            <div style="font-size:11px;color:#8b949e;margin-top:2px;">${m.desc}</div>
+                        </div>
+                        <div class="mode-check" style="color:#4a6cf7;flex-shrink:0;margin-top:2px;display:${idx === _modeIdx ? 'block' : 'none'};">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 8l3.5 3.5L13 5"/></svg>
+                        </div>`;
+                    modePopup.appendChild(item);
+                });
+
+                // Separator
+                const sep = document.createElement('div');
+                sep.style.cssText = 'height:1px;background:#30363d;margin:6px 0;';
+                modePopup.appendChild(sep);
+
+                // Effort row
+                const effortRow = document.createElement('div');
+                effortRow.style.cssText = 'padding:8px 14px;display:flex;align-items:center;gap:10px;';
+                effortRow.innerHTML = `
+                    <div style="color:#8b949e;flex-shrink:0;">
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 10h2l2-4 3 8 2-6h3"/></svg>
+                    </div>
+                    <div style="flex:1;font-size:13px;color:#e0e0e0;">Effort</div>`;
+                // Effort toggle (3-state)
+                const effortToggle = document.createElement('div');
+                effortToggle.style.cssText = 'display:flex;gap:2px;background:#0d1117;border-radius:8px;padding:2px;border:1px solid #30363d;';
+                _efforts.forEach((e, idx) => {
+                    const btn = document.createElement('button');
+                    btn.textContent = e.charAt(0).toUpperCase();
+                    btn.title = e.charAt(0).toUpperCase() + e.slice(1) + ' effort';
+                    btn.style.cssText = `background:${idx === _effortIdx ? '#2563eb' : 'transparent'};color:${idx === _effortIdx ? 'white' : '#8b949e'};border:none;border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer;font-weight:500;`;
+                    btn.addEventListener('click', () => {
+                        _effortIdx = idx;
+                        _updateEffortUI();
+                        if (panel.ws && panel.ws.readyState === WebSocket.OPEN) {
+                            panel.ws.send(JSON.stringify({type: 'set_effort', effort: _efforts[idx]}));
+                        }
+                    });
+                    effortToggle.appendChild(btn);
+                });
+                effortRow.appendChild(effortToggle);
+                modePopup.appendChild(effortRow);
+
+                function _updateModeUI() {
+                    const items = modePopup.querySelectorAll('.mode-check');
+                    const rows = modePopup.querySelectorAll('[style*="cursor:pointer"]');
+                    rows.forEach((row, i) => {
+                        if (row._modeIdx !== undefined) {
+                            row.style.background = row._modeIdx === _modeIdx ? '#1a2744' : 'transparent';
+                        }
+                    });
+                    items.forEach((c, i) => { c.style.display = i === _modeIdx ? 'block' : 'none'; });
+                    const m = _modes[_modeIdx];
+                    modeBtn.innerHTML = m.icon.replace('width="16"', 'width="14"').replace('height="16"', 'height="14"') + ' <span>' + m.label.split(' ').pop() + '</span>';
+                }
+                function _updateEffortUI() {
+                    const btns = effortToggle.children;
+                    for (let i = 0; i < btns.length; i++) {
+                        btns[i].style.background = i === _effortIdx ? '#2563eb' : 'transparent';
+                        btns[i].style.color = i === _effortIdx ? 'white' : '#8b949e';
+                    }
+                }
+
+                // Mode button (shows current mode, opens popup)
+                const modeBtn = document.createElement('button');
+                modeBtn.title = 'Modes & Effort';
+                modeBtn.style.cssText = 'background:none;color:#8b949e;border:1px solid #30363d;border-radius:6px;padding:3px 8px;font-size:11px;cursor:pointer;display:flex;align-items:center;gap:4px;flex-shrink:0;white-space:nowrap;position:relative;';
+                _updateModeUI();
+                modeBtn.addEventListener('mouseover', () => { modeBtn.style.color = '#e0e0e0'; modeBtn.style.borderColor = '#666'; });
+                modeBtn.addEventListener('mouseout', () => { modeBtn.style.color = '#8b949e'; modeBtn.style.borderColor = '#30363d'; });
+                modeBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    modePopup.style.display = modePopup.style.display === 'none' ? 'block' : 'none';
+                });
+                // Close popup on outside click
+                document.addEventListener('click', () => { modePopup.style.display = 'none'; });
+                modePopup.addEventListener('click', (e) => e.stopPropagation());
+
+                // Attach popup to rightGroup (positioned relative)
+                rightGroup.style.position = 'relative';
+                rightGroup.appendChild(modePopup);
+
+                // Send/Stop button — toggles based on agent state
+                const _sendIcon = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12V4M4 7l4-4 4 4"/></svg>';
+                const _stopIcon = '<svg width="10" height="10" viewBox="0 0 10 10"><rect width="10" height="10" rx="1.5" fill="white"/></svg>';
+                const sendBtn = document.createElement('button');
+                sendBtn.title = 'Send (Enter)';
+                sendBtn.style.cssText = 'background:#2563eb;color:white;border:none;border-radius:50%;width:28px;height:28px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;';
+                sendBtn.innerHTML = _sendIcon;
+                sendBtn.addEventListener('mouseover', () => { sendBtn.style.background = panel._agentBusy ? '#dc2626' : '#3b82f6'; });
+                sendBtn.addEventListener('mouseout', () => { sendBtn.style.background = panel._agentBusy ? '#b91c1c' : '#2563eb'; });
+                sendBtn.onclick = () => {
+                    if (panel._agentBusy) {
+                        // Stop the agent
+                        if (panel.ws && panel.ws.readyState === WebSocket.OPEN) {
+                            panel.ws.send(JSON.stringify({type: 'interrupt'}));
+                        }
+                    } else {
+                        sendAgentPrompt();
+                    }
+                };
+                panel._agentBusy = false;
+                panel._agentSendBtn = sendBtn;
+                panel._agentSendIcon = _sendIcon;
+                panel._agentStopIcon = _stopIcon;
+                panel._setAgentBusy = _setAgentBusy;
+
+                rightGroup.appendChild(modeBtn);
+                rightGroup.appendChild(sendBtn);
+
+                inputBox.appendChild(attachBtn);
+                inputBox.appendChild(textarea);
+                inputBox.appendChild(rightGroup);
+                inputWrapper.appendChild(inputBox);
+
                 // Drag handle to resize input area
                 const dragHandle = document.createElement('div');
-                dragHandle.style.cssText = 'height:6px;cursor:row-resize;background:#1e1e3e;border-top:1px solid #333;flex-shrink:0;display:flex;align-items:center;justify-content:center;';
-                dragHandle.innerHTML = '<div style="width:30px;height:2px;background:#444;border-radius:1px;"></div>';
-                panel._agentDragHandle = dragHandle;
-                let dragStartY = 0, dragStartH = 0;
+                dragHandle.style.cssText = 'height:6px;cursor:row-resize;background:#161b22;flex-shrink:0;display:flex;align-items:center;justify-content:center;';
+                dragHandle.innerHTML = '<div style="width:30px;height:2px;background:#30363d;border-radius:1px;"></div>';
                 dragHandle.addEventListener('mousedown', (e) => {
                     e.preventDefault();
-                    dragStartY = e.clientY;
-                    dragStartH = textarea.offsetHeight;
+                    const startY = e.clientY;
+                    const startH = inputWrapper.offsetHeight;
                     const onMove = (ev) => {
-                        const delta = dragStartY - ev.clientY;
-                        textarea.style.height = Math.max(40, dragStartH + delta) + 'px';
+                        const h = Math.max(60, startH + (startY - ev.clientY));
+                        inputWrapper.style.height = h + 'px';
+                        textarea.style.maxHeight = (h - 50) + 'px';
+                        textarea.style.height = (h - 50) + 'px';
                     };
                     const onUp = () => {
                         document.removeEventListener('mousemove', onMove);
@@ -4451,79 +4613,13 @@
                     document.addEventListener('mouseup', onUp);
                 });
 
-                // --- Attachment preview strip ---
-                const attachPreview = document.createElement('div');
-                attachPreview.className = 'agent-attachment-preview';
-                attachPreview.style.display = 'none';
-                panel._agentAttachPreview = attachPreview;
-
-                const inputBar = document.createElement('div');
-                inputBar.style.cssText = 'display:flex;gap:8px;padding:8px 12px;flex-shrink:0;align-items:flex-end;';
-
-                // --- Feature 2: Mode selector ---
-                const modeSelect = document.createElement('select');
-                modeSelect.className = 'agent-mode-select';
-                modeSelect.title = 'Agent permission mode';
-                modeSelect.innerHTML = '<option value="default">Default</option><option value="plan">Plan</option><option value="acceptEdits">Auto-accept</option>';
-                modeSelect.addEventListener('change', () => {
-                    if (panel.ws && panel.ws.readyState === WebSocket.OPEN) {
-                        panel.ws.send(JSON.stringify({type: 'set_mode', mode: modeSelect.value}));
-                    }
-                });
-                panel._agentModeSelect = modeSelect;
-
-                const textarea = document.createElement('textarea');
-                textarea.rows = 2;
-                textarea.placeholder = 'Send a follow-up prompt...';
-                textarea.style.cssText = 'flex:1;resize:none;background:#1a1a2e;color:#e0e0e0;border:1px solid #444;border-radius:6px;padding:8px;font-family:inherit;font-size:13px;height:50px;';
-                textarea.addEventListener('keydown', (e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        sendAgentPrompt();
-                    }
-                });
-
-                // --- Feature 3: Attachment button + hidden file input ---
-                const agentFileInput = document.createElement('input');
-                agentFileInput.type = 'file';
-                agentFileInput.multiple = true;
-                agentFileInput.style.display = 'none';
-                agentFileInput.accept = 'image/*,.txt,.csv,.json,.md,.py,.js,.ts,.html,.css,.xml,.yaml,.yml,.toml,.sh,.log';
-                agentFileInput.addEventListener('change', () => {
-                    if (!agentFileInput.files) return;
-                    for (const file of agentFileInput.files) {
-                        _readAttachmentFile(panel, file);
-                    }
-                    agentFileInput.value = '';
-                });
-                div.appendChild(agentFileInput);
-                panel._agentFileInput = agentFileInput;
-
-                const attachBtn = document.createElement('button');
-                attachBtn.className = 'agent-attach-btn';
-                attachBtn.title = 'Attach file';
-                attachBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.49"/></svg>';
-                attachBtn.addEventListener('click', () => agentFileInput.click());
-
-                const sendBtn = document.createElement('button');
-                sendBtn.textContent = 'Send';
-                sendBtn.style.cssText = 'background:#4a6cf7;color:white;border:none;border-radius:6px;padding:8px 16px;cursor:pointer;font-size:13px;align-self:flex-end;';
-                sendBtn.onclick = () => sendAgentPrompt();
-
-                inputBar.appendChild(modeSelect);
-                inputBar.appendChild(textarea);
-                inputBar.appendChild(attachBtn);
-                inputBar.appendChild(sendBtn);
-
                 termOuter.appendChild(agentContainer);
-                termOuter.appendChild(consoleContainer);
-                termOuter.appendChild(attachPreview);
                 termOuter.appendChild(dragHandle);
-                termOuter.appendChild(inputBar);
+                termOuter.appendChild(inputWrapper);
                 panel._agentContainer = agentContainer;
-                panel._agentInputBar = inputBar;
+                panel._agentInputBar = inputWrapper;
                 panel._agentTextarea = textarea;
-                // Connect immediately — don't wait for xterm.js block
+                // Connect immediately
                 connectAgentWebSocket(panel);
             }
 
@@ -6047,59 +6143,7 @@
         }
 
         // --- Agent Console Terminal (Feature 1) ---
-        function _initAgentConsole(panel) {
-            if (!hasXterm || !panel._agentConsoleContainer) return;
-            const defT = THEMES['default'];
-            const term = new Terminal({
-                cursorBlink: false,
-                fontSize: window.innerWidth <= 700 ? 8 : 13,
-                fontFamily: "'JetBrains Mono', 'Cascadia Mono', Menlo, 'DejaVu Sans Mono', Consolas, monospace",
-                lineHeight: 1.2,
-                theme: {
-                    background: defT.background, foreground: defT.foreground,
-                    cursor: defT.cursor, selectionBackground: defT.selectionBackground,
-                    black: defT.black, red: defT.red, green: defT.green, yellow: defT.yellow,
-                    blue: defT.blue, magenta: defT.magenta, cyan: defT.cyan, white: defT.white,
-                    brightBlack: defT.brightBlack, brightRed: defT.brightRed,
-                    brightGreen: defT.brightGreen, brightYellow: defT.brightYellow,
-                    brightBlue: defT.brightBlue, brightMagenta: defT.brightMagenta,
-                    brightCyan: defT.brightCyan, brightWhite: defT.brightWhite,
-                },
-                scrollback: 5000,
-                convertEol: false,
-                disableStdin: true,
-            });
-            panel._agentConsoleTerminal = term;
-            term.open(panel._agentConsoleContainer);
-
-            if (typeof FitAddon !== 'undefined') {
-                const fitAddon = new FitAddon.FitAddon();
-                term.loadAddon(fitAddon);
-                panel._agentConsoleFitAddon = fitAddon;
-                try { fitAddon.fit(); } catch {}
-            }
-
-            // Connect a second WebSocket in console mode
-            let wsUrl = serverWsUrl(panel.server, `/sessions/${panel.sessionId}/stream`);
-            wsUrl += (wsUrl.includes('?') ? '&' : '?') + 'mode=console&source=browser';
-            if (panel._clientId) wsUrl += '&client_id=' + encodeURIComponent(panel._clientId);
-            if (_conductorToken) wsUrl += '&token=' + encodeURIComponent(_conductorToken);
-            const ws = new WebSocket(wsUrl);
-            ws.binaryType = 'arraybuffer';
-            ws.onmessage = (event) => {
-                if (event.data instanceof ArrayBuffer) {
-                    const bytes = new Uint8Array(event.data);
-                    if (bytes.length > 0) term.write(bytes);
-                } else if (typeof event.data === 'string' && event.data.length > 0) {
-                    term.write(event.data);
-                }
-            };
-            ws.onclose = () => { panel._agentConsoleWs = null; };
-            ws.onerror = (e) => { console.error('Agent console WS error:', e); };
-            panel._agentConsoleWs = ws;
-        }
-
-        // --- Agent Attachment Helpers (Feature 3) ---
+        // --- Agent Attachment Helpers ---
         function _readAttachmentFile(panel, file) {
             const reader = new FileReader();
             reader.onload = () => {
@@ -6179,13 +6223,21 @@
         }
 
         function _toolIcon(name) {
+            // Monochrome SVG icons for tool calls
+            const s = 'width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"';
             const icons = {
-                'Bash': '&#x1F4BB;', 'Read': '&#x1F4C4;', 'Write': '&#x270F;&#xFE0F;',
-                'Edit': '&#x270F;&#xFE0F;', 'Glob': '&#x1F50D;', 'Grep': '&#x1F50D;',
-                'WebFetch': '&#x1F310;', 'WebSearch': '&#x1F310;', 'Agent': '&#x1F916;',
-                'TodoWrite': '&#x2611;&#xFE0F;',
+                'Bash': `<svg ${s}><rect x="2" y="2" width="12" height="12" rx="2"/><path d="M5 6l2 2-2 2M9 10h2"/></svg>`,
+                'Read': `<svg ${s}><path d="M3 2h7l3 3v9H3z"/><path d="M10 2v3h3"/></svg>`,
+                'Write': `<svg ${s}><path d="M3 2h7l3 3v9H3z"/><path d="M10 2v3h3"/><path d="M6 9h4"/></svg>`,
+                'Edit': `<svg ${s}><path d="M11 2l3 3-9 9H2v-3z"/></svg>`,
+                'Glob': `<svg ${s}><circle cx="7" cy="7" r="4"/><path d="M10 10l4 4"/></svg>`,
+                'Grep': `<svg ${s}><circle cx="7" cy="7" r="4"/><path d="M10 10l4 4"/></svg>`,
+                'WebFetch': `<svg ${s}><circle cx="8" cy="8" r="6"/><path d="M2 8h12M8 2c-2 2-2 10 0 12M8 2c2 2 2 10 0 12"/></svg>`,
+                'WebSearch': `<svg ${s}><circle cx="8" cy="8" r="6"/><path d="M2 8h12M8 2c-2 2-2 10 0 12M8 2c2 2 2 10 0 12"/></svg>`,
+                'Agent': `<svg ${s}><circle cx="8" cy="5" r="3"/><path d="M3 14c0-3 2-5 5-5s5 2 5 5"/></svg>`,
+                'TodoWrite': `<svg ${s}><rect x="3" y="2" width="10" height="12" rx="1"/><path d="M6 6l1.5 1.5L10 5M6 10h4"/></svg>`,
             };
-            return icons[name] || '&#x1F527;';
+            return icons[name] || `<svg ${s}><circle cx="8" cy="8" r="5"/><path d="M8 5v3l2 1"/></svg>`;
         }
 
         function _toolInputSummary(name, input) {
@@ -6275,6 +6327,7 @@
                 c.appendChild(wrapper);
 
             } else if (etype === 'result') {
+                if (panel._agentBusy && panel._setAgentBusy) panel._setAgentBusy(false);
                 const div = document.createElement('div');
                 div.style.cssText = 'margin:16px 0;padding:10px 14px;background:#0d1a0d;border:1px solid #1a3a1a;border-radius:8px;font-size:13px;color:#3fb950;';
                 let html = '<strong>Done</strong>';
@@ -6288,12 +6341,14 @@
                 c.appendChild(div);
 
             } else if (etype === 'error') {
+                if (panel._agentBusy && panel._setAgentBusy) panel._setAgentBusy(false);
                 const div = document.createElement('div');
                 div.style.cssText = 'margin:12px 0;padding:10px 14px;background:#1a0d0d;border:1px solid #3a1a1a;border-radius:8px;color:#f85149;font-size:13px;';
                 div.innerHTML = `<strong>Error</strong> &mdash; ${escHtml(event.error || 'Unknown error')}`;
                 c.appendChild(div);
 
             } else if (etype === 'session_end') {
+                if (panel._agentBusy && panel._setAgentBusy) panel._setAgentBusy(false);
                 const div = document.createElement('div');
                 div.style.cssText = 'margin:16px 0;padding:10px;color:#8b949e;font-size:12px;text-align:center;border-top:1px solid #21262d;';
                 div.textContent = `Session ended (exit ${event.exit_code ?? 0})`;

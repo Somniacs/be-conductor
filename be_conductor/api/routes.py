@@ -1957,6 +1957,10 @@ async def _stream_agent(ws: WebSocket, session: Any):
                             new_mode = msg.get("mode", "default")
                             if hasattr(session, "set_mode"):
                                 session.set_mode(new_mode)
+                        elif msg_type == "set_effort":
+                            effort = msg.get("effort", "high")
+                            if hasattr(session, "set_effort"):
+                                session.set_effort(effort)
                         elif msg_type == "interrupt":
                             session.interrupt()
                     except (json.JSONDecodeError, TypeError):

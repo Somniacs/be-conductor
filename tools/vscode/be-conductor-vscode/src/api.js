@@ -70,6 +70,9 @@ async function resumeSession(id, body) { return request('POST', `/sessions/${enc
 async function resizeSession(id, rows, cols) {
     return request('POST', `/sessions/${encodeURIComponent(id)}/resize`, { rows, cols, source: 'vscode' });
 }
+async function cloneSession(id, body) {
+    return request('POST', `/sessions/${encodeURIComponent(id)}/clone`, body);
+}
 
 // Git
 async function checkGit(path) { return request('GET', `/git/check?path=${encodeURIComponent(path)}`); }
@@ -106,7 +109,7 @@ async function worktreeGC(dryRun, maxAgeDays) {
 module.exports = {
     getHealth, getConfig,
     listSessions, getSession, createSession, stopSession, deleteSession,
-    resumeSession, resizeSession,
+    resumeSession, resizeSession, cloneSession,
     checkGit,
     listWorktrees, getWorktree, getWorktreeDiff, getWorktreeRichDiff,
     finalizeWorktree, previewMerge, executeMerge, deleteWorktree, worktreeGC,

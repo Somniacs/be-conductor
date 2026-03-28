@@ -202,10 +202,6 @@ class AgentSession:
                         else:
                             text = item
                             attachments = None
-                        self._emit_event({
-                            "type": "user_message",
-                            "content": text,
-                        })
                         if attachments:
                             # Build content blocks for the SDK
                             content_blocks = self._build_prompt_blocks(
@@ -402,7 +398,20 @@ class AgentSession:
         try:
             self._client.set_permission_mode(mode)
         except AttributeError:
-            # SDK version may not support runtime mode changes
+            pass
+        except Exception:
+            pass
+
+    def set_effort(self, effort: str) -> None:
+        """Change the agent effort level at runtime.
+
+        Valid levels: "low", "medium", "high".
+        """
+        if self._client is None:
+            return
+        try:
+            self._client.set_model(effort=effort)
+        except (AttributeError, TypeError):
             pass
         except Exception:
             pass

@@ -2,7 +2,7 @@
 const vscode = require('vscode');
 const api = require('./src/api');
 const { getServerUrl, getPollInterval } = require('./src/config');
-const { createSessionFlow, attachSession, setWorkspaceState, getTrackedSessions, trackSession, untrackSession, clearTrackedSessions, focusTerminal, terminalMap, getRunningAtClose, setRunningAtClose } = require('./src/createSession');
+const { createSessionFlow, attachSession, setWorkspaceState, getTrackedSessions, trackSession, untrackSession, clearTrackedSessions, focusTerminal, openAgentWebview, terminalMap, webviewPanels, getRunningAtClose, setRunningAtClose } = require('./src/createSession');
 const { SessionTreeProvider, registerSessionCommands } = require('./src/sessionTree');
 const { WorktreeTreeProvider, DiffContentProvider, registerWorktreeCommands } = require('./src/worktreeTree');
 
@@ -121,8 +121,12 @@ function activate(context) {
                     continue;
                 }
                 if (s.status === 'running') {
-                    // Still running — just re-attach
-                    attachSession(s.name);
+                    // Still running — just re-attach (webview for agent, terminal for pty)
+                    if (s.session_type === 'agent') {
+                        openAgentWebview(s.id, s.name);
+                    } else {
+                        attachSession(s.name);
+                    }
                     reattached.push(name);
                 } else if (s.status === 'exited' && (s.resume_id || s.worktree) && wasRunning.has(name)) {
                     // Resume via CLI in a terminal — CLI reads correct

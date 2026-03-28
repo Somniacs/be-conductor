@@ -211,6 +211,11 @@ public final class BeConductorClient {
                 body, ApiModels.SessionResponse.class);
     }
 
+    public ApiModels.CloneResponse cloneSession(String sessionId, ApiModels.CloneRequest request) throws Exception {
+        return doPost("/sessions/" + encode(sessionId) + "/clone",
+                request, ApiModels.CloneResponse.class);
+    }
+
     // ── Git ───────────────────────────────────────────────────────────────
 
     public ApiModels.GitCheckResponse checkGit(String path) throws Exception {

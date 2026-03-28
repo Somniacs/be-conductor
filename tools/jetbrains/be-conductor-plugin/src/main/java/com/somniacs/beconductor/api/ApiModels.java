@@ -20,12 +20,19 @@ public final class ApiModels {
         public boolean worktree;
         public Integer rows;
         public Integer cols;
+        public String session_type;  // "pty" or "agent"
 
         public RunRequest(String name, String command, String cwd, boolean worktree) {
             this.name = name;
             this.command = command;
             this.cwd = cwd;
             this.worktree = worktree;
+            this.session_type = "pty";
+        }
+
+        public RunRequest(String name, String command, String cwd, boolean worktree, String sessionType) {
+            this(name, command, cwd, worktree);
+            this.session_type = sessionType != null ? sessionType : "pty";
         }
 
         public RunRequest(String name, String command, String cwd, boolean worktree, int rows, int cols) {
@@ -63,6 +70,20 @@ public final class ApiModels {
         }
     }
 
+    public static class CloneRequest {
+        public String name;
+        public boolean raw;
+
+        public CloneRequest(String name) {
+            this.name = name;
+        }
+
+        public CloneRequest(String name, boolean raw) {
+            this.name = name;
+            this.raw = raw;
+        }
+    }
+
     // ── Responses ─────────────────────────────────────────────────────────
 
     public static class HealthResponse {
@@ -97,11 +118,30 @@ public final class ApiModels {
         public String resume_flag;
         public String resume_command;
         public String ws_url;
+        public String session_type;  // "pty" or "agent"
         public Map<String, Object> worktree;
+        public List<AttachedClient> attached_clients;
+
+        /** @return true if this is an agent (SDK) session rather than a PTY terminal session */
+        public boolean isAgent() {
+            return "agent".equals(session_type);
+        }
+    }
+
+    public static class AttachedClient {
+        public String client_id;
+        public String source;
     }
 
     public static class StatusResponse {
         public String status;
+    }
+
+    public static class CloneResponse {
+        public String status;
+        public String clone_id;
+        public String parent_id;
+        public String name;
     }
 
     public static class GitCheckResponse {

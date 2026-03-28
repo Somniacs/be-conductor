@@ -1,9 +1,16 @@
 package com.somniacs.beconductor;
 
+import com.intellij.ide.BrowserUtil;
+import com.intellij.notification.Notification;
+import com.intellij.notification.NotificationType;
+import com.intellij.notification.Notifications;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
+import com.somniacs.beconductor.api.ApiModels;
+import com.somniacs.beconductor.api.BeConductorClient;
 import com.somniacs.beconductor.toolwindow.BeConductorToolWindowFactory;
 import com.somniacs.beconductor.toolwindow.SessionListPanel;
 import org.jetbrains.annotations.NotNull;
@@ -11,6 +18,8 @@ import org.jetbrains.plugins.terminal.ShellTerminalWidget;
 import org.jetbrains.plugins.terminal.TerminalToolWindowManager;
 
 import java.io.IOException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 
 public class RunSessionAction extends AnAction {
 
@@ -28,6 +37,7 @@ public class RunSessionAction extends AnAction {
         String name = dialog.getSessionName();
         String cwd = dialog.getWorkingDirectory();
         boolean worktree = dialog.isWorktreeEnabled();
+        String sessionType = dialog.getSessionType();
 
         String workingDir = cwd;
         if (workingDir == null || workingDir.isEmpty()) {
@@ -36,11 +46,41 @@ public class RunSessionAction extends AnAction {
         }
         final String finalWorkingDir = workingDir;
 
-        // Run session in terminal (handles server startup, creation, and attach)
-        runInTerminal(project, command, name, finalWorkingDir, worktree);
-        SessionListPanel.markAttached(name);
+        if ("agent".equals(sessionType)) {
+            // Agent sessions: create via API and open dashboard in browser
+            createAgentSession(project, command, name, finalWorkingDir, worktree);
+        } else {
+            // PTY sessions: run in terminal (handles server startup, creation, and attach)
+            runInTerminal(project, command, name, finalWorkingDir, worktree);
+            SessionListPanel.markAttached(name);
+        }
         SessionListPanel.trackSession(project, name);
         BeConductorToolWindowFactory.refreshAll(project);
+    }
+
+    /**
+     * Create an agent session via the REST API and open the dashboard in a browser.
+     */
+    private void createAgentSession(Project project, String command, String name, String cwd, boolean worktree) {
+        ApplicationManager.getApplication().executeOnPooledThread(() -> {
+            try {
+                BeConductorClient client = BeConductorClient.getInstance();
+                ApiModels.RunRequest request = new ApiModels.RunRequest(name, command, cwd, worktree, "agent");
+                ApiModels.SessionResponse session = client.createSession(request);
+                String sessionId = session != null ? session.id : name;
+                String url = "http://127.0.0.1:7777?focus=" + URLEncoder.encode(sessionId, StandardCharsets.UTF_8);
+                BrowserUtil.browse(url);
+                javax.swing.SwingUtilities.invokeLater(() -> BeConductorToolWindowFactory.refreshAll(project));
+            } catch (Exception ex) {
+                LOG.warn("be-conductor: failed to create agent session", ex);
+                javax.swing.SwingUtilities.invokeLater(() ->
+                        Notifications.Bus.notify(new Notification(
+                                "be-conductor", "Agent Session Failed", ex.getMessage(),
+                                NotificationType.ERROR
+                        ))
+                );
+            }
+        });
     }
 
     /**

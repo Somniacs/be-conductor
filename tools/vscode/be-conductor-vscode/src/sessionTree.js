@@ -1,7 +1,7 @@
 'use strict';
 const vscode = require('vscode');
 const api = require('./api');
-const { terminalMap, attachSession, focusTerminal, untrackSession, trackSession } = require('./createSession');
+const { terminalMap, webviewPanels, attachSession, focusTerminal, openAgentWebview, untrackSession, trackSession } = require('./createSession');
 
 class SessionItem extends vscode.TreeItem {
     constructor(session) {
@@ -9,8 +9,9 @@ class SessionItem extends vscode.TreeItem {
         this.session = session;
 
         const resumable = isResumable(session);
-        this.description = session.command;
-        this.tooltip = `${session.name}\nCommand: ${session.command}\nStatus: ${session.status}` +
+        const isAgent = session.session_type === 'agent';
+        this.description = isAgent ? 'SDK · ' + session.command : session.command;
+        this.tooltip = `${session.name}\nCommand: ${session.command}\nType: ${isAgent ? 'Agent (SDK)' : 'Terminal (PTY)'}\nStatus: ${session.status}` +
             (session.cwd ? `\nDirectory: ${session.cwd}` : '') +
             (session.worktree ? `\nWorktree: ${session.worktree.branch}` : '') +
             (resumable ? '\nResumable' : '');
@@ -25,9 +26,11 @@ class SessionItem extends vscode.TreeItem {
         }
 
         if (session.status === 'running') {
-            const attached = terminalMap.has(session.name);
+            const attached = isAgent ? webviewPanels.has(session.name) : terminalMap.has(session.name);
             this.iconPath = new vscode.ThemeIcon('circle-filled', new vscode.ThemeColor('testing.iconPassed'));
-            this.contextValue = attached ? 'session-running-attached' : 'session-running';
+            this.contextValue = attached
+                ? (isAgent ? 'session-running-attached-agent' : 'session-running-attached')
+                : (isAgent ? 'session-running-agent' : 'session-running');
             if (attached) this.description += '  [attached]';
         } else if (session.status === 'stopping') {
             this.iconPath = new vscode.ThemeIcon('loading~spin');
@@ -42,7 +45,7 @@ class SessionItem extends vscode.TreeItem {
             this.contextValue = 'session-exited';
         }
 
-        // Click to focus/attach terminal (running sessions only)
+        // Click to focus/attach (running sessions only)
         if (session.status === 'running') {
             this.command = {
                 command: 'be-conductor.focusSession',
@@ -83,10 +86,13 @@ class SessionTreeProvider {
             .then((sessions) => {
                 this._sessions = sessions;
                 this._offline = false;
-                // Clean up terminal tracking for sessions no longer running
+                // Clean up terminal/webview tracking for sessions no longer running
                 const running = new Set(sessions.filter(s => s.status === 'running').map(s => s.name));
                 for (const name of terminalMap.keys()) {
                     if (!running.has(name)) terminalMap.delete(name);
+                }
+                for (const name of webviewPanels.keys()) {
+                    if (!running.has(name)) webviewPanels.delete(name);
                 }
                 this._onDidChangeTreeData.fire();
             })
@@ -128,9 +134,14 @@ function registerSessionCommands(context, provider) {
     context.subscriptions.push(
         vscode.commands.registerCommand('be-conductor.focusSession', (session) => {
             if (session.status === 'running') {
-                // Try to focus existing terminal, otherwise attach
-                if (!focusTerminal(session.name)) {
-                    attachSession(session.name);
+                if (session.session_type === 'agent') {
+                    // Agent sessions open in a webview panel
+                    openAgentWebview(session.id, session.name);
+                } else {
+                    // PTY sessions: try to focus existing terminal, otherwise attach
+                    if (!focusTerminal(session.name)) {
+                        attachSession(session.name);
+                    }
                 }
             } else if (isResumable(session)) {
                 // Trigger resume via the command
@@ -144,14 +155,35 @@ function registerSessionCommands(context, provider) {
 
         vscode.commands.registerCommand('be-conductor.attachSession', async (item) => {
             if (!(item instanceof SessionItem)) return;
-            attachSession(item.session.name);
+            if (item.session.session_type === 'agent') {
+                openAgentWebview(item.session.id, item.session.name);
+            } else {
+                attachSession(item.session.name);
+            }
         }),
 
         vscode.commands.registerCommand('be-conductor.resumeSession', async (item) => {
             if (!(item instanceof SessionItem)) return;
             const session = item.session;
-            // Resume via CLI in a terminal — the CLI reads correct dimensions
-            // from the established terminal PTY (no proposed API needed).
+
+            // Agent sessions: resume via API and open in webview
+            if (session.session_type === 'agent') {
+                try {
+                    await api.resumeSession(session.id);
+                    vscode.window.showInformationMessage(`Resuming "${session.name}"...`);
+                    // Give the server a moment to start the session, then open webview
+                    setTimeout(() => {
+                        openAgentWebview(session.id, session.name);
+                        provider.refresh();
+                    }, 1500);
+                } catch (e) {
+                    vscode.window.showErrorMessage(`Failed to resume session: ${e.message}`);
+                }
+                return;
+            }
+
+            // PTY sessions: resume via CLI in a terminal — the CLI reads correct
+            // dimensions from the established terminal PTY (no proposed API needed).
             if (terminalMap.has(session.name)) {
                 terminalMap.get(session.name).show();
                 return;
@@ -252,6 +284,45 @@ function registerSessionCommands(context, provider) {
                 provider.refresh();
             } catch (e) {
                 vscode.window.showErrorMessage(`Failed to dismiss session: ${e.message}`);
+            }
+        }),
+
+        vscode.commands.registerCommand('be-conductor.cloneSession', async (item) => {
+            if (!(item instanceof SessionItem)) return;
+            const session = item.session;
+            const name = await vscode.window.showInputBox({
+                prompt: 'Name for the cloned session',
+                value: `${session.name}-clone`,
+                validateInput(value) {
+                    const v = (value || '').trim();
+                    if (!v) return 'Name is required';
+                    if (!/^[a-zA-Z0-9][a-zA-Z0-9 _.~-]{0,63}$/.test(v))
+                        return 'Invalid name (alphanumeric, hyphens, underscores, max 64 chars)';
+                    return null;
+                },
+            });
+            if (!name) return;
+            try {
+                await api.cloneSession(session.id, { name: name.trim() });
+                vscode.window.showInformationMessage(`Cloning "${session.name}" into "${name.trim()}"...`);
+                // Poll until the new session appears
+                let attempts = 0;
+                const pollInterval = setInterval(async () => {
+                    attempts++;
+                    provider.refresh();
+                    try {
+                        const sessions = await api.listSessions();
+                        const cloned = sessions.find(s => s.name === name.trim() && s.status === 'running');
+                        if (cloned || attempts >= 90) {
+                            clearInterval(pollInterval);
+                            provider.refresh();
+                        }
+                    } catch {
+                        if (attempts >= 90) clearInterval(pollInterval);
+                    }
+                }, 1000);
+            } catch (e) {
+                vscode.window.showErrorMessage(`Failed to clone session: ${e.message}`);
             }
         }),
     );
