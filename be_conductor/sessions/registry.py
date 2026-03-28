@@ -489,7 +489,8 @@ class SessionRegistry:
             await session.kill()
             await session.cleanup()
             # Try to extract resume info even after hard kill
-            session._extract_resume_id()
+            if hasattr(session, '_extract_resume_id'):
+                session._extract_resume_id()
             if session.resume_id or session.worktree or self._shutting_down:
                 meta = session.to_dict()
                 meta["status"] = "exited"
@@ -580,10 +581,10 @@ class SessionRegistry:
             if session:
                 self._save_metadata(session)
 
-        # Phase 0 — send ESC to break out of menus / thinking states
+        # Phase 0 — send ESC to break out of menus / thinking states (PTY only)
         for sid in ids:
             session = self.sessions.get(sid)
-            if session and session.status in ("running", "starting"):
+            if session and session.status in ("running", "starting") and hasattr(session, 'pty'):
                 try:
                     session.pty.write(b"\x1b")
                 except OSError:
@@ -600,6 +601,7 @@ class SessionRegistry:
         for _ in range(50):                       # 50 × 0.2 s = 10 s
             if not any(
                 sid in self.sessions
+                and hasattr(self.sessions[sid], 'pty')
                 and self.sessions[sid].pty.poll() is None
                 for sid in ids
             ):

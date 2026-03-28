@@ -542,11 +542,11 @@ class AgentSession:
         self.cols = cols
 
     def interrupt(self, timeout: float = 30.0) -> None:
-        self.status = "stopping"
+        """Interrupt the current query without killing the session."""
         if self._client:
             asyncio.ensure_future(self._do_interrupt())
-        if self._run_task and not self._run_task.done():
-            self._run_task.cancel()
+        # Don't cancel _run_task — the SDK's interrupt will stop the
+        # current query and the loop will wait for the next prompt.
 
     async def _do_interrupt(self) -> None:
         if self._client:
