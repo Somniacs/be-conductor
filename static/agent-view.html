@@ -464,15 +464,21 @@ function sendPrompt() {
     }
     promptEl.value = '';
     promptEl.style.height = '38px';
+    inputArea.style.height = '';
+    promptEl.style.maxHeight = '';
+    _manualResize = false;
     pendingAttachments.length = 0;
     refreshAttachmentPreview();
     promptEl.focus();
 }
 
 // --- Input handlers ---
+let _manualResize = false;
 promptEl.addEventListener('input', () => {
-    promptEl.style.height = '38px';
-    promptEl.style.height = promptEl.scrollHeight + 'px';
+    if (!_manualResize) {
+        promptEl.style.height = '38px';
+        promptEl.style.height = promptEl.scrollHeight + 'px';
+    }
     updateSendBtn();
 });
 
@@ -709,6 +715,7 @@ dragHandle.addEventListener('mousedown', (e) => {
     e.preventDefault();
     const startY = e.clientY;
     const startH = inputArea.offsetHeight;
+    _manualResize = true;
     const onMove = (ev) => {
         const h = Math.max(60, startH + (startY - ev.clientY));
         inputArea.style.height = h + 'px';
