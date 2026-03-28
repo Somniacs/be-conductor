@@ -424,8 +424,8 @@ function renderEvent(event) {
                 details.appendChild(content);
                 wrapper.appendChild(details);
 
-            } else if (block.type === 'tool_use' && block.tool === 'AskUserQuestion') {
-                // Handled above — skip rendering
+            } else if (block.type === 'tool_use' && (block.tool === 'AskUserQuestion' || block.tool === 'ToolSearch' || block.tool === 'TodoWrite')) {
+                // Internal tools — skip rendering
 
             } else if (block.type === 'tool_use') {
                 const details = document.createElement('details');
