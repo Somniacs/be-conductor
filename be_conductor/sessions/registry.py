@@ -342,9 +342,15 @@ class SessionRegistry:
         # Only remove the resumable entry after successful creation so a
         # failed resume (e.g. command not found) doesn't lose the session.
         st = meta.get("session_type", "pty")
+        agent_opts = None
+        if st == "agent" and has_resume_id:
+            # Agent sessions use the SDK's native resume, not shell flags.
+            agent_opts = {"resume": meta["resume_id"]}
+            command = "Resume session"  # display prompt (not sent to Claude)
         session = await self.create(meta["name"], command, cwd=cwd,
                                     rows=rows, cols=cols,
-                                    session_type=st)
+                                    session_type=st,
+                                    agent_options=agent_opts)
         self.resumable.pop(session_id, None)
         self._delete_metadata(session_id)
 

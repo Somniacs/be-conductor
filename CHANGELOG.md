@@ -2,17 +2,26 @@
 
 All notable changes to be-conductor are documented here.
 
+## v0.3.34
+
+### New
+
+- **Agent SDK sessions** — new session type powered by the Claude Agent SDK. Streams structured JSON events (text, tool calls, thinking, results) instead of raw terminal bytes. Rich rendering with markdown, syntax-highlighted code blocks, collapsible tool panels, and cost/usage metadata
+- **Shared agent view** — standalone `agent-view.html` served at `/agent/{session_id}`, used identically by the web dashboard, JetBrains (JCEF editor tab), and VSCode (webview panel). One codebase for agent rendering across all platforms
+- **IDE integration** — agent sessions open as dockable editor tabs in JetBrains (split, move, dock like code files) and as webview panels in VSCode. Clickable file paths in tool results open files in the IDE editor. File picker for attachments uses the native IDE dialog
+- **Agent input controls** — mode selector (Default / Plan / Auto-accept), effort toggle (Low / Medium / High), send/stop button, drag-resizable input area, image and file attachments
+- **Agent as default** — IDE plugins default to Agent SDK sessions, with Terminal (PTY) available as an option
+- **Session cloning** — clone a running session into a new one that inherits the original's context via summary or raw buffer
+
+### Fixed
+
+- **CLI scroll jumping** — removed all escape sequence rewriting (ED2/ED3 stripping, sync buffering). The scroll-to-top issue is a Claude Code bug ([anthropics/claude-code#36582](https://github.com/anthropics/claude-code/issues/36582)). CLI output is now a clean transparent passthrough
+
 ## v0.3.33
 
 ### New
 
-- **Session cloning** — clone a running session into a new one that inherits the original's context. By default the source session writes a summary to a context file; the new session reads it and continues in parallel. Use `--raw` to pass the raw terminal buffer instead. Available via CLI (`be-conductor clone`), the dashboard ("..." menu → Clone), and both IDE plugins (right-click → Clone)
-- **Attachment tracking** — the server now tracks which frontends (CLI, browser, VS Code, JetBrains) are connected to each session. All frontends show a warning before attaching to a session that's already open elsewhere, preventing accidental multi-attach confusion. The session list shows an "attached" indicator with the source
-
-### Fixed
-
-- **CLI scroll jumping during redraws** — the CLI now buffers synchronized terminal updates (DEC mode 2026) and writes them atomically. Screen redraws that span multiple WebSocket messages no longer cause the viewport to flash to the top
-- **PTY read fragmentation** — the server now drains the full PTY buffer in each read cycle, reducing unnecessary message splitting over WebSocket
+- **Attachment tracking** — the server now tracks which frontends (CLI, browser, VS Code, JetBrains) are connected to each session. The session list shows an "attached" indicator with the source
 
 ## v0.3.32
 

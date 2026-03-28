@@ -266,13 +266,11 @@ function renderEvent(event) {
         setBusy(false);
         const div = document.createElement('div');
         div.style.cssText = 'margin:16px 0;padding:10px 14px;background:#0d1a0d;border:1px solid #1a3a1a;border-radius:8px;font-size:13px;color:#3fb950;';
-        let html = '<strong>Done</strong>';
-        if (event.result) html += ` &mdash; ${escHtml(event.result).slice(0, 200)}`;
         const meta = [];
         if (event.num_turns) meta.push(`${event.num_turns} turns`);
         if (event.duration_ms) meta.push(`${(event.duration_ms / 1000).toFixed(1)}s`);
         if (event.total_cost_usd) meta.push(`$${Number(event.total_cost_usd).toFixed(4)}`);
-        if (meta.length) html += `<div style="font-size:11px;color:#8b949e;margin-top:4px;">${meta.join(' &middot; ')}</div>`;
+        let html = meta.length ? meta.join(' &middot; ') : 'Done';
         div.innerHTML = html;
         messagesEl.appendChild(div);
 

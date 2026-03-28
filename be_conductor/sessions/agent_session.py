@@ -177,6 +177,7 @@ class AgentSession:
             system_prompt=self._agent_options.get("system_prompt"),
             max_turns=self._agent_options.get("max_turns"),
             model=self._agent_options.get("model"),
+            resume=self._agent_options.get("resume"),
             include_partial_messages=True,
         )
 
