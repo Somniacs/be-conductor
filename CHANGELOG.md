@@ -6,24 +6,21 @@ All notable changes to be-conductor are documented here.
 
 ### New
 
-- **Agent SDK sessions** — new session type powered by the Claude Agent SDK. Streams structured JSON events (text, tool calls, thinking, results) instead of raw terminal bytes. Rich rendering with markdown, syntax-highlighted code blocks, collapsible tool panels, and tables
-- **Shared agent view** — standalone `agent-view.html` served at `/agent/{session_id}`, used identically by the web dashboard, JetBrains, and VSCode. One codebase for agent rendering across all platforms
-- **IDE integration** — agent sessions open as dockable tool windows in JetBrains (split, move, dock anywhere) and as webview panels in VSCode. Clickable file paths in tool results open files in the IDE editor
-- **Interactive questions** — `AskUserQuestion` tool calls render as a modal with radio-button options, replacing the normal input area until answered. Free-text fallback for questions without options. Close button and Esc to cancel
-- **Smart input controls** — mode selector popup (Ask before edits / Edit automatically / Plan mode) with effort toggle (Low / Medium / High). Send/stop button with four states: disabled (empty), send (blue), queued (orange), stop (black). Auto-growing textarea with drag-resizable input area
-- **Image and file attachments** — drop files onto the input area or click the + button. Images are saved to a temp directory so Claude can read them. Preview strip with thumbnails and remove buttons
-- **Animated status** — baroque-themed rotating spinner verbs (Composing, Orchestrating, Fuguing, Tempering...) with elapsed time counter
-- **Session persistence** — agent message history saved to disk, restored on resume. Conversation context maintained via SDK session resume
-- **Theme support** — agent view accepts theme parameter (default, dark, mid, bright, bernstein, green). Dashboard forwards theme changes to agent iframe in real-time
-- **Agent as default** — IDE plugins and dashboard default to Agent SDK sessions, with Terminal (PTY) available as an option
-- **Session cloning** — clone a running session into a new one that inherits the original's context via summary or raw buffer
+- **Rich agent sessions** — talk to Claude through a clean, structured chat interface instead of a raw terminal. Responses render as formatted markdown with syntax-highlighted code, collapsible tool calls, and proper tables. Available in the web dashboard, JetBrains, and VSCode — same experience everywhere
+- **Interactive questions** — when Claude needs your input, a selection modal appears with clickable options. Pick an answer and the conversation continues. Close or press Esc to skip
+- **Modes and effort** — switch between "Ask before edits", "Edit automatically", and "Plan mode" without restarting. Adjust reasoning effort (Low / Medium / High) on the fly
+- **Attachments** — drag and drop images or files onto the input area, or click +. Claude can see and analyze your images. Preview thumbnails before sending
+- **Stop and queue** — hit the stop button (or Esc) to interrupt Claude mid-response. Type a follow-up while Claude is still working — it queues and sends when ready
+- **Dockable in IDEs** — agent sessions open as their own panels in JetBrains (dock to any edge, float, split) and as webview tabs in VSCode. Clickable file paths jump to the right line in your editor
+- **Session memory** — conversation history is saved. Resume a session and the full chat is restored, with Claude remembering the context
+- **Session cloning** — spin off a new session from a running one. The clone inherits the conversation context and continues independently
+- **Themes** — six color themes apply to both terminal and agent views. Change from the panel menu, takes effect instantly
 
 ### Fixed
 
-- **CLI scroll jumping** — removed all escape sequence rewriting (ED2/ED3 stripping, sync buffering). The scroll-to-top issue is a Claude Code bug ([anthropics/claude-code#36582](https://github.com/anthropics/claude-code/issues/36582)). CLI output is now a clean transparent passthrough
-- **Agent interrupt** — stop button sends SDK interrupt without killing the session. Per-turn error handling keeps the session alive on failures
-- **Session labels** — consistent "Claude Code" label across all clients (dashboard, JetBrains, VSCode) for both PTY and agent sessions
-- **Agent resume** — uses SDK native `resume` + `continue_conversation` instead of building shell commands. History filtered on load to remove stale events
+- **CLI scroll jumping** — the scroll-to-top issue is a Claude Code bug ([anthropics/claude-code#36582](https://github.com/anthropics/claude-code/issues/36582)). Removed all workarounds — CLI output is now a clean passthrough
+- **Stopping doesn't crash** — interrupting a busy agent keeps the session alive. Errors during a turn are shown but don't end the conversation
+- **Consistent naming** — all Claude sessions show the same label regardless of whether they were started from the CLI, dashboard, or an IDE
 
 ## v0.3.33
 
