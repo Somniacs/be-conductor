@@ -391,7 +391,9 @@ function renderEvent(event) {
         div.className = 'msg msg-user';
         div.innerHTML = `<div style="padding:10px 14px;background:var(--user-bg);border-radius:8px;border-left:3px solid var(--accent);white-space:pre-wrap;line-height:1.5;">${escHtml(content)}</div>`;
         messagesEl.appendChild(div);
-        // Start a new group for Claude's responses
+        // Close previous group and start a new one
+        const oldGroup = document.getElementById('current-group');
+        if (oldGroup) oldGroup.removeAttribute('id');
         const group = document.createElement('div');
         group.className = 'msg-group';
         group.id = 'current-group';
