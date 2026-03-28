@@ -118,6 +118,7 @@ class AgentSession:
 
         # Structured message history (for replay to new subscribers)
         self._message_history: list[dict] = []
+        self._load_history()
 
         # SDK state
         self._client: Any = None
@@ -333,11 +334,51 @@ class AgentSession:
             return [AgentSession._json_safe(v) for v in obj]
         return str(obj)
 
+    def _history_path(self):
+        """Path to the persisted message history file."""
+        from be_conductor.utils.config import SESSIONS_DIR
+        return SESSIONS_DIR / f"{self.id}.history.json"
+
+    def _load_history(self) -> None:
+        """Load message history from disk (if exists)."""
+        import json as _json
+        path = self._history_path()
+        if path.exists():
+            try:
+                data = _json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(data, list):
+                    self._message_history = data
+                    # Rebuild console buffer from loaded history
+                    for event in data:
+                        self._append_console(event)
+            except Exception:
+                pass
+
+    def _save_history(self) -> None:
+        """Persist message history to disk."""
+        import json as _json
+        try:
+            path = self._history_path()
+            path.write_text(
+                _json.dumps(self._message_history, ensure_ascii=False),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
+
+    def delete_history(self) -> None:
+        """Remove persisted history file."""
+        try:
+            self._history_path().unlink(missing_ok=True)
+        except Exception:
+            pass
+
     def _emit_event(self, event: dict) -> None:
         """Broadcast a structured event and append to console buffer."""
         event = self._json_safe(event)
         event.setdefault("timestamp", time.time())
         self._message_history.append(event)
+        self._save_history()
         self._append_console(event)
 
         for queue in list(self.subscribers):

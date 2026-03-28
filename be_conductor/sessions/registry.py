@@ -549,6 +549,9 @@ class SessionRegistry:
     def _delete_metadata(self, session_id: str):
         path = SESSIONS_DIR / f"{session_id}.json"
         path.unlink(missing_ok=True)
+        # Also delete agent message history if it exists
+        history_path = SESSIONS_DIR / f"{session_id}.history.json"
+        history_path.unlink(missing_ok=True)
 
     async def cleanup_all(self):
         """Gracefully stop all sessions, preserving resume tokens.
