@@ -334,19 +334,28 @@ function setBusy(b) {
     busy = b;
     updateSendBtn();
     promptEl.placeholder = b ? 'Queue another message...' : 'Message Claude...';
+    const _verbs = ['Thinking', 'Reasoning', 'Analyzing', 'Considering', 'Processing', 'Evaluating', 'Reflecting', 'Working', 'Pondering', 'Deliberating'];
     if (b) {
         busyStartTime = Date.now();
         if (!spinnerEl) {
             spinnerEl = document.createElement('div');
             spinnerEl.style.cssText = 'padding:8px 0;color:#8b949e;font-size:13px;display:flex;align-items:center;gap:8px;';
-            spinnerEl.innerHTML = '<span class="agent-spinner"></span><span class="spinner-text">Working...</span>';
+            spinnerEl.innerHTML = '<span class="agent-spinner"></span><span class="spinner-text"></span>';
             messagesEl.appendChild(spinnerEl);
         }
+        let verbIdx = Math.floor(Math.random() * _verbs.length);
+        const updateSpinner = () => {
+            if (!spinnerEl) return;
+            const s = Math.round((Date.now() - busyStartTime) / 1000);
+            const verb = _verbs[verbIdx % _verbs.length];
+            spinnerEl.querySelector('.spinner-text').textContent = `${verb}... ${s}s`;
+        };
+        updateSpinner();
         spinnerInterval = setInterval(() => {
-            if (spinnerEl) {
-                const s = ((Date.now() - busyStartTime) / 1000).toFixed(0);
-                spinnerEl.querySelector('.spinner-text').textContent = `Working... ${s}s`;
-            }
+            // Change verb every 5 seconds
+            const s = Math.round((Date.now() - busyStartTime) / 1000);
+            if (s > 0 && s % 5 === 0) verbIdx++;
+            updateSpinner();
         }, 1000);
         autoScroll();
     } else {
