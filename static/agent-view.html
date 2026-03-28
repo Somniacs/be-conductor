@@ -168,10 +168,12 @@ const ideBridge = {
 };
 
 if (typeof window.cefQuery === 'function') {
+    // JetBrains JCEF — open file in IDE editor
     ideBridge.openFile = (p, l) => window.cefQuery({request: JSON.stringify({type:'openFile', path:p, line:l||0})});
     ideBridge.pickFile = () => window.cefQuery({request: JSON.stringify({type:'pickFile'})});
     ideBridge.runInTerminal = (cmd) => window.cefQuery({request: JSON.stringify({type:'runInTerminal', command:cmd})});
 } else if (typeof acquireVsCodeApi !== 'undefined') {
+    // VSCode webview — open file in IDE editor
     const vscode = acquireVsCodeApi();
     ideBridge.openFile = (p, l) => vscode.postMessage({type:'openFile', path:p, line:l||0});
     ideBridge.pickFile = () => vscode.postMessage({type:'pickFile'});
@@ -181,6 +183,9 @@ if (typeof window.cefQuery === 'function') {
             ideBridge._onFileData(e.data);
         }
     });
+} else if (window.parent !== window) {
+    // Embedded in dashboard iframe — open file in be-conductor file viewer
+    ideBridge.openFile = (p, l) => window.parent.postMessage({type:'openFile', path:p, line:l||0, session: SESSION_ID}, '*');
 }
 
 // --- DOM refs ---
@@ -198,6 +203,7 @@ const inputArea = document.getElementById('input-area');
 // --- State ---
 let busy = false;
 let ws = null;
+let _replayingHistory = false;
 let retryCount = 0;
 const MAX_RETRIES = 10;
 const pendingAttachments = [];
@@ -341,14 +347,16 @@ function renderEvent(event) {
                 wrapper.appendChild(details);
 
             } else if (block.type === 'tool_use' && block.tool === 'AskUserQuestion') {
-                // Show as a modal overlay on the input area
-                const questions = block.input.questions || [block.input];
-                questions.forEach(q => {
-                    showQuestionModal(q, (answer) => {
-                        promptEl.value = answer;
-                        sendPrompt();
+                if (!_replayingHistory) {
+                    // Show as a modal overlay on the input area (live events only)
+                    const questions = block.input.questions || [block.input];
+                    questions.forEach(q => {
+                        showQuestionModal(q, (answer) => {
+                            promptEl.value = answer;
+                            sendPrompt();
+                        });
                     });
-                });
+                }
 
             } else if (block.type === 'tool_use') {
                 const details = document.createElement('details');
@@ -381,7 +389,7 @@ function renderEvent(event) {
         messagesEl.appendChild(wrapper);
 
     } else if (etype === 'question') {
-        // Question from hook — show as modal
+        if (_replayingHistory) return;
         setBusy(false);
         showQuestionModal(event, (answer) => {
             if (ws && ws.readyState === WebSocket.OPEN) {
@@ -628,7 +636,9 @@ function connect() {
         try {
             const msg = JSON.parse(e.data);
             if (msg.type === 'history') {
+                _replayingHistory = true;
                 for (const m of (msg.messages || [])) renderEvent(m);
+                _replayingHistory = false;
             } else if (msg.type === 'ping') {
                 return;
             } else {

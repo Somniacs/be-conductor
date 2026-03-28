@@ -9787,6 +9787,22 @@
                 .catch(() => openFileViewer('~', panel.server));
         }
 
+        // Handle messages from agent iframe (file open requests)
+        window.addEventListener('message', (e) => {
+            if (!e.data || e.data.type !== 'openFile') return;
+            const path = e.data.path;
+            if (!path) return;
+            // Find the panel for this session to get the server key
+            const sessionId = e.data.session;
+            const panel = sessionId ? panels.find(p => p.sessionId === sessionId) : panels[0];
+            const server = panel ? panel.server : 'local';
+            // Guess file type from extension
+            const ext = path.split('.').pop().toLowerCase();
+            const type = ['png','jpg','jpeg','gif','webp','svg'].includes(ext) ? 'image'
+                       : ['pdf'].includes(ext) ? 'pdf' : 'text';
+            openFileViewerAtFile(path, type, server, null);
+        });
+
         function closeFileOverlay() {
             document.getElementById('file-overlay').classList.remove('open');
             _fileActivePath = null;
