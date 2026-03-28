@@ -65,14 +65,12 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--fo
 .file-link { color: var(--accent); text-decoration: none; }
 .file-link:hover { text-decoration: underline; }
 /* Timeline */
-.tl { position: relative; padding-left: 24px; margin: 12px 0; }
-.tl::before { content: ''; position: absolute; left: 7px; top: 14px; bottom: 0; width: 2px; background: var(--border); }
-.tl:last-child::before { display: none; }
-.tl-dot { position: absolute; left: 2px; top: 6px; width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--muted); background: var(--bg); z-index: 1; }
-.tl-dot.user { border-color: var(--accent); }
-.tl-dot.claude { border-color: var(--success); background: var(--success); }
-.tl-dot.tool { border-color: var(--muted); background: var(--muted); width: 8px; height: 8px; left: 4px; top: 8px; }
-.tl-dot.error { border-color: var(--error); background: var(--error); }
+.tl { position: relative; padding-left: 18px; margin: 4px 0; }
+.tl::before { content: ''; position: absolute; left: 3px; top: 12px; bottom: -4px; width: 1px; background: var(--border); }
+.tl-dot { position: absolute; left: 0; top: 8px; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); z-index: 1; }
+.tl-dot.user { background: var(--accent); }
+.tl-dot.claude { background: var(--fg); }
+.tl-dot.error { background: var(--error); }
 #messages::-webkit-scrollbar { width: 8px; }
 #messages::-webkit-scrollbar-track { background: transparent; }
 #messages::-webkit-scrollbar-thumb { background: #30363d; border-radius: 4px; }
@@ -384,14 +382,14 @@ function renderEvent(event) {
 
             } else if (block.type === 'thinking') {
                 const details = document.createElement('details');
-                details.style.cssText = 'margin:8px 0;border:1px solid #21262d;border-radius:6px;overflow:hidden;';
+                details.style.cssText = 'margin:8px 0;border:1px solid var(--border);border-radius:6px;overflow:hidden;';
                 const summary = document.createElement('summary');
                 summary.style.cssText = 'padding:6px 10px;background:var(--tool-header);color:var(--muted);font-size:13px;cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px;';
                 const thinkLen = (block.thinking || '').length;
                 const thinkSec = busyStartTime ? Math.round((Date.now() - busyStartTime) / 1000) : 0;
                 summary.innerHTML = `<span style="color:#e0e0e0;">&#x25CF;</span> Thought for ${thinkSec || '?'}s <span style="color:#666;">&#x203A;</span>`;
                 const content = document.createElement('div');
-                content.style.cssText = 'padding:8px 10px;font-size:12px;color:#7d8590;white-space:pre-wrap;max-height:300px;overflow-y:auto;';
+                content.style.cssText = 'padding:8px 10px;font-size:12px;color:var(--muted);white-space:pre-wrap;max-height:300px;overflow-y:auto;';
                 content.textContent = block.thinking || '';
                 details.appendChild(summary);
                 details.appendChild(content);
