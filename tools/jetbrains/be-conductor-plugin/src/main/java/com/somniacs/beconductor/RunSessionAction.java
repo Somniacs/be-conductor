@@ -1,6 +1,5 @@
 package com.somniacs.beconductor;
 
-import com.intellij.ide.BrowserUtil;
 import com.intellij.notification.Notification;
 import com.intellij.notification.NotificationType;
 import com.intellij.notification.Notifications;
@@ -18,8 +17,6 @@ import org.jetbrains.plugins.terminal.ShellTerminalWidget;
 import org.jetbrains.plugins.terminal.TerminalToolWindowManager;
 
 import java.io.IOException;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 
 public class RunSessionAction extends AnAction {
 
@@ -47,7 +44,7 @@ public class RunSessionAction extends AnAction {
         final String finalWorkingDir = workingDir;
 
         if ("agent".equals(sessionType)) {
-            // Agent sessions: create via API and open dashboard in browser
+            // Agent sessions: create via API and open in native panel
             createAgentSession(project, command, name, finalWorkingDir, worktree);
         } else {
             // PTY sessions: run in terminal (handles server startup, creation, and attach)
@@ -59,7 +56,7 @@ public class RunSessionAction extends AnAction {
     }
 
     /**
-     * Create an agent session via the REST API and open the dashboard in a browser.
+     * Create an agent session via the REST API and open it in a native panel.
      */
     private void createAgentSession(Project project, String command, String name, String cwd, boolean worktree) {
         ApplicationManager.getApplication().executeOnPooledThread(() -> {
