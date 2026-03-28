@@ -3640,9 +3640,15 @@
             validateNewSession();
         }
 
-        function getCommandLabel(command) {
-            const match = allowedCommands.find(c => c.command === command);
-            return match ? match.label : command.split(/\s/)[0];
+        function getCommandLabel(command, sessionType) {
+            // Agent sessions show "claude-agent" as command — map back to the real agent label
+            if (sessionType === 'agent' || command === 'claude-agent') {
+                const claude = allowedCommands.find(c => c.command === 'claude');
+                return claude ? claude.label : 'Claude';
+            }
+            const base = command.split(/\s/)[0];
+            const match = allowedCommands.find(c => c.command === base);
+            return match ? match.label : base;
         }
 
         let _lastSessionListHtml = '';
@@ -3684,7 +3690,7 @@
             const cid = s._compoundId || s.id;
             const isOpen = panels.some(p => p.id === cid);
             const isFocused = focusedPanelId === cid;
-            const appLabel = getCommandLabel(s.command);
+            const appLabel = getCommandLabel(s.command, s.session_type);
             const isResumable = s.status === 'exited';
             const isStopping = s.status === 'stopping';
             const isResuming = _resumingSession === cid;

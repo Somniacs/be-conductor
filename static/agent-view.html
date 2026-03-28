@@ -403,7 +403,16 @@ function showQuestionModal(q, onAnswer) {
     // Build modal as the input area content
     const modal = document.createElement('div');
     modal.id = 'question-modal';
-    modal.style.cssText = 'padding:14px 16px;overflow-y:auto;border-top:2px solid var(--accent);';
+    modal.style.cssText = 'padding:14px 16px;overflow-y:auto;border-top:2px solid var(--accent);position:relative;';
+
+    // Close button (top-right X)
+    const closeBtn = document.createElement('button');
+    closeBtn.innerHTML = '&times;';
+    closeBtn.style.cssText = 'position:absolute;top:8px;right:10px;background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;padding:2px 6px;line-height:1;border-radius:4px;';
+    closeBtn.addEventListener('mouseover', () => { closeBtn.style.color = 'var(--fg)'; closeBtn.style.background = 'var(--border)'; });
+    closeBtn.addEventListener('mouseout', () => { closeBtn.style.color = 'var(--muted)'; closeBtn.style.background = 'none'; });
+    closeBtn.addEventListener('click', () => dismiss('cancelled'));
+    modal.appendChild(closeBtn);
 
     // Header
     if (q.header) {
