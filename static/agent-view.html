@@ -66,7 +66,8 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--fo
 .file-link:hover { text-decoration: underline; }
 /* Timeline */
 .tl { position: relative; padding-left: 18px; margin: 4px 0; }
-.tl::before { content: ''; position: absolute; left: 3px; top: 12px; bottom: -4px; width: 1px; background: var(--border); }
+.tl::before { content: ''; position: absolute; left: 3px; top: 14px; bottom: -4px; width: 1px; background: var(--border); }
+.tl.tl-last::before { display: none; }
 .tl-dot { position: absolute; left: 0; top: 8px; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); z-index: 1; }
 .tl-dot.user { background: var(--accent); }
 .tl-dot.claude { background: var(--fg); }
@@ -456,11 +457,19 @@ function renderEvent(event) {
     autoScroll();
 }
 
+function updateTimeline() {
+    // Mark the last .tl item so its connecting line is hidden
+    const items = messagesEl.querySelectorAll('.tl');
+    items.forEach(el => el.classList.remove('tl-last'));
+    if (items.length) items[items.length - 1].classList.add('tl-last');
+}
+
 function autoScroll() {
     // Keep spinner at the very bottom
     if (spinnerEl && spinnerEl.parentNode === messagesEl) {
         messagesEl.appendChild(spinnerEl);
     }
+    updateTimeline();
     if (messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 100) {
         messagesEl.scrollTop = messagesEl.scrollHeight;
     }
