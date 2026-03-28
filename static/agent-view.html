@@ -62,8 +62,17 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--fo
 .attachment-item img { max-height: 40px; max-width: 60px; border-radius: 3px; object-fit: cover; }
 .attachment-item .remove-btn { background: none; border: none; color: #888; cursor: pointer; font-size: 14px; padding: 0 2px; line-height: 1; }
 .attachment-item .remove-btn:hover { color: #ff6666; }
-.file-link { color: #58a6ff; text-decoration: none; }
+.file-link { color: var(--accent); text-decoration: none; }
 .file-link:hover { text-decoration: underline; }
+/* Timeline */
+.tl { position: relative; padding-left: 24px; margin: 12px 0; }
+.tl::before { content: ''; position: absolute; left: 7px; top: 14px; bottom: 0; width: 2px; background: var(--border); }
+.tl:last-child::before { display: none; }
+.tl-dot { position: absolute; left: 2px; top: 6px; width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--muted); background: var(--bg); z-index: 1; }
+.tl-dot.user { border-color: var(--accent); }
+.tl-dot.claude { border-color: var(--success); background: var(--success); }
+.tl-dot.tool { border-color: var(--muted); background: var(--muted); width: 8px; height: 8px; left: 4px; top: 8px; }
+.tl-dot.error { border-color: var(--error); background: var(--error); }
 #messages::-webkit-scrollbar { width: 8px; }
 #messages::-webkit-scrollbar-track { background: transparent; }
 #messages::-webkit-scrollbar-thumb { background: #30363d; border-radius: 4px; }
@@ -333,9 +342,8 @@ function renderEvent(event) {
             if (handle) handle.style.display = '';
         }
         const div = document.createElement('div');
-        div.style.cssText = 'margin:16px 0;';
-        div.innerHTML = `<div style="font-size:11px;color:var(--muted);margin-bottom:4px;font-weight:500;">You</div>
-            <div style="padding:10px 14px;background:var(--user-bg);border-radius:8px;border-left:3px solid var(--accent);white-space:pre-wrap;line-height:1.5;">${escHtml(event.content || '')}</div>`;
+        div.className = 'tl';
+        div.innerHTML = `<div class="tl-dot user"></div><div style="padding:10px 14px;background:var(--user-bg);border-radius:8px;border-left:3px solid var(--accent);white-space:pre-wrap;line-height:1.5;">${escHtml(event.content || '')}</div>`;
         messagesEl.appendChild(div);
 
     } else if (etype === 'assistant_message') {
@@ -349,14 +357,25 @@ function renderEvent(event) {
             if (dh) dh.style.display = '';
         }
         if (!busy) setBusy(true);
+        const blocks = event.content || [];
+        const hasVisibleContent = blocks.some(b => b.type !== 'tool_use' || b.tool !== 'AskUserQuestion');
+        if (!hasVisibleContent) {
+            // Only AskUserQuestion — handle modals, skip rendering
+            for (const block of blocks) {
+                if (block.type === 'tool_use' && block.tool === 'AskUserQuestion' && !_replayingHistory) {
+                    (block.input.questions || [block.input]).forEach(q => {
+                        showQuestionModal(q, (answer) => { promptEl.value = answer; sendPrompt(); });
+                    });
+                }
+            }
+            autoScroll();
+            return;
+        }
         const wrapper = document.createElement('div');
-        wrapper.style.cssText = 'margin:16px 0;';
-        const label = document.createElement('div');
-        label.style.cssText = 'font-size:11px;color:var(--muted);margin-bottom:6px;font-weight:500;';
-        label.textContent = 'Claude';
-        wrapper.appendChild(label);
+        wrapper.className = 'tl';
+        wrapper.innerHTML = '<div class="tl-dot claude"></div>';
 
-        for (const block of (event.content || [])) {
+        for (const block of blocks) {
             if (block.type === 'text') {
                 const div = document.createElement('div');
                 div.style.cssText = 'line-height:1.6;color:#e0e0e0;';
@@ -379,16 +398,7 @@ function renderEvent(event) {
                 wrapper.appendChild(details);
 
             } else if (block.type === 'tool_use' && block.tool === 'AskUserQuestion') {
-                if (!_replayingHistory) {
-                    // Show as a modal overlay on the input area (live events only)
-                    const questions = block.input.questions || [block.input];
-                    questions.forEach(q => {
-                        showQuestionModal(q, (answer) => {
-                            promptEl.value = answer;
-                            sendPrompt();
-                        });
-                    });
-                }
+                // Handled above — skip rendering
 
             } else if (block.type === 'tool_use') {
                 const details = document.createElement('details');
@@ -436,8 +446,8 @@ function renderEvent(event) {
     } else if (etype === 'error') {
         setBusy(false);
         const div = document.createElement('div');
-        div.style.cssText = 'margin:12px 0;padding:10px 14px;background:var(--error-bg);border:1px solid var(--error);border-radius:8px;color:var(--error);font-size:13px;';
-        div.innerHTML = `<strong>Error</strong> &mdash; ${escHtml(event.error || 'Unknown error')}`;
+        div.className = 'tl';
+        div.innerHTML = `<div class="tl-dot error"></div><div style="padding:10px 14px;background:var(--error-bg);border:1px solid var(--error);border-radius:8px;color:var(--error);font-size:13px;"><strong>Error</strong> &mdash; ${escHtml(event.error || 'Unknown error')}</div>`;
         messagesEl.appendChild(div);
 
     } else if (etype === 'session_end') {
@@ -676,6 +686,8 @@ function connect() {
                 _replayingHistory = true;
                 for (const m of msgs) renderEvent(m);
                 _replayingHistory = false;
+                // Scroll to end after replay
+                messagesEl.scrollTop = messagesEl.scrollHeight;
                 // If the last event was an unanswered question, show the modal now
                 const last = msgs[msgs.length - 1];
                 if (last && last.type === 'question') {

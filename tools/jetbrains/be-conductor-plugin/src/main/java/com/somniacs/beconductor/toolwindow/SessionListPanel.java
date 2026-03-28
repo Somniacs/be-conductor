@@ -533,18 +533,17 @@ public class SessionListPanel extends JPanel {
                 + "?session=" + java.net.URLEncoder.encode(sessionId, java.nio.charset.StandardCharsets.UTF_8)
                 + "&ws=" + java.net.URLEncoder.encode(wsBase, java.nio.charset.StandardCharsets.UTF_8);
 
-        // Try HTMLEditorProvider — opens in the editor area (dockable like code files)
+        // Open as editor tab via LightVirtualFile + custom FileEditorProvider
+        // This survives tab moves, splits, and docking (unlike HTMLEditorProvider)
         try {
-            com.intellij.openapi.fileEditor.impl.HTMLEditorProvider.openEditor(
-                    proj,
-                    sessionId + " (Agent)",
-                    url,
-                    "<html><body style='background:#0d0d1a;color:#e0e0e0;padding:40px;font-family:sans-serif;'>"
-                    + "<p>Loading agent session...</p></body></html>"
-            );
+            com.intellij.testFramework.LightVirtualFile vf =
+                    new com.intellij.testFramework.LightVirtualFile(sessionId + " (Agent)");
+            vf.putUserData(com.somniacs.beconductor.agent.AgentFileEditorProvider.AGENT_URL_KEY, url);
+            vf.putUserData(com.somniacs.beconductor.agent.AgentFileEditorProvider.AGENT_SESSION_KEY, sessionId);
+            com.intellij.openapi.fileEditor.FileEditorManager.getInstance(proj).openFile(vf, true);
             return;
         } catch (Exception | NoClassDefFoundError e) {
-            LOG.info("be-conductor: HTMLEditorProvider not available, falling back to tool window");
+            LOG.info("be-conductor: Custom FileEditor not available, falling back to tool window");
         }
 
         // Fallback: register a tool window

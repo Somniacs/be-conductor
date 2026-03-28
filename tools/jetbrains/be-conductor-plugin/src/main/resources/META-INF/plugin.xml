@@ -26,6 +26,9 @@
 
         <!-- Notification group -->
         <notificationGroup id="be-conductor" displayType="BALLOON"/>
+
+        <!-- Agent session editor (JCEF in editor area, dockable like code files) -->
+        <fileEditorProvider implementation="com.somniacs.beconductor.agent.AgentFileEditorProvider"/>
     </extensions>
 
     <applicationListeners>
