@@ -180,7 +180,16 @@ function _resolvePath(p) {
     return _sessionCwd ? _sessionCwd.replace(/\/$/, '') + '/' + p : p;
 }
 const ideBridge = {
-    openFile(path, line) {},
+    openFile(path, line) {
+        // Default: try cefQuery (JetBrains, injected after load), then REST API
+        const resolved = _resolvePath(path);
+        const l = line || 0;
+        if (typeof window.cefQuery === 'function') {
+            window.cefQuery({request: JSON.stringify({type:'openFile', path:resolved, line:l})});
+        } else {
+            fetch(`http://localhost:63342/api/file${resolved.startsWith('/') ? '' : '/'}${resolved}?line=${l}&column=0`, {mode:'no-cors'}).catch(() => {});
+        }
+    },
     pickFile() {},
     showDiff(path, oldText, newText) {},
     runInTerminal(cmd) {},
@@ -190,12 +199,7 @@ const ideBridge = {
 // Detect JetBrains (JCEF or HTMLEditorProvider)
 const _isJetBrains = navigator.userAgent.includes('JBCef') || document.documentElement.getAttribute('data-jb-editor') !== null;
 
-if (typeof window.cefQuery === 'function') {
-    // JetBrains JCEF with registered queries
-    ideBridge.openFile = (p, l) => window.cefQuery({request: JSON.stringify({type:'openFile', path:_resolvePath(p), line:l||0})});
-    ideBridge.pickFile = () => window.cefQuery({request: JSON.stringify({type:'pickFile'})});
-    ideBridge.runInTerminal = (cmd) => window.cefQuery({request: JSON.stringify({type:'runInTerminal', command:cmd})});
-} else if (typeof acquireVsCodeApi !== 'undefined') {
+if (typeof acquireVsCodeApi !== 'undefined') {
     // VSCode webview
     const vscode = acquireVsCodeApi();
     ideBridge.openFile = (p, l) => vscode.postMessage({type:'openFile', path:_resolvePath(p), line:l||0});
@@ -206,13 +210,6 @@ if (typeof window.cefQuery === 'function') {
             ideBridge._onFileData(e.data);
         }
     });
-} else if (_isJetBrains || (window.parent === window && location.protocol === 'http:' && navigator.userAgent.includes('CEF'))) {
-    // JetBrains — use built-in REST API to open files in the editor
-    ideBridge.openFile = (p, l) => {
-        const resolved = _resolvePath(p);
-        const line = l || 0;
-        fetch(`http://localhost:63342/api/file${resolved.startsWith('/') ? '' : '/'}${resolved}?line=${line}&column=0`, {mode:'no-cors'}).catch(() => {});
-    };
 } else if (window.parent !== window) {
     // Embedded in dashboard iframe
     ideBridge.openFile = (p, l) => window.parent.postMessage({type:'openFile', path:_resolvePath(p), line:l||0, session: SESSION_ID}, '*');
@@ -322,8 +319,10 @@ function _mdToHtml(text) {
     h = h.replace(/^## (.+)$/gm, '<div style="font-size:16px;font-weight:600;color:var(--fg);margin:14px 0 6px;">$1</div>');
     h = h.replace(/^# (.+)$/gm, '<div style="font-size:18px;font-weight:600;color:var(--fg);margin:16px 0 8px;">$1</div>');
     // Lists
-    h = h.replace(/^- (.+)$/gm, '<div style="padding-left:16px;margin:1px 0;">&#8226; $1</div>');
-    h = h.replace(/^(\d+)\. (.+)$/gm, '<div style="padding-left:16px;margin:1px 0;">$1. $2</div>');
+    h = h.replace(/^- (.+)$/gm, '<div style="padding-left:16px;margin:1px 0;line-height:1.5;">&#8226; $1</div>');
+    h = h.replace(/^(\d+)\. (.+)$/gm, '<div style="padding-left:16px;margin:1px 0;line-height:1.5;">$1. $2</div>');
+    // Remove blank lines between consecutive list items (prevent spacer divs)
+    h = h.replace(/<\/div>\n\n<div style="padding-left/g, '</div><div style="padding-left');
     // Paragraphs
     h = h.replace(/\n\n/g, '<div style="height:8px;"></div>');
     h = h.replace(/\n/g, '<br>');
