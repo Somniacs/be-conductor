@@ -64,6 +64,9 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--fo
 .attachment-item .remove-btn:hover { color: #ff6666; }
 .file-link { color: var(--accent); text-decoration: none; }
 .file-link:hover { text-decoration: underline; }
+/* Context indicator */
+.context-indicator { cursor: pointer; display: flex; align-items: center; padding: 2px; border-radius: 4px; }
+.context-indicator:hover { background: var(--border); }
 /* Message spacing */
 .msg { margin: 12px 0; }
 #messages::-webkit-scrollbar { width: 8px; }
@@ -87,6 +90,9 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--fo
             <div class="right-group" id="right-group">
                 <div class="mode-popup" id="mode-popup"></div>
                 <button class="mode-btn" id="mode-btn" title="Modes &amp; Effort"></button>
+                <div class="context-indicator" id="context-indicator" title="Context window usage">
+                    <svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="var(--border)" stroke-width="2"/><circle cx="8" cy="8" r="6" fill="none" stroke="var(--muted)" stroke-width="2" stroke-dasharray="37.7" stroke-dashoffset="37.7" id="context-ring" transform="rotate(-90 8 8)"/></svg>
+                </div>
                 <button class="send-btn" id="send-btn" title="Send (Enter)"></button>
             </div>
         </div>
@@ -211,6 +217,40 @@ const modeBtn = document.getElementById('mode-btn');
 const modePopup = document.getElementById('mode-popup');
 const dragHandle = document.getElementById('drag-handle');
 const inputArea = document.getElementById('input-area');
+const contextRing = document.getElementById('context-ring');
+const contextIndicator = document.getElementById('context-indicator');
+const MAX_CONTEXT = 1000000; // 1M tokens (Opus)
+let totalTokens = 0;
+
+function updateContextRing(usage) {
+    if (!usage) return;
+    const input = Number(usage.input_tokens || usage.inputTokens || 0);
+    const output = Number(usage.output_tokens || usage.outputTokens || 0);
+    const cache = Number(usage.cache_read_input_tokens || usage.cacheReadInputTokens || 0);
+    totalTokens = input + output;
+    const pct = Math.min(1, totalTokens / MAX_CONTEXT);
+    const circumference = 37.7;
+    const offset = circumference * (1 - pct);
+    if (contextRing) {
+        contextRing.style.strokeDashoffset = offset;
+        const color = pct < 0.5 ? 'var(--success)' : pct < 0.8 ? '#c4a000' : pct < 0.95 ? '#f0a020' : 'var(--error)';
+        contextRing.style.stroke = color;
+    }
+    const k = (totalTokens / 1000).toFixed(0);
+    const pctStr = (pct * 100).toFixed(0);
+    if (contextIndicator) {
+        contextIndicator.title = `Context: ${k}K / ${MAX_CONTEXT/1000}K tokens (${pctStr}%)${cache ? '\nCache: ' + (cache/1000).toFixed(0) + 'K' : ''}`;
+    }
+}
+
+if (contextIndicator) {
+    contextIndicator.addEventListener('click', () => {
+        if (ws && ws.readyState === WebSocket.OPEN && totalTokens > 0) {
+            ws.send(JSON.stringify({type: 'prompt', text: '/compact'}));
+            setBusy(true);
+        }
+    });
+}
 
 // --- State ---
 let busy = false;
@@ -344,6 +384,7 @@ function renderEvent(event) {
 
     } else if (etype === 'assistant_message') {
         if (!busy) setBusy(true);
+        if (event.usage) updateContextRing(event.usage);
         const blocks = event.content || [];
         const hasVisibleContent = blocks.some(b => b.type !== 'tool_use' || b.tool !== 'AskUserQuestion');
         if (!hasVisibleContent) {
@@ -428,6 +469,7 @@ function renderEvent(event) {
 
     } else if (etype === 'result') {
         setBusy(false);
+        if (event.usage) updateContextRing(event.usage);
 
     } else if (etype === 'error') {
         setBusy(false);
