@@ -137,18 +137,45 @@ function escHtml(s) {
 function _mdToHtml(text) {
     if (!text) return '';
     let h = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    // Fenced code blocks
     h = h.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
         const label = lang ? `<div style="font-size:11px;color:#666;padding:4px 10px;background:#161b22;border-radius:6px 6px 0 0;border-bottom:1px solid #30363d;">${lang}</div>` : '';
         return `<div style="margin:8px 0;border-radius:6px;overflow:hidden;border:1px solid #30363d;">${label}<pre style="margin:0;padding:10px 12px;background:#0d1117;overflow-x:auto;font-size:13px;line-height:1.45;color:#e6edf3;"><code>${code}</code></pre></div>`;
     });
+    // Tables: detect lines starting with |
+    h = h.replace(/((?:^\|.+\|$\n?)+)/gm, (tableBlock) => {
+        const rows = tableBlock.trim().split('\n').filter(r => r.trim());
+        if (rows.length < 2) return tableBlock;
+        let html = '<table style="margin:8px 0;border-collapse:collapse;width:100%;font-size:13px;">';
+        rows.forEach((row, i) => {
+            // Skip separator row (|---|---|)
+            if (/^\|[\s-:|]+\|$/.test(row.trim())) return;
+            const cells = row.split('|').filter((c, j, a) => j > 0 && j < a.length - 1);
+            const tag = i === 0 ? 'th' : 'td';
+            const bgStyle = i === 0 ? 'background:#161b22;font-weight:600;' : (i % 2 === 0 ? 'background:#0d1117;' : '');
+            html += '<tr>';
+            cells.forEach(cell => {
+                html += `<${tag} style="padding:6px 10px;border:1px solid #30363d;text-align:left;${bgStyle}">${cell.trim()}</${tag}>`;
+            });
+            html += '</tr>';
+        });
+        html += '</table>';
+        return html;
+    });
+    // Inline code
     h = h.replace(/`([^`]+)`/g, '<code style="background:#1a1f2b;padding:2px 5px;border-radius:3px;font-size:0.9em;color:#e6edf3;">$1</code>');
+    // Bold
     h = h.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    // Italic
     h = h.replace(/\*(.+?)\*/g, '<em>$1</em>');
+    // Headers
     h = h.replace(/^### (.+)$/gm, '<div style="font-size:15px;font-weight:600;color:#e6edf3;margin:12px 0 4px;">$1</div>');
     h = h.replace(/^## (.+)$/gm, '<div style="font-size:16px;font-weight:600;color:#e6edf3;margin:14px 0 6px;">$1</div>');
     h = h.replace(/^# (.+)$/gm, '<div style="font-size:18px;font-weight:600;color:#e6edf3;margin:16px 0 8px;">$1</div>');
+    // Lists
     h = h.replace(/^- (.+)$/gm, '<div style="padding-left:16px;">&#8226; $1</div>');
     h = h.replace(/^(\d+)\. (.+)$/gm, '<div style="padding-left:16px;">$1. $2</div>');
+    // Paragraphs
     h = h.replace(/\n\n/g, '<div style="height:8px;"></div>');
     h = h.replace(/\n/g, '<br>');
     return h;
