@@ -8,7 +8,7 @@ All notable changes to be-conductor are documented here.
 
 - **GUI mode** — talk to Claude through a clean, structured chat interface instead of a raw terminal. Choose between Terminal and GUI when creating a session. GUI renders formatted markdown, syntax-highlighted code, tables, and collapsible tool calls. Works in the web dashboard, JetBrains, and VSCode — same experience everywhere
 - **Interactive questions** — when Claude needs your input, a selection modal appears with clickable options. Pick an answer and the conversation continues. Close or press Esc to cancel
-- **Modes and effort** — switch between "Ask before edits", "Edit automatically", and "Plan mode" on the fly. Adjust reasoning effort (Low / Medium / High). Shift+Tab cycles modes
+- **Modes and effort** — switch between Ask, Edit, and Plan modes on the fly. Adjust reasoning effort (Low / Medium / High). Shift+Tab cycles modes
 - **Attachments** — drag and drop images or files onto the input area, paste from clipboard (Ctrl+V), or click +. Claude can see and analyze your images. Preview thumbnails before sending
 - **Smart send/stop** — the send button changes based on context: disabled when empty, blue to send, orange when queuing during a busy response, black to stop. Esc also interrupts
 - **Context indicator** — a ring in the input toolbar shows how full the context window is. Hover for details, click to compact the conversation

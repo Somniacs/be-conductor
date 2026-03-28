@@ -1079,7 +1079,8 @@ function updateModeUI() {
         if (check) check.style.display = i === modeIdx ? 'block' : 'none';
     });
     const m = MODES[modeIdx];
-    modeBtn.innerHTML = m.icon.replace('width="16"', 'width="14"').replace('height="16"', 'height="14"') + ' <span>' + m.label.split(' ').pop() + '</span>';
+    const shortLabels = {default: 'ask', acceptEdits: 'edit', plan: 'plan'};
+    modeBtn.innerHTML = m.icon.replace('width="16"', 'width="14"').replace('height="16"', 'height="14"') + ' <span>' + (shortLabels[m.value] || m.label) + '</span>';
 }
 
 function updateEffortUI() {
