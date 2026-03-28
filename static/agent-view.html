@@ -32,10 +32,12 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--fo
 .attach-btn:hover { color: var(--fg); background: #1a1f2b; }
 .mode-btn { background: none; color: var(--muted); border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px; font-size: 11px; gap: 4px; white-space: nowrap; position: relative; }
 .mode-btn:hover { color: var(--fg); border-color: #666; }
-.send-btn { background: #2563eb; color: white; border: none; border-radius: 50%; width: 28px; height: 28px; }
+.send-btn { background: #2563eb; color: white; border: none; border-radius: 6px; width: 32px; height: 28px; padding: 4px 0; transition: background 0.15s, opacity 0.15s; }
 .send-btn:hover { background: #3b82f6; }
 .send-btn.busy { background: #b91c1c; }
 .send-btn.busy:hover { background: #dc2626; }
+.send-btn.disabled { background: #333; opacity: 0.4; cursor: default; }
+.send-btn.disabled:hover { background: #333; }
 .agent-spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #30363d; border-top-color: #8b949e; border-radius: 50%; animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .right-group { display: flex; align-items: center; gap: 4px; flex-shrink: 0; position: relative; }
@@ -439,13 +441,25 @@ function setBusy(b) {
 function updateSendBtn() {
     const hasText = promptEl.value.trim().length > 0;
     if (busy && !hasText) {
+        // Busy, no text → stop button
         sendBtn.innerHTML = STOP_ICON;
         sendBtn.className = 'send-btn busy';
-        sendBtn.title = 'Stop agent';
-    } else {
+        sendBtn.title = 'Stop (Esc)';
+    } else if (busy && hasText) {
+        // Busy, has text → send (queue) button
         sendBtn.innerHTML = SEND_ICON;
         sendBtn.className = 'send-btn';
-        sendBtn.title = busy ? 'Send (queued)' : 'Send (Enter)';
+        sendBtn.title = 'Send (queued)';
+    } else if (!busy && hasText) {
+        // Idle, has text → send button
+        sendBtn.innerHTML = SEND_ICON;
+        sendBtn.className = 'send-btn';
+        sendBtn.title = 'Send (Enter)';
+    } else {
+        // Idle, no text → disabled
+        sendBtn.innerHTML = SEND_ICON;
+        sendBtn.className = 'send-btn disabled';
+        sendBtn.title = '';
     }
 }
 setBusy(false);
@@ -577,12 +591,13 @@ promptEl.addEventListener('keydown', (e) => {
 
 sendBtn.addEventListener('click', () => {
     const hasText = promptEl.value.trim().length > 0;
+    if (!busy && !hasText) return; // disabled state — do nothing
     if (busy && !hasText) {
-        // No text + busy = stop
+        // Stop
         if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({type: 'interrupt'}));
         }
-    } else {
+    } else if (hasText) {
         sendPrompt();
     }
 });
