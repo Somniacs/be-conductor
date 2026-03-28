@@ -72,7 +72,7 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--fo
 .msg-user { margin-top: 16px; }
 .msg-group { position: relative; margin-left: 8px; padding-left: 20px; padding-top: 4px; }
 .msg-group:empty { display: none; }
-.msg-group::before { content: ''; position: absolute; left: 3px; top: 14px; bottom: 0; width: 1px; background: var(--border); }
+.msg-group::before { content: ''; position: absolute; left: 3px; top: var(--line-top, 14px); height: var(--line-height, 0); width: 1px; background: var(--border); }
 .msg-group.single-dot::before { display: none; }
 .msg-claude { padding-top: 2px; padding-bottom: 2px; }
 .msg-claude-dot { position: relative; }
@@ -405,7 +405,7 @@ function renderEvent(event) {
         if (!busy) setBusy(true);
         if (event.usage) updateContextRing(event.usage);
         const blocks = event.content || [];
-        const hasVisibleContent = blocks.some(b => b.type === 'text' || (b.type === 'tool_use' && b.tool !== 'AskUserQuestion' && b.tool !== 'ToolSearch' && b.tool !== 'TodoWrite') || b.type === 'tool_result');
+        const hasVisibleContent = blocks.some(b => b.type === 'text' || (b.type === 'tool_use' && ['Edit', 'Write'].includes(b.tool)) || (b.type === 'tool_result' && b.is_error));
         if (!hasVisibleContent) {
             // Only AskUserQuestion — handle modals, skip rendering
             for (const block of blocks) {
@@ -432,8 +432,8 @@ function renderEvent(event) {
             } else if (block.type === 'thinking') {
                 // Hidden — thinking is internal, not shown in the UI
 
-            } else if (block.type === 'tool_use' && (block.tool === 'AskUserQuestion' || block.tool === 'ToolSearch' || block.tool === 'TodoWrite')) {
-                // Internal tools — skip rendering
+            } else if (block.type === 'tool_use' && !['Edit', 'Write'].includes(block.tool)) {
+                // Hide internal/read-only tool calls — only show Edit and Write (file changes)
 
             } else if (block.type === 'tool_use') {
                 const details = document.createElement('details');
@@ -454,13 +454,13 @@ function renderEvent(event) {
                 wrapper.appendChild(details);
 
             } else if (block.type === 'tool_result') {
-                const div = document.createElement('div');
-                const isErr = block.is_error;
-                div.style.cssText = `margin:4px 0 8px 0;padding:8px 12px;background:var(--tool-bg);border-radius:0 0 6px 6px;border-top:1px solid ${isErr ? 'var(--error)' : 'var(--border)'};font-size:12px;color:${isErr ? 'var(--error)' : 'var(--muted)'};max-height:300px;overflow-y:auto;white-space:pre-wrap;line-height:1.4;`;
-                const raw = String(block.content || '');
-                const truncated = raw.length > 3000 ? raw.slice(0, 3000) + '\n...(truncated)' : raw;
-                div.innerHTML = makeFileLinksClickable(escHtml(truncated));
-                wrapper.appendChild(div);
+                // Only show errors — successful results are reflected in Claude's text
+                if (block.is_error) {
+                    const div = document.createElement('div');
+                    div.style.cssText = 'margin:4px 0 8px 0;padding:8px 12px;background:var(--error-bg);border-radius:6px;border:1px solid var(--error);font-size:12px;color:var(--error);max-height:200px;overflow-y:auto;white-space:pre-wrap;';
+                    div.textContent = String(block.content || 'Tool error');
+                    wrapper.appendChild(div);
+                }
             }
         }
         const group = document.getElementById('current-group') || messagesEl;
@@ -502,10 +502,20 @@ function autoScroll() {
     if (spinnerEl && spinnerEl.parentNode === messagesEl) {
         messagesEl.appendChild(spinnerEl);
     }
-    // Hide line for groups with only one dot
+    // Update line for each group
     messagesEl.querySelectorAll('.msg-group').forEach(g => {
         const dots = g.querySelectorAll('.msg-claude-dot');
         g.classList.toggle('single-dot', dots.length <= 1);
+        // Set line height to connect first dot to last dot
+        if (dots.length >= 2) {
+            const first = dots[0];
+            const last = dots[dots.length - 1];
+            const top = first.offsetTop + 12; // dot center
+            const bottom = last.offsetTop + 12;
+            const line = g.querySelector(':scope::before') || g;
+            g.style.setProperty('--line-top', top + 'px');
+            g.style.setProperty('--line-height', (bottom - top) + 'px');
+        }
     });
     if (messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 100) {
         messagesEl.scrollTop = messagesEl.scrollHeight;
