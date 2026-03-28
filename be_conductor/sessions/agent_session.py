@@ -249,6 +249,12 @@ class AgentSession:
                         else:
                             text = item
                             attachments = None
+                        # Save to history for replay (not broadcast — client renders optimistically)
+                        self._save_to_history({
+                            "type": "user_message",
+                            "content": text,
+                            "timestamp": time.time(),
+                        })
                         if attachments:
                             prompt_with_files = self._build_prompt_with_attachments(
                                 text, attachments
@@ -431,6 +437,13 @@ class AgentSession:
             self._history_path().unlink(missing_ok=True)
         except Exception:
             pass
+
+    def _save_to_history(self, event: dict) -> None:
+        """Save event to history + disk only (no broadcast, no console)."""
+        event = self._json_safe(event)
+        event.setdefault("timestamp", time.time())
+        self._message_history.append(event)
+        self._save_history()
 
     def _emit_event(self, event: dict) -> None:
         """Broadcast a structured event and append to console buffer."""
