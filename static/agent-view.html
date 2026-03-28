@@ -67,11 +67,14 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--fo
 /* Context indicator */
 .context-indicator { cursor: pointer; display: flex; align-items: center; padding: 2px; border-radius: 4px; }
 .context-indicator:hover { background: var(--border); }
-/* Message spacing */
-.msg { margin: 12px 0; }
-.msg.msg-user { margin-top: 16px; }
-.msg.msg-claude { margin-top: 4px; padding-left: 10px; border-left: 2px solid var(--border); }
-.msg.msg-claude:first-child, .msg.msg-user + .msg.msg-claude { border-left-color: var(--muted); margin-top: 8px; }
+/* Message layout */
+.msg { margin: 0; }
+.msg-user { margin-top: 16px; }
+.msg-user-line { margin-left: 3px; border-left: 1px solid var(--border); height: 8px; }
+.msg-claude { position: relative; padding-left: 20px; padding-top: 4px; padding-bottom: 4px; }
+.msg-claude::before { content: ''; position: absolute; left: 3px; top: 0; bottom: 0; width: 1px; background: var(--border); }
+.msg-claude::after { content: ''; position: absolute; left: 0; top: 10px; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); z-index: 1; }
+.msg-claude.msg-claude-last::before { height: 10px; bottom: auto; }
 #messages::-webkit-scrollbar { width: 8px; }
 #messages::-webkit-scrollbar-track { background: transparent; }
 #messages::-webkit-scrollbar-thumb { background: #30363d; border-radius: 4px; }
@@ -380,10 +383,18 @@ function renderEvent(event) {
             if (handle) handle.style.display = '';
             _userDismissedQuestion = false;
         }
+        // Mark previous last Claude item (remove its "last" status since more may come)
+        const prevLast = messagesEl.querySelector('.msg-claude-last');
+        if (prevLast) prevLast.classList.remove('msg-claude-last');
+
         const div = document.createElement('div');
         div.className = 'msg msg-user';
         div.innerHTML = `<div style="padding:10px 14px;background:var(--user-bg);border-radius:8px;border-left:3px solid var(--accent);white-space:pre-wrap;line-height:1.5;">${escHtml(event.content || '')}</div>`;
         messagesEl.appendChild(div);
+        // Connector line from user box down to Claude responses
+        const line = document.createElement('div');
+        line.className = 'msg-user-line';
+        messagesEl.appendChild(line);
 
     } else if (etype === 'assistant_message') {
         if (!busy) setBusy(true);
@@ -495,6 +506,10 @@ function autoScroll() {
     if (spinnerEl && spinnerEl.parentNode === messagesEl) {
         messagesEl.appendChild(spinnerEl);
     }
+    // Mark last Claude item so its line doesn't extend
+    const claudes = messagesEl.querySelectorAll('.msg-claude');
+    claudes.forEach(el => el.classList.remove('msg-claude-last'));
+    if (claudes.length) claudes[claudes.length - 1].classList.add('msg-claude-last');
     if (messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 100) {
         messagesEl.scrollTop = messagesEl.scrollHeight;
     }
