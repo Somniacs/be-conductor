@@ -464,18 +464,19 @@ class AgentSession:
         except Exception:
             pass
 
-    @staticmethod
     def _build_prompt_with_attachments(
+        self,
         text: str,
         attachments: list[dict],
     ) -> str:
-        """Build a text prompt that includes attachment content.
+        """Build a text prompt with attachments saved to temp files.
 
-        The Agent SDK query() accepts a string, not content blocks.
-        Images are noted by name (the SDK handles them via the CLI),
-        text files are inlined.
+        Images and binary files are saved to a temp directory so Claude
+        can access them via the Read tool. Text files are inlined.
         """
         import base64
+        import tempfile
+        from pathlib import Path
 
         parts: list[str] = []
         for att in attachments:
@@ -483,7 +484,19 @@ class AgentSession:
             data = att.get("data", "")
             name = att.get("name", "file")
             if mime.startswith("image/"):
-                parts.append(f"[Attached image: {name}]")
+                # Save image to temp file so Claude can read it
+                try:
+                    raw = base64.b64decode(data)
+                    tmp_dir = Path(tempfile.gettempdir()) / "be-conductor-uploads"
+                    tmp_dir.mkdir(exist_ok=True)
+                    tmp_path = tmp_dir / name
+                    tmp_path.write_bytes(raw)
+                    parts.append(
+                        f"I've attached an image. It's saved at: {tmp_path}\n"
+                        f"Please use the Read tool to view it."
+                    )
+                except Exception:
+                    parts.append(f"[Attached image: {name} — failed to save]")
             else:
                 try:
                     decoded = base64.b64decode(data).decode(

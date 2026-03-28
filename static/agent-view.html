@@ -235,6 +235,8 @@ function renderEvent(event) {
         messagesEl.appendChild(div);
 
     } else if (etype === 'assistant_message') {
+        // Claude is responding — mark as busy if not already
+        if (!busy) setBusy(true);
         const wrapper = document.createElement('div');
         wrapper.style.cssText = 'margin:16px 0;';
         const label = document.createElement('div');
@@ -468,9 +470,24 @@ promptEl.addEventListener('input', () => {
 });
 
 promptEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && busy) {
+        // Escape always interrupts when busy
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({type: 'interrupt'}));
+        }
+        return;
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
-        sendPrompt();
+        const hasText = promptEl.value.trim().length > 0;
+        if (busy && !hasText) {
+            // Enter with empty input while busy = stop
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({type: 'interrupt'}));
+            }
+        } else if (hasText) {
+            sendPrompt();
+        }
     }
 });
 
