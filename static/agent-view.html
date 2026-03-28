@@ -69,6 +69,9 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--fo
 .context-indicator:hover { background: var(--border); }
 /* Message spacing */
 .msg { margin: 12px 0; }
+.msg.msg-user { margin-top: 16px; }
+.msg.msg-claude { margin-top: 4px; padding-left: 10px; border-left: 2px solid var(--border); }
+.msg.msg-claude:first-child, .msg.msg-user + .msg.msg-claude { border-left-color: var(--muted); margin-top: 8px; }
 #messages::-webkit-scrollbar { width: 8px; }
 #messages::-webkit-scrollbar-track { background: transparent; }
 #messages::-webkit-scrollbar-thumb { background: #30363d; border-radius: 4px; }
@@ -378,7 +381,7 @@ function renderEvent(event) {
             _userDismissedQuestion = false;
         }
         const div = document.createElement('div');
-        div.className = 'msg';
+        div.className = 'msg msg-user';
         div.innerHTML = `<div style="padding:10px 14px;background:var(--user-bg);border-radius:8px;border-left:3px solid var(--accent);white-space:pre-wrap;line-height:1.5;">${escHtml(event.content || '')}</div>`;
         messagesEl.appendChild(div);
 
@@ -400,7 +403,7 @@ function renderEvent(event) {
             return;
         }
         const wrapper = document.createElement('div');
-        wrapper.className = 'msg';
+        wrapper.className = 'msg msg-claude';
 
         for (const block of blocks) {
             if (block.type === 'text') {
