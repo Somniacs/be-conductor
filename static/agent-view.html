@@ -422,6 +422,10 @@ function renderEvent(event) {
 }
 
 function autoScroll() {
+    // Keep spinner at the very bottom
+    if (spinnerEl && spinnerEl.parentNode === messagesEl) {
+        messagesEl.appendChild(spinnerEl);
+    }
     if (messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 100) {
         messagesEl.scrollTop = messagesEl.scrollHeight;
     }
