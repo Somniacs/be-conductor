@@ -24,8 +24,9 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--fo
 #drag-handle { height: 6px; cursor: row-resize; background: var(--bg-secondary); flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
 #drag-handle div { width: 30px; height: 2px; background: var(--border); border-radius: 1px; }
 #input-area { flex-shrink: 0; background: var(--bg-secondary); border-top: 1px solid var(--border); padding: 8px 12px; position: relative; }
-#input-box { display: flex; align-items: flex-end; gap: 0; background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px; padding: 4px; }
-#prompt { flex: 1; resize: none; background: transparent; color: var(--fg); border: none; outline: none; padding: 6px 8px; font-family: inherit; font-size: 13px; height: 38px; line-height: 1.4; overflow: hidden; }
+#input-box { display: flex; flex-direction: column; background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px; padding: 0; overflow: hidden; }
+#input-toolbar { display: flex; align-items: center; gap: 0; padding: 2px 4px; border-top: 1px solid var(--border); }
+#prompt { width: 100%; resize: none; background: transparent; color: var(--fg); border: none; outline: none; padding: 8px 12px; font-family: inherit; font-size: 13px; height: 38px; line-height: 1.4; overflow: hidden; }
 .attach-btn, .mode-btn, .send-btn { flex-shrink: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; }
 .attach-btn { background: none; border: none; color: var(--muted); padding: 6px; border-radius: 6px; }
 .attach-btn:hover { color: var(--fg); background: #1a1f2b; }
@@ -66,14 +67,17 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--fo
 <div id="input-area">
     <div class="attachment-preview" id="attach-preview"></div>
     <div id="input-box">
-        <button class="attach-btn" id="attach-btn" title="Attach file or image">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 2a.75.75 0 01.75.75v4.5h4.5a.75.75 0 010 1.5h-4.5v4.5a.75.75 0 01-1.5 0v-4.5h-4.5a.75.75 0 010-1.5h4.5v-4.5A.75.75 0 018 2z"/></svg>
-        </button>
         <textarea id="prompt" rows="1" placeholder="Message Claude..."></textarea>
-        <div class="right-group" id="right-group">
-            <div class="mode-popup" id="mode-popup"></div>
-            <button class="mode-btn" id="mode-btn" title="Modes &amp; Effort"></button>
-            <button class="send-btn" id="send-btn" title="Send (Enter)"></button>
+        <div id="input-toolbar">
+            <button class="attach-btn" id="attach-btn" title="Attach file or image">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 2a.75.75 0 01.75.75v4.5h4.5a.75.75 0 010 1.5h-4.5v4.5a.75.75 0 01-1.5 0v-4.5h-4.5a.75.75 0 010-1.5h4.5v-4.5A.75.75 0 018 2z"/></svg>
+            </button>
+            <div style="flex:1;"></div>
+            <div class="right-group" id="right-group">
+                <div class="mode-popup" id="mode-popup"></div>
+                <button class="mode-btn" id="mode-btn" title="Modes &amp; Effort"></button>
+                <button class="send-btn" id="send-btn" title="Send (Enter)"></button>
+            </div>
         </div>
     </div>
 </div>
