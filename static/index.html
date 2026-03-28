@@ -9790,17 +9790,23 @@
         // Handle messages from agent iframe (file open requests)
         window.addEventListener('message', (e) => {
             if (!e.data || e.data.type !== 'openFile') return;
-            const path = e.data.path;
+            let path = e.data.path;
             if (!path) return;
-            // Find the panel for this session to get the server key
+            // Find the panel for this session to get the server key and cwd
             const sessionId = e.data.session;
             const panel = sessionId ? panels.find(p => p.sessionId === sessionId) : panels[0];
             const server = panel ? panel.server : 'local';
-            // Guess file type from extension
+            // Resolve relative paths against session cwd
+            if (!path.startsWith('/') && !path.startsWith('~')) {
+                const sess = sessions.find(s => s.id === sessionId || s._compoundId === (panel ? panel.id : ''));
+                const cwd = (sess && sess.cwd) || '';
+                if (cwd) path = cwd.replace(/\/$/, '') + '/' + path;
+            }
             const ext = path.split('.').pop().toLowerCase();
             const type = ['png','jpg','jpeg','gif','webp','svg'].includes(ext) ? 'image'
                        : ['pdf'].includes(ext) ? 'pdf' : 'text';
-            openFileViewerAtFile(path, type, server, null);
+            const rootPath = sessions.find(s => s.id === sessionId)?.cwd || null;
+            openFileViewerAtFile(path, type, server, rootPath);
         });
 
         function closeFileOverlay() {
