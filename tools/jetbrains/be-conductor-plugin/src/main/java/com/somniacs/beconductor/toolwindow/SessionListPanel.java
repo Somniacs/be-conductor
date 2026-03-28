@@ -523,53 +523,38 @@ public class SessionListPanel extends JPanel {
     }
 
     /**
-     * Open (or focus) an agent session as a dockable editor tab via HTMLEditorProvider,
-     * falling back to a tool window tab with JCEF if the API is unavailable.
+     * Open (or focus) an agent session as its own tool window.
+     * Tool windows can be docked to any edge, floated, or split — full IDE freedom.
      */
     private static void openAgentPanel(com.intellij.openapi.project.Project proj, String sessionId) {
-        String baseUrl = "http://127.0.0.1:7777";
-        String wsBase = "ws://127.0.0.1:7777";
-        String url = baseUrl + "/agent/" + java.net.URLEncoder.encode(sessionId, java.nio.charset.StandardCharsets.UTF_8)
-                + "?session=" + java.net.URLEncoder.encode(sessionId, java.nio.charset.StandardCharsets.UTF_8)
-                + "&ws=" + java.net.URLEncoder.encode(wsBase, java.nio.charset.StandardCharsets.UTF_8);
+        String twId = "Agent: " + sessionId;
 
-        // Try HTMLEditorProvider first — opens as a dockable editor tab
-        try {
-            com.intellij.openapi.fileEditor.impl.HTMLEditorProvider.openEditor(
-                    proj,
-                    sessionId + " (Agent)",
-                    url,
-                    "<html><body style='background:#0d0d1a;color:#e0e0e0;padding:40px;font-family:sans-serif;'>"
-                    + "<p>Loading agent session...</p></body></html>"
-            );
+        // If already open, just focus it
+        com.intellij.openapi.wm.ToolWindow existing =
+                com.intellij.openapi.wm.ToolWindowManager.getInstance(proj).getToolWindow(twId);
+        if (existing != null) {
+            existing.show();
             return;
-        } catch (Exception | NoClassDefFoundError e) {
-            LOG.info("be-conductor: HTMLEditorProvider not available, falling back to tool window tab");
         }
 
-        // Fallback: open in tool window tab with JCEF
-        com.intellij.openapi.wm.ToolWindow tw = com.intellij.openapi.wm.ToolWindowManager
-                .getInstance(proj).getToolWindow("be-conductor");
-        if (tw == null) return;
+        // Register a new tool window for this agent session
+        com.intellij.openapi.wm.ToolWindowManager twm =
+                com.intellij.openapi.wm.ToolWindowManager.getInstance(proj);
+        com.intellij.openapi.wm.ToolWindow tw = twm.registerToolWindow(
+                twId,
+                true,  // canCloseContent
+                com.intellij.openapi.wm.ToolWindowAnchor.BOTTOM
+        );
+        tw.setTitle(sessionId);
+        tw.setStripeTitle(sessionId + " (Agent)");
 
-        // Check if a tab for this session already exists
-        for (com.intellij.ui.content.Content c : tw.getContentManager().getContents()) {
-            if (c.getDisplayName().equals(sessionId + " (Agent)")) {
-                tw.getContentManager().setSelectedContent(c);
-                tw.show();
-                return;
-            }
-        }
-
-        // Create a new AgentSessionPanel tab (JCEF-based)
         com.somniacs.beconductor.agent.AgentSessionPanel panel =
                 new com.somniacs.beconductor.agent.AgentSessionPanel(proj, sessionId);
         com.intellij.ui.content.Content content = tw.getContentManager()
-                .getFactory().createContent(panel, sessionId + " (Agent)", true);
+                .getFactory().createContent(panel, sessionId, false);
         content.setCloseable(true);
         content.setDisposer(panel);
         tw.getContentManager().addContent(content);
-        tw.getContentManager().setSelectedContent(content);
         tw.show();
     }
 
