@@ -386,27 +386,48 @@ function autoScroll() {
 // --- Question modal ---
 function showQuestionModal(q, onAnswer) {
     const inputArea = document.getElementById('input-area');
+    const inputBox = document.getElementById('input-box');
+    const handle = document.getElementById('drag-handle');
+
     // Remove any existing modal
     const old = document.getElementById('question-modal');
     if (old) old.remove();
 
+    // Hide normal input + drag handle
+    if (inputBox) inputBox.style.display = 'none';
+    if (handle) handle.style.display = 'none';
+
+    // Scroll messages to bottom
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+
+    // Build modal as the input area content
     const modal = document.createElement('div');
     modal.id = 'question-modal';
-    modal.style.cssText = 'position:absolute;inset:0;background:#0d0d1aee;z-index:50;display:flex;flex-direction:column;padding:14px 16px;overflow-y:auto;border-top:2px solid #4a6cf7;';
+    modal.style.cssText = 'padding:14px 16px;overflow-y:auto;border-top:2px solid var(--accent);';
 
     // Header
     if (q.header) {
         const hdr = document.createElement('div');
-        hdr.style.cssText = 'font-size:11px;color:#8b949e;margin-bottom:4px;font-weight:500;';
+        hdr.style.cssText = 'font-size:11px;color:var(--muted);margin-bottom:4px;font-weight:500;';
         hdr.textContent = q.header;
         modal.appendChild(hdr);
     }
 
     // Question text
     const qText = document.createElement('div');
-    qText.style.cssText = 'color:#e0e0e0;line-height:1.5;font-size:14px;margin-bottom:10px;';
+    qText.style.cssText = 'color:var(--fg);line-height:1.5;font-size:14px;margin-bottom:10px;';
     qText.innerHTML = _mdToHtml(q.question || q.text || '');
     modal.appendChild(qText);
+
+    function dismiss(answer) {
+        modal.remove();
+        if (inputBox) inputBox.style.display = '';
+        if (handle) handle.style.display = '';
+        document.removeEventListener('keydown', escHandler);
+        // Scroll to bottom after answer
+        setTimeout(() => { messagesEl.scrollTop = messagesEl.scrollHeight; }, 100);
+        onAnswer(answer);
+    }
 
     // Options
     const opts = q.options || q.choices || [];
@@ -416,58 +437,51 @@ function showQuestionModal(q, onAnswer) {
             const desc = typeof opt === 'object' ? (opt.description || '') : '';
             const value = typeof opt === 'string' ? opt : (opt.value || opt.label || String(opt));
             const btn = document.createElement('button');
-            btn.style.cssText = 'background:#0d1117;color:#c0d0f0;border:1px solid #30363d;border-radius:8px;padding:10px 14px;cursor:pointer;font-size:13px;text-align:left;display:flex;align-items:center;gap:10px;margin-bottom:4px;width:100%;';
-            btn.innerHTML = `<span style="width:16px;height:16px;border:2px solid #4a6cf7;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;"></span><div><div>${escHtml(label)}</div>${desc ? `<div style="font-size:11px;color:#8b949e;margin-top:2px;">${escHtml(desc)}</div>` : ''}</div>`;
-            btn.addEventListener('mouseover', () => { btn.style.background = '#1a2744'; btn.style.borderColor = '#4a6cf7'; });
-            btn.addEventListener('mouseout', () => { btn.style.background = '#0d1117'; btn.style.borderColor = '#30363d'; });
+            btn.style.cssText = 'background:var(--code-bg);color:var(--fg);border:1px solid var(--border);border-radius:8px;padding:10px 14px;cursor:pointer;font-size:13px;text-align:left;display:flex;align-items:center;gap:10px;margin-bottom:4px;width:100%;';
+            btn.innerHTML = `<span style="width:16px;height:16px;border:2px solid var(--accent);border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;"></span><div><div>${escHtml(label)}</div>${desc ? `<div style="font-size:11px;color:var(--muted);margin-top:2px;">${escHtml(desc)}</div>` : ''}</div>`;
+            btn.addEventListener('mouseover', () => { btn.style.borderColor = 'var(--accent)'; });
+            btn.addEventListener('mouseout', () => { btn.style.borderColor = 'var(--border)'; });
             btn.addEventListener('click', () => {
-                // Highlight selected
-                modal.querySelectorAll('button').forEach(b => { b.style.opacity = '0.5'; b.style.pointerEvents = 'none'; });
-                btn.style.opacity = '1'; btn.style.borderColor = '#4a6cf7'; btn.style.background = '#1a2744';
-                btn.querySelector('span').innerHTML = '<span style="width:8px;height:8px;border-radius:50%;background:#4a6cf7;display:block;"></span>';
-                // Remove modal after short delay
-                setTimeout(() => { modal.remove(); onAnswer(value); }, 300);
+                modal.querySelectorAll('button').forEach(b => { b.style.opacity = '0.4'; b.style.pointerEvents = 'none'; });
+                btn.style.opacity = '1'; btn.style.borderColor = 'var(--accent)';
+                btn.querySelector('span').innerHTML = '<span style="width:8px;height:8px;border-radius:50%;background:var(--accent);display:block;"></span>';
+                setTimeout(() => dismiss(value), 250);
             });
             modal.appendChild(btn);
         });
     }
 
-    // Submit with text input (for free-form answers or "Other")
+    // Free-text input — always show if no options, or as "Other" if options exist
     const freeRow = document.createElement('div');
     freeRow.style.cssText = 'display:flex;gap:6px;margin-top:8px;align-items:center;';
     const freeInput = document.createElement('input');
     freeInput.type = 'text';
-    freeInput.placeholder = 'Submit answer...';
-    freeInput.style.cssText = 'flex:1;background:#0d1117;color:#e0e0e0;border:1px solid #30363d;border-radius:6px;padding:8px 10px;font-size:13px;outline:none;';
+    freeInput.placeholder = opts.length ? 'Or type your own answer...' : 'Type your answer...';
+    freeInput.style.cssText = 'flex:1;background:var(--code-bg);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:13px;outline:none;';
     freeInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && freeInput.value.trim()) {
-            modal.remove();
-            onAnswer(freeInput.value.trim());
-        }
+        if (e.key === 'Enter' && freeInput.value.trim()) dismiss(freeInput.value.trim());
     });
     const submitBtn = document.createElement('button');
     submitBtn.textContent = 'Submit';
-    submitBtn.style.cssText = 'background:#2563eb;color:white;border:none;border-radius:6px;padding:8px 14px;cursor:pointer;font-size:13px;';
+    submitBtn.style.cssText = 'background:var(--accent);color:white;border:none;border-radius:6px;padding:8px 14px;cursor:pointer;font-size:13px;';
     submitBtn.addEventListener('click', () => {
-        if (freeInput.value.trim()) { modal.remove(); onAnswer(freeInput.value.trim()); }
+        if (freeInput.value.trim()) dismiss(freeInput.value.trim());
     });
     freeRow.appendChild(freeInput);
     freeRow.appendChild(submitBtn);
     modal.appendChild(freeRow);
 
-    // Esc to dismiss
+    // Esc hint
     const escHint = document.createElement('div');
-    escHint.style.cssText = 'font-size:11px;color:#666;margin-top:6px;';
+    escHint.style.cssText = 'font-size:11px;color:var(--muted);margin-top:6px;opacity:0.6;';
     escHint.textContent = 'Esc to cancel';
     modal.appendChild(escHint);
 
     const escHandler = (e) => {
-        if (e.key === 'Escape') { modal.remove(); document.removeEventListener('keydown', escHandler); onAnswer('cancelled'); }
+        if (e.key === 'Escape') dismiss('cancelled');
     };
     document.addEventListener('keydown', escHandler);
 
-    // Make input area position:relative if not already
-    inputArea.style.position = 'relative';
     inputArea.appendChild(modal);
     if (freeInput) freeInput.focus();
 }
