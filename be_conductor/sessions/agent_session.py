@@ -211,11 +211,11 @@ class AgentSession:
                             text = item
                             attachments = None
                         if attachments:
-                            # Build content blocks for the SDK
-                            content_blocks = self._build_prompt_blocks(
+                            # Build prompt with attachment context
+                            prompt_with_files = self._build_prompt_with_attachments(
                                 text, attachments
                             )
-                            await client.query(content_blocks)
+                            await client.query(prompt_with_files)
                         else:
                             await client.query(text)
                         await self._stream_response(client)
@@ -465,47 +465,36 @@ class AgentSession:
             pass
 
     @staticmethod
-    def _build_prompt_blocks(
+    def _build_prompt_with_attachments(
         text: str,
         attachments: list[dict],
-    ) -> list[dict]:
-        """Build SDK-compatible content blocks from text + attachments."""
+    ) -> str:
+        """Build a text prompt that includes attachment content.
+
+        The Agent SDK query() accepts a string, not content blocks.
+        Images are noted by name (the SDK handles them via the CLI),
+        text files are inlined.
+        """
         import base64
 
-        blocks: list[dict] = []
+        parts: list[str] = []
         for att in attachments:
             mime = att.get("type", "application/octet-stream")
             data = att.get("data", "")
+            name = att.get("name", "file")
             if mime.startswith("image/"):
-                # Validate base64 by attempting decode
-                try:
-                    base64.b64decode(data)
-                except Exception:
-                    continue
-                blocks.append({
-                    "type": "image",
-                    "source": {
-                        "type": "base64",
-                        "media_type": mime,
-                        "data": data,
-                    },
-                })
+                parts.append(f"[Attached image: {name}]")
             else:
-                # Non-image files: send as text with filename context
                 try:
                     decoded = base64.b64decode(data).decode(
                         "utf-8", errors="replace"
                     )
                 except Exception:
                     decoded = "(binary file)"
-                name = att.get("name", "file")
-                blocks.append({
-                    "type": "text",
-                    "text": f"[Attached file: {name}]\n{decoded}",
-                })
+                parts.append(f"[Attached file: {name}]\n{decoded}")
         if text:
-            blocks.append({"type": "text", "text": text})
-        return blocks
+            parts.append(text)
+        return "\n\n".join(parts)
 
     def subscribe(self) -> asyncio.Queue:
         queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
