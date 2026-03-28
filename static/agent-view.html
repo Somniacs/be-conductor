@@ -299,9 +299,6 @@ function renderEvent(event) {
 
     } else if (etype === 'result') {
         setBusy(false);
-        const div = document.createElement('div');
-        div.style.cssText = 'margin:8px 0;border-top:1px solid #21262d;';
-        messagesEl.appendChild(div);
 
     } else if (etype === 'error') {
         setBusy(false);
