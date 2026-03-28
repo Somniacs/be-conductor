@@ -457,6 +457,123 @@ def run(command, name, detach, worktree, use_json, rows, cols):
 
 
 @cli.command()
+@click.argument("source")
+@click.argument("name", required=False, default=None)
+@click.option("-d", "--detach", is_flag=True, help="Run in background (don't attach)")
+@click.option("-w", "--worktree", is_flag=True, help="Create an isolated git worktree")
+@click.option("-c", "--command", "cmd_override", default=None, help="Override the command")
+@click.option("-r", "--raw", is_flag=True, help="Use raw buffer instead of asking for summary")
+@click.option("-n", "--context-lines", type=int, default=500, help="Lines of context in raw mode")
+@click.option("-m", "--message", default=None, help="Custom instruction for the new session")
+@click.option("--json", "use_json", is_flag=True, help="Output JSON (implies --detach)")
+@click.option("--rows", type=int, default=None)
+@click.option("--cols", type=int, default=None)
+def clone(source, name, detach, worktree, cmd_override, raw, context_lines,
+          message, use_json, rows, cols):
+    """Clone a running session into a new one, passing context.
+
+    The source session's context is summarised and passed to the new
+    session so it can continue the work in parallel.
+
+    Usage: be-conductor clone SOURCE [NAME]
+
+    Examples:
+        be-conductor clone research exploration
+        be-conductor clone research impl --raw
+        be-conductor clone research feature-auth --worktree
+        be-conductor clone research refactor -m "Focus on the auth module."
+    """
+    if use_json:
+        detach = True
+
+    if name is None:
+        name = f"{source}-clone"
+
+    if not server_running():
+        if not use_json:
+            click.echo("Server not running. Starting daemon...")
+        if not start_server_daemon():
+            if use_json:
+                click.echo(json.dumps({"error": "Failed to start server"}))
+            else:
+                click.echo("Failed to start server. Try: be-conductor serve", err=True)
+            sys.exit(1)
+        if not use_json:
+            click.echo(f"Server started on {get_base_url()}")
+
+    size = shutil.get_terminal_size()
+    payload = {
+        "name": name,
+        "source": "cli",
+        "raw": raw,
+        "context_lines": context_lines,
+        "rows": rows or size.lines,
+        "cols": cols or size.columns,
+    }
+    if cmd_override:
+        payload["command"] = cmd_override
+    if worktree:
+        payload["worktree"] = True
+    if message:
+        payload["context_message"] = message
+
+    r = httpx.post(
+        f"{get_base_url()}/sessions/{source}/clone",
+        json=payload,
+        headers=_auth_headers(),
+        timeout=10,
+        **_http_kwargs(),
+    )
+
+    if r.status_code == 200:
+        data = r.json()
+        if use_json:
+            click.echo(json.dumps(data, indent=2))
+        elif detach:
+            click.echo(f"Cloning '{name}' from '{source}'...")
+            click.echo(f"Dashboard: {get_base_url()}")
+        else:
+            click.echo(f"Cloning '{name}' from '{source}'...")
+            # Poll until the new session appears, then attach.
+            for _ in range(120):  # up to ~120 s
+                time.sleep(1)
+                try:
+                    sr = httpx.get(
+                        f"{get_base_url()}/sessions",
+                        headers=_auth_headers(), timeout=5,
+                        **_http_kwargs(),
+                    )
+                    sessions = {s["name"]: s for s in sr.json()}
+                    if name in sessions and sessions[name]["status"] == "running":
+                        click.echo(f"Attaching... (Ctrl+] to detach)")
+                        _resize_session(name)
+                        _attach_session(name, stop_on_exit=True)
+                        return
+                except Exception:
+                    pass
+            click.echo(f"Timed out waiting for session '{name}' to start.", err=True)
+            sys.exit(1)
+    elif r.status_code == 404:
+        if use_json:
+            click.echo(json.dumps({"error": f"Source session '{source}' not found"}))
+        else:
+            click.echo(f"Source session '{source}' not found.", err=True)
+        sys.exit(1)
+    elif r.status_code == 409:
+        if use_json:
+            click.echo(json.dumps({"error": r.json().get("detail", r.text)}))
+        else:
+            click.echo(f"Error: {r.json().get('detail', r.text)}", err=True)
+        sys.exit(1)
+    else:
+        if use_json:
+            click.echo(json.dumps({"error": r.text}))
+        else:
+            click.echo(f"Error: {r.text}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
 @click.argument("name")
 def attach(name):
     """Attach to a running session.
@@ -474,6 +591,15 @@ def attach(name):
     if name not in sessions:
         click.echo(f"Session '{name}' not found.", err=True)
         sys.exit(1)
+
+    # Warn if already attached elsewhere
+    session_info = sessions[name]
+    clients = session_info.get("attached_clients") or []
+    if clients:
+        sources = sorted(set(c.get("source", "unknown") for c in clients))
+        click.echo(f"Warning: '{name}' is already attached in: {', '.join(sources)}", err=True)
+        if not click.confirm("Attach here as well?", default=True):
+            sys.exit(0)
 
     click.echo(f"Attaching to '{name}'... (Ctrl+] to detach)")
     _attach_session(name)
@@ -596,59 +722,16 @@ def _attach_session_unix(session_name: str, stop_on_exit: bool = False):
     stdout_fd = sys.stdout.fileno()
 
     def ws_reader(ws):
-        # Buffer for synchronized-update mode (DEC private mode 2026).
-        # Terminals that support this protocol buffer all output between
-        # \x1b[?2026h (begin) and \x1b[?2026l (end) and render atomically.
-        # When Claude's redraw spans multiple WebSocket messages, we must
-        # reassemble the full sync block before writing so the terminal
-        # can process it in one shot — otherwise intermediate states
-        # (clear screen, cursor home) flash visibly.
-        _SYNC_ON = b"\x1b[?2026h"
-        _SYNC_OFF = b"\x1b[?2026l"
-        sync_buf = bytearray()
-        in_sync = False
-
-        def _flush(data):
-            """Write data to stdout fd."""
-            mv = memoryview(data)
-            while mv:
-                n = os.write(stdout_fd, mv)
-                mv = mv[n:]
-
         try:
             for message in ws:
                 if isinstance(message, bytes) and message:
-                    if in_sync:
-                        sync_buf.extend(message)
-                        if _SYNC_OFF in message:
-                            # End of synchronized update — flush everything.
-                            _flush(sync_buf)
-                            sync_buf.clear()
-                            in_sync = False
-                        elif len(sync_buf) > 1_000_000:
-                            # Safety: don't buffer forever if SYNC_OFF is lost.
-                            _flush(sync_buf)
-                            sync_buf.clear()
-                            in_sync = False
-                    elif _SYNC_ON in message:
-                        if _SYNC_OFF in message:
-                            # Complete sync block in one message — pass through.
-                            _flush(message)
-                        else:
-                            # Sync started but not finished — start buffering.
-                            sync_buf.extend(message)
-                            in_sync = True
-                    else:
-                        # Normal data outside sync mode — write immediately.
-                        _flush(message)
+                    mv = memoryview(message)
+                    while mv:
+                        n = os.write(stdout_fd, mv)
+                        mv = mv[n:]
         except Exception:
             pass
         finally:
-            if sync_buf:
-                try:
-                    _flush(sync_buf)
-                except Exception:
-                    pass
             stop.set()
             os.write(wake_w, b"\x00")
 

@@ -217,6 +217,21 @@
         .session-actions button.merge-btn-inline { color: #60a0e0; opacity: 0.4; font-size: 16px; }
         .session-actions button.merge-btn-inline:hover { color: #80c0ff; opacity: 1; }
 
+        /* Session overflow "..." menu */
+        .session-more-wrapper { position: relative; }
+        .session-more-btn { font-size: 16px !important; letter-spacing: 1px; line-height: 1; }
+        .session-more-menu {
+            display: none; position: absolute; right: 0; top: 100%; margin-top: 2px;
+            background: #16163a; border: 1px solid #2a2a5a; border-radius: 6px;
+            min-width: 120px; box-shadow: 0 4px 16px rgba(0,0,0,0.4); z-index: 500; overflow: hidden;
+        }
+        .session-more-menu.open { display: block; }
+        .session-more-menu a {
+            display: block; padding: 7px 14px; font-size: 12px;
+            color: #c0c0e0; text-decoration: none; cursor: pointer; white-space: nowrap;
+        }
+        .session-more-menu a:hover { background: #1e1e4e; }
+
         /* Server group headers in sidebar */
         .server-group-header {
             display: flex;
@@ -2889,6 +2904,26 @@
         </div>
     </div>
 
+    <div class="stop-overlay" id="clone-dialog">
+        <div class="stop-box" style="min-width:280px;">
+            <p style="margin:0 0 10px;color:#c0c0e0;font-size:13px;">Clone session from <strong id="clone-parent-name"></strong></p>
+            <div style="margin-bottom:8px;">
+                <label style="font-size:11px;color:#8080a0;display:block;margin-bottom:3px;">Session name</label>
+                <input id="clone-name-input" type="text" style="width:100%;padding:6px 8px;background:#0a0a1a;border:1px solid #2a2a5a;border-radius:4px;color:#e0e0ff;font-size:13px;box-sizing:border-box;" />
+            </div>
+            <div style="margin-bottom:10px;">
+                <label style="font-size:11px;color:#8080a0;display:flex;align-items:center;gap:6px;cursor:pointer;">
+                    <input id="clone-raw-checkbox" type="checkbox" style="accent-color:#8080ff;" />
+                    Use raw buffer (skip summary)
+                </label>
+            </div>
+            <div class="stop-actions">
+                <button class="stop-graceful" id="clone-ok-btn">Clone</button>
+                <button class="stop-cancel" id="clone-cancel-btn">Cancel</button>
+            </div>
+        </div>
+    </div>
+
     <div class="upload-overlay" id="upload-dialog" onclick="if(event.target===this)closeUploadDialog()">
         <div class="upload-box">
             <div class="upload-filename" id="upload-filename"></div>
@@ -3670,7 +3705,10 @@
                 const bellBtn = notifCount > 0
                     ? `<button class="session-notif-bell" onclick="toggleNotifPopup('${cidEsc}',event)" title="${notifCount} notification${notifCount > 1 ? 's' : ''}">${_bellSvg}</button>`
                     : '';
-                actions = `${bellBtn}<button onclick="event.stopPropagation();killSession('${cidEsc}')" title="Stop">&times;</button>`;
+                const _cloneSvg = `<svg viewBox="0 0 16 16" fill="currentColor" style="width:14px;height:14px"><path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25ZM5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg>`;
+                actions = `${bellBtn}` +
+                    `<button class="session-more-btn" onclick="event.stopPropagation();cloneSession('${cidEsc}','${nameEsc}')" title="Clone session">${_cloneSvg}</button>` +
+                    `<button onclick="event.stopPropagation();killSession('${cidEsc}')" title="Stop">&times;</button>`;
             } else {
                 actions = '';
             }
@@ -3697,6 +3735,12 @@
                 const branchLabel = shortBranch !== s.name ? `${escHtml(shortBranch)}${aheadText} &middot; ` : (aheadText ? `${aheadText.trim()} &middot; ` : '');
                 subtitle = `${branchLabel}${escHtml(appLabel)}`;
 
+            }
+
+            // Show cloning spinner if a clone is in progress from this session.
+            const cloningName = _cloningFrom.get(cid);
+            if (cloningName) {
+                subtitle += ` &middot; <span style="color:#a080ff;">cloning &ldquo;${escHtml(cloningName)}&rdquo;&hellip;</span>`;
             }
 
             return `
@@ -3802,7 +3846,7 @@
             }
         }
 
-        function focusSession(id, name, evt) {
+        async function focusSession(id, name, evt) {
             closeDrawer();
             // Restore split layout if a panel is maximized
             if (_maximizedPanelId) {
@@ -5755,11 +5799,6 @@
                     panel._cursorCol = parseInt(_cuf[1], 10);
                 }
                 panel._lastWriteTime = Date.now();
-                // Let xterm.js handle scroll position natively — it preserves
-                // viewport position when the user has scrolled up and
-                // auto-scrolls when at the bottom.  No explicit shouldFollow
-                // or scrollToLine needed; those create feedback loops that
-                // fight xterm's internal scroll tracking.
                 panel.terminal.write(merged, () => {
                     if (!panel._bufferReplay) {
                         requestAnimationFrame(() => scrollToCursor(panel));
@@ -5780,6 +5819,40 @@
                         }
                         if (msg.type === 'notes') {
                             if (_notesLoaded) fetchNotes();
+                            return;
+                        }
+                        if (msg.type === 'clone_timeout') {
+                            // Summary wait timed out — ask user to wait more or use raw buffer.
+                            (async () => {
+                                const ok = await showConfirm(
+                                    `Clone "${msg.name}" is waiting for the parent to write a summary.\n\nWait longer, or use the raw console buffer instead?`,
+                                    'Wait longer',
+                                    'Use raw buffer'
+                                );
+                                const action = ok ? 'wait' : 'raw';
+                                fetch(serverUrl(panel.server, `/clone-decide/${encodeURIComponent(msg.clone_id)}`), {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ action }),
+                                }).catch(() => {});
+                            })();
+                            return;
+                        }
+                        if (msg.type === 'clone_ready') {
+                            // Clear cloning spinner for the parent session.
+                            for (const [parentCid, cloneName] of _cloningFrom) {
+                                if (msg.session && msg.session.name === cloneName) {
+                                    _cloningFrom.delete(parentCid);
+                                    break;
+                                }
+                            }
+                            fetchAllSessions();
+                            // Auto-open the spawned session panel
+                            const sp = msg.session;
+                            if (sp && sp.name) {
+                                const spCid = compoundId(panel.server, sp.name);
+                                focusSession(spCid, sp.name);
+                            }
                             return;
                         }
                         if (msg.type === 'resize') {
@@ -6028,8 +6101,6 @@
             let writeRaf = null;
             function flushWrites() {
                 writeRaf = null;
-                // Wait for PTY dimensions before writing — otherwise content
-                // renders at wrong size and gets corrupted on reflow.
                 if (!panel._dimensionsReady) {
                     if (writeBuf.length) writeRaf = requestAnimationFrame(flushWrites);
                     return;
@@ -8738,13 +8809,14 @@
             if (overlay) overlay.style.display = 'none';
         }
 
-        function showConfirm(message, okLabel) {
+        function showConfirm(message, okLabel, cancelLabel) {
             return new Promise(resolve => {
                 const overlay = document.getElementById('confirm-dialog');
                 document.getElementById('confirm-msg').textContent = message;
                 const yes = document.getElementById('confirm-yes');
                 const no = document.getElementById('confirm-no');
                 yes.textContent = okLabel || 'Confirm';
+                no.textContent = cancelLabel || 'Cancel';
                 overlay.classList.add('open');
                 function cleanup(result) {
                     overlay.classList.remove('open');
@@ -8873,6 +8945,95 @@
                 }
             } catch (e) {
                 hideBusy();
+            }
+        }
+
+        // --- Session overflow ("...") menu ---
+
+        function toggleSessionMenu(menuId) {
+            const menu = document.getElementById(menuId);
+            if (!menu) return;
+            const wasOpen = menu.classList.contains('open');
+            closeAllSessionMenus();
+            if (!wasOpen) menu.classList.add('open');
+        }
+
+        function closeAllSessionMenus() {
+            document.querySelectorAll('.session-more-menu.open').forEach(m => m.classList.remove('open'));
+        }
+
+        // Close menus when clicking elsewhere
+        document.addEventListener('click', () => closeAllSessionMenus());
+
+        // --- Clone ---
+
+        function showCloneDialog(parentName) {
+            return new Promise(resolve => {
+                const overlay = document.getElementById('clone-dialog');
+                document.getElementById('clone-parent-name').textContent = parentName;
+                const nameInput = document.getElementById('clone-name-input');
+                const rawCheckbox = document.getElementById('clone-raw-checkbox');
+                nameInput.value = parentName + '-clone';
+                rawCheckbox.checked = false;
+                overlay.classList.add('open');
+                nameInput.focus();
+                nameInput.select();
+
+                const ok = document.getElementById('clone-ok-btn');
+                const cancel = document.getElementById('clone-cancel-btn');
+                function cleanup(result) {
+                    overlay.classList.remove('open');
+                    ok.replaceWith(ok.cloneNode(true));
+                    cancel.replaceWith(cancel.cloneNode(true));
+                    resolve(result);
+                }
+                ok.addEventListener('click', () => {
+                    const n = nameInput.value.trim();
+                    if (!n) return;
+                    cleanup({ name: n, raw: rawCheckbox.checked });
+                }, { once: true });
+                cancel.addEventListener('click', () => cleanup(null), { once: true });
+                overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(null); }, { once: true });
+            });
+        }
+
+        // Track which sessions have a clone in progress (cid → clone name).
+        const _cloningFrom = new Map();
+
+        async function cloneSession(cid, name) {
+            const { server, sessionId } = parseCompoundId(cid);
+            const result = await showCloneDialog(name || sessionId);
+            if (!result) return;
+            try {
+                // Mark parent as cloning — renderSessionItem will show a spinner.
+                _cloningFrom.set(cid, result.name);
+                renderSessionList();
+
+                const resp = await fetch(serverUrl(server, `/sessions/${sessionId}/clone`), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: result.name, raw: result.raw }),
+                });
+                if (!resp.ok) {
+                    const err = await resp.text();
+                    _cloningFrom.delete(cid);
+                    renderSessionList();
+                    showAlert(`Clone failed: ${err}`);
+                    return;
+                }
+                // Server returns immediately with "preparing" status.
+                // A clone_ready WebSocket event will clear the spinner and add the clone.
+                // Safety timeout: clear spinner after 90s if no event arrives.
+                setTimeout(() => {
+                    if (_cloningFrom.has(cid)) {
+                        _cloningFrom.delete(cid);
+                        renderSessionList();
+                    }
+                }, 90000);
+            } catch (e) {
+                _cloningFrom.delete(cid);
+                renderSessionList();
+                showAlert(`Clone failed: ${e.message}`);
             }
         }
 

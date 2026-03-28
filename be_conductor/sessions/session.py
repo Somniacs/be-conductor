@@ -93,7 +93,7 @@ def _render_pyte_screen(screen: pyte.Screen, in_alt: bool) -> bytes:
         buf.extend(b"\x1b[?1049h")   # enter alternate screen
 
     buf.extend(b"\x1b[?25l")         # hide cursor during draw
-    buf.extend(b"\x1b[2J\x1b[H")    # clear screen + home
+    buf.extend(b"\x1b[2J\x1b[H")     # clear screen + cursor home
 
     default = screen.default_char
     prev = default
@@ -216,6 +216,7 @@ class Session:
         self.resize_owner_id: str | None = None     # client_id of the CLI resize authority
         self.browser_resize_owner_id: str | None = None  # client_id of the browser resize authority
         self.cli_attach_count: int = 0               # number of CLI WebSocket connections
+        self._attached_sources: dict[str, str] = {}  # client_id → source (cli/browser/vscode/jetbrains)
         self._monitor_task: asyncio.Task | None = None
         self._on_exit = on_exit
         self._reader_thread: threading.Thread | None = None
@@ -365,6 +366,20 @@ class Session:
     def get_buffer(self) -> bytes:
         return bytes(self.buffer)
 
+    def get_buffer_text(self, max_lines: int = 500) -> str:
+        """Return the buffer as ANSI-stripped plaintext.
+
+        Decodes the raw byte buffer, removes all escape sequences, and
+        returns the last *max_lines* lines.  Useful for extracting
+        human-readable context from a running session.
+        """
+        raw = bytes(self.buffer).decode("utf-8", errors="replace")
+        clean = _ANSI_RE.sub("", raw)
+        lines = clean.splitlines()
+        if max_lines and len(lines) > max_lines:
+            lines = lines[-max_lines:]
+        return "\n".join(lines)
+
     def get_screen_snapshot(self, clean: bool = False) -> bytes:
         """Return a compact representation of the current terminal state.
 
@@ -418,28 +433,42 @@ class Session:
     def cli_connected(self, client_id: str):
         """Track a CLI WebSocket connection."""
         self.cli_attach_count += 1
+        if client_id:
+            self._attached_sources[client_id] = "cli"
         if not self.resize_owner_id:
             self.resize_owner_id = client_id
 
     def cli_disconnected(self, client_id: str):
         """Track a CLI WebSocket disconnection."""
         self.cli_attach_count = max(0, self.cli_attach_count - 1)
+        if client_id:
+            self._attached_sources.pop(client_id, None)
         if client_id == self.resize_owner_id:
             self.resize_owner_id = None  # Owner left — next CLI resize will claim
             if self.cli_attach_count == 0 and not self.browser_resize_owner_id:
                 self.resize_source = None  # No CLI or browser owner → fresh start
 
-    def browser_connected(self, client_id: str):
-        """Track a browser WebSocket connection."""
+    def browser_connected(self, client_id: str, source: str = "browser"):
+        """Track a browser/IDE WebSocket connection."""
+        if client_id:
+            self._attached_sources[client_id] = source
         if not self.browser_resize_owner_id:
             self.browser_resize_owner_id = client_id
 
     def browser_disconnected(self, client_id: str):
-        """Track a browser WebSocket disconnection."""
+        """Track a browser/IDE WebSocket disconnection."""
+        if client_id:
+            self._attached_sources.pop(client_id, None)
         if client_id == self.browser_resize_owner_id:
             self.browser_resize_owner_id = None
             if self.cli_attach_count == 0:
                 self.resize_source = None
+
+    @property
+    def attached_clients(self) -> list[dict]:
+        """Return a list of currently attached clients with their source."""
+        return [{"client_id": cid, "source": src}
+                for cid, src in self._attached_sources.items()]
 
     def _cleanup_uploads(self):
         """Remove the session's upload directory."""
@@ -638,6 +667,7 @@ class Session:
             "resize_source": self.resize_source,
             "resize_owner": self.resize_owner_id or self.browser_resize_owner_id,
             "cli_attach_count": self.cli_attach_count,
+            "attached_clients": self.attached_clients,
         }
         if self.resume_id:
             d["resume_id"] = self.resume_id
