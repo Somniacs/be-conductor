@@ -1969,6 +1969,9 @@ async def _stream_agent(ws: WebSocket, session: Any):
                                 msg.get("text", ""),
                                 attachments=attachments,
                             )
+                        elif msg_type == "answer":
+                            if hasattr(session, "answer_question"):
+                                session.answer_question(msg.get("text", ""))
                         elif msg_type == "set_mode":
                             new_mode = msg.get("mode", "default")
                             if hasattr(session, "set_mode"):

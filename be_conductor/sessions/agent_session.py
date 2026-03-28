@@ -170,6 +170,40 @@ class AgentSession:
             return
 
         resume_id = self._agent_options.get("resume")
+
+        # Queue for receiving answers to AskUserQuestion from the UI
+        self._question_answer_queue: asyncio.Queue[str] = asyncio.Queue()
+
+        # Hook to intercept AskUserQuestion — emit to UI and wait for answer
+        async def _ask_user_hook(tool_input, tool_use_id=None, **kwargs):
+            question = tool_input.get("question", tool_input.get("text", ""))
+            options_list = tool_input.get("options", tool_input.get("choices", []))
+
+            # Emit question event to all subscribers
+            self._emit_event({
+                "type": "question",
+                "question": question,
+                "options": options_list,
+                "tool_use_id": tool_use_id,
+            })
+
+            # Wait for the user's answer from the UI
+            try:
+                answer = await asyncio.wait_for(
+                    self._question_answer_queue.get(), timeout=300
+                )
+            except asyncio.TimeoutError:
+                answer = "No answer provided (timeout)"
+
+            return {"content": [{"type": "text", "text": answer}]}
+
+        try:
+            hooks_config = {
+                "PreToolUse": [{"matcher": "AskUserQuestion", "hooks": [_ask_user_hook]}]
+            }
+        except Exception:
+            hooks_config = None
+
         options = ClaudeAgentOptions(
             cwd=self.cwd or ".",
             allowed_tools=self._agent_options.get("allowed_tools"),
@@ -182,9 +216,14 @@ class AgentSession:
             resume=resume_id,
             continue_conversation=bool(resume_id),
             include_partial_messages=True,
-            # Inherit Claude Code's project settings (CLAUDE.md, hooks, MCP servers)
             setting_sources=["project"],
         )
+        # Try to add hooks (SDK version may not support them)
+        if hooks_config:
+            try:
+                options.hooks = hooks_config
+            except Exception:
+                pass
 
         try:
             async with ClaudeSDKClient(options=options) as client:
@@ -455,6 +494,11 @@ class AgentSession:
 
     def send_input_bytes(self, data: bytes) -> None:
         self.send_input(data.decode("utf-8", errors="replace"))
+
+    def answer_question(self, answer: str) -> None:
+        """Provide an answer to a pending AskUserQuestion."""
+        if hasattr(self, '_question_answer_queue'):
+            self._question_answer_queue.put_nowait(answer)
 
     def set_mode(self, mode: str) -> None:
         """Change the agent permission mode at runtime.
