@@ -25,7 +25,7 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--fo
 #drag-handle div { width: 30px; height: 2px; background: var(--border); border-radius: 1px; }
 #input-area { flex-shrink: 0; background: var(--bg-secondary); border-top: 1px solid var(--border); padding: 8px 12px; position: relative; }
 #input-box { display: flex; align-items: flex-end; gap: 0; background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px; padding: 4px; }
-#prompt { flex: 1; resize: none; background: transparent; color: var(--fg); border: none; outline: none; padding: 6px 8px; font-family: inherit; font-size: 13px; height: 38px; max-height: 200px; line-height: 1.4; }
+#prompt { flex: 1; resize: none; background: transparent; color: var(--fg); border: none; outline: none; padding: 6px 8px; font-family: inherit; font-size: 13px; height: 38px; line-height: 1.4; overflow: hidden; }
 .attach-btn, .mode-btn, .send-btn { flex-shrink: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; }
 .attach-btn { background: none; border: none; color: var(--muted); padding: 6px; border-radius: 6px; }
 .attach-btn:hover { color: var(--fg); background: #1a1f2b; }
@@ -463,7 +463,7 @@ function sendPrompt() {
 // --- Input handlers ---
 promptEl.addEventListener('input', () => {
     promptEl.style.height = '38px';
-    promptEl.style.height = Math.min(200, promptEl.scrollHeight) + 'px';
+    promptEl.style.height = promptEl.scrollHeight + 'px';
     updateSendBtn();
 });
 
@@ -560,7 +560,6 @@ ideBridge._onFileData = (data) => {
 };
 
 // --- Drag and drop ---
-const inputArea = document.getElementById('input-area');
 let dragCounter = 0;
 inputArea.addEventListener('dragenter', (e) => {
     e.preventDefault();
