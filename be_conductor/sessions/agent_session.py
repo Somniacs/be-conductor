@@ -168,6 +168,7 @@ class AgentSession:
                 await self._on_exit(self.id)
             return
 
+        resume_id = self._agent_options.get("resume")
         options = ClaudeAgentOptions(
             cwd=self.cwd or ".",
             allowed_tools=self._agent_options.get("allowed_tools"),
@@ -177,8 +178,11 @@ class AgentSession:
             system_prompt=self._agent_options.get("system_prompt"),
             max_turns=self._agent_options.get("max_turns"),
             model=self._agent_options.get("model"),
-            resume=self._agent_options.get("resume"),
+            resume=resume_id,
+            continue_conversation=bool(resume_id),
             include_partial_messages=True,
+            # Inherit Claude Code's project settings (CLAUDE.md, hooks, MCP servers)
+            setting_sources=["project"],
         )
 
         try:
