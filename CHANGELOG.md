@@ -11,16 +11,21 @@ All notable changes to be-conductor are documented here.
 - **Modes and effort** — switch between "Ask before edits", "Edit automatically", and "Plan mode" without restarting. Adjust reasoning effort (Low / Medium / High) on the fly
 - **Attachments** — drag and drop images or files onto the input area, or click +. Claude can see and analyze your images. Preview thumbnails before sending
 - **Stop and queue** — hit the stop button (or Esc) to interrupt Claude mid-response. Type a follow-up while Claude is still working — it queues and sends when ready
-- **Dockable in IDEs** — agent sessions open as their own panels in JetBrains (dock to any edge, float, split) and as webview tabs in VSCode. Clickable file paths jump to the right line in your editor
+- **Dockable in IDEs** — agent sessions open as editor tabs in JetBrains — drag, split, and dock them alongside your code files. In VSCode they open as webview tabs. Clickable file paths in responses jump to the right line in your editor
+- **Clickable files** — file paths in Claude's responses are clickable everywhere. In the browser they open in the built-in file viewer; in JetBrains and VSCode they open directly in the editor
+- **Multi-client sync** — open the same agent session in the dashboard and an IDE simultaneously. Questions asked by Claude appear on both; answering on one dismisses the modal on the other
 - **Session memory** — conversation history is saved. Resume a session and the full chat is restored, with Claude remembering the context
 - **Session cloning** — spin off a new session from a running one. The clone inherits the conversation context and continues independently
-- **Themes** — six color themes apply to both terminal and agent views. Change from the panel menu, takes effect instantly
+- **Themes** — six polished color themes (Default, Dark, Mid, Bright, Bernstein, Green) apply to both terminal and agent views. Full theme support throughout — code blocks, tool panels, tables, questions all respect the active theme
+- **Keyboard shortcuts** — Shift+Tab cycles through modes, Esc interrupts a busy agent, Enter sends or stops depending on context
 
 ### Fixed
 
 - **CLI scroll jumping** — the scroll-to-top issue is a Claude Code bug ([anthropics/claude-code#36582](https://github.com/anthropics/claude-code/issues/36582)). Removed all workarounds — CLI output is now a clean passthrough
 - **Stopping doesn't crash** — interrupting a busy agent keeps the session alive. Errors during a turn are shown but don't end the conversation
 - **Consistent naming** — all Claude sessions show the same label regardless of whether they were started from the CLI, dashboard, or an IDE
+- **Question modal on restore** — unanswered questions show up when resuming a session; already-answered ones don't pop up again
+- **Mode popup clipping** — the modes and effort popup no longer gets cut off by the input area
 
 ## v0.3.33
 
