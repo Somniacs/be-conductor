@@ -173,7 +173,7 @@ class AgentSession:
             cwd=self.cwd or ".",
             allowed_tools=self._agent_options.get("allowed_tools"),
             permission_mode=self._agent_options.get(
-                "permission_mode", "default"
+                "permission_mode", "bypassPermissions"
             ),
             system_prompt=self._agent_options.get("system_prompt"),
             max_turns=self._agent_options.get("max_turns"),
