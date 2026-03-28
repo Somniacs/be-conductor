@@ -271,6 +271,36 @@ function renderEvent(event) {
                 details.appendChild(content);
                 wrapper.appendChild(details);
 
+            } else if (block.type === 'tool_use' && block.tool === 'AskUserQuestion') {
+                // Render as an interactive question
+                const qDiv = document.createElement('div');
+                qDiv.style.cssText = 'margin:10px 0;padding:12px 16px;background:#1a2744;border:1px solid #2a4a8a;border-radius:8px;';
+                const qText = document.createElement('div');
+                qText.style.cssText = 'color:#e0e0e0;line-height:1.5;margin-bottom:8px;';
+                qText.innerHTML = _mdToHtml(block.input.question || block.input.text || JSON.stringify(block.input));
+                qDiv.appendChild(qText);
+                // Render options as clickable buttons if provided
+                const options = block.input.options || block.input.choices || [];
+                if (options.length) {
+                    const optRow = document.createElement('div');
+                    optRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;';
+                    options.forEach(opt => {
+                        const btn = document.createElement('button');
+                        btn.textContent = typeof opt === 'string' ? opt : (opt.label || opt.value || String(opt));
+                        btn.style.cssText = 'background:#2a3a5a;color:#c0d0f0;border:1px solid #3a5a8a;border-radius:6px;padding:6px 14px;cursor:pointer;font-size:13px;';
+                        btn.addEventListener('mouseover', () => { btn.style.background = '#3a4a6a'; });
+                        btn.addEventListener('mouseout', () => { btn.style.background = '#2a3a5a'; });
+                        btn.addEventListener('click', () => {
+                            const answer = typeof opt === 'string' ? opt : (opt.value || opt.label || String(opt));
+                            promptEl.value = answer;
+                            sendPrompt();
+                        });
+                        optRow.appendChild(btn);
+                    });
+                    qDiv.appendChild(optRow);
+                }
+                wrapper.appendChild(qDiv);
+
             } else if (block.type === 'tool_use') {
                 const details = document.createElement('details');
                 details.style.cssText = 'margin:8px 0;border:1px solid #30363d;border-radius:6px;overflow:hidden;';
