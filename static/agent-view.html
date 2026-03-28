@@ -276,47 +276,13 @@ function renderEvent(event) {
                 wrapper.appendChild(details);
 
             } else if (block.type === 'tool_use' && block.tool === 'AskUserQuestion') {
-                // Extract questions — SDK format: {questions: [{question, header, options: [{label, description}]}]}
-                // or simple: {question, options: ["a","b"]}
+                // Show as a modal overlay on the input area
                 const questions = block.input.questions || [block.input];
                 questions.forEach(q => {
-                    const qDiv = document.createElement('div');
-                    qDiv.style.cssText = 'margin:10px 0;padding:14px 18px;background:#1a2744;border:1px solid #2a4a8a;border-radius:10px;';
-                    if (q.header) {
-                        const hdr = document.createElement('div');
-                        hdr.style.cssText = 'font-size:11px;color:#8b949e;margin-bottom:6px;font-weight:500;';
-                        hdr.textContent = q.header;
-                        qDiv.appendChild(hdr);
-                    }
-                    const qText = document.createElement('div');
-                    qText.style.cssText = 'color:#e0e0e0;line-height:1.6;font-size:14px;';
-                    qText.innerHTML = _mdToHtml(q.question || q.text || '');
-                    qDiv.appendChild(qText);
-                    const opts = q.options || q.choices || [];
-                    if (opts.length) {
-                        const optList = document.createElement('div');
-                        optList.style.cssText = 'margin-top:10px;display:flex;flex-direction:column;gap:4px;';
-                        opts.forEach(opt => {
-                            const label = typeof opt === 'string' ? opt : (opt.label || opt.value || String(opt));
-                            const desc = typeof opt === 'object' ? (opt.description || '') : '';
-                            const value = typeof opt === 'string' ? opt : (opt.value || opt.label || String(opt));
-                            const btn = document.createElement('button');
-                            btn.style.cssText = 'background:#0d1117;color:#c0d0f0;border:1px solid #30363d;border-radius:8px;padding:10px 14px;cursor:pointer;font-size:13px;text-align:left;display:flex;align-items:center;gap:10px;';
-                            btn.innerHTML = `<span style="width:16px;height:16px;border:2px solid #4a6cf7;border-radius:50%;flex-shrink:0;"></span><div><div>${escHtml(label)}</div>${desc ? `<div style="font-size:11px;color:#8b949e;margin-top:2px;">${escHtml(desc)}</div>` : ''}</div>`;
-                            btn.addEventListener('mouseover', () => { btn.style.background = '#1a2744'; btn.style.borderColor = '#4a6cf7'; });
-                            btn.addEventListener('mouseout', () => { btn.style.background = '#0d1117'; btn.style.borderColor = '#30363d'; });
-                            btn.addEventListener('click', () => {
-                                optList.querySelectorAll('button').forEach(b => { b.style.opacity = '0.5'; b.style.pointerEvents = 'none'; });
-                                btn.style.opacity = '1'; btn.style.borderColor = '#4a6cf7'; btn.style.background = '#1a2744';
-                                btn.querySelector('span').innerHTML = '<span style="width:8px;height:8px;border-radius:50%;background:#4a6cf7;display:block;margin:2px;"></span>';
-                                promptEl.value = value;
-                                sendPrompt();
-                            });
-                            optList.appendChild(btn);
-                        });
-                        qDiv.appendChild(optList);
-                    }
-                    wrapper.appendChild(qDiv);
+                    showQuestionModal(q, (answer) => {
+                        promptEl.value = answer;
+                        sendPrompt();
+                    });
                 });
 
             } else if (block.type === 'tool_use') {
@@ -350,45 +316,14 @@ function renderEvent(event) {
         messagesEl.appendChild(wrapper);
 
     } else if (etype === 'question') {
-        // Interactive question from AskUserQuestion tool
+        // Question from hook — show as modal
         setBusy(false);
-        const qDiv = document.createElement('div');
-        qDiv.style.cssText = 'margin:12px 0;padding:14px 18px;background:#1a2744;border:1px solid #2a4a8a;border-radius:10px;';
-        const qText = document.createElement('div');
-        qText.style.cssText = 'color:#e0e0e0;line-height:1.6;font-size:14px;';
-        qText.innerHTML = _mdToHtml(event.question || '');
-        qDiv.appendChild(qText);
-        const opts = event.options || [];
-        if (opts.length) {
-            const optList = document.createElement('div');
-            optList.style.cssText = 'margin-top:10px;display:flex;flex-direction:column;gap:4px;';
-            opts.forEach((opt, idx) => {
-                const label = typeof opt === 'string' ? opt : (opt.label || opt.value || String(opt));
-                const value = typeof opt === 'string' ? opt : (opt.value || opt.label || String(opt));
-                const btn = document.createElement('button');
-                btn.style.cssText = 'background:#0d1117;color:#c0d0f0;border:1px solid #30363d;border-radius:8px;padding:10px 14px;cursor:pointer;font-size:13px;text-align:left;display:flex;align-items:center;gap:8px;';
-                btn.innerHTML = `<span style="width:18px;height:18px;border:2px solid #4a6cf7;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;"><span class="radio-dot" style="width:8px;height:8px;border-radius:50;display:none;background:#4a6cf7;"></span></span><span>${escHtml(label)}</span>`;
-                btn.addEventListener('mouseover', () => { btn.style.background = '#1a2744'; btn.style.borderColor = '#4a6cf7'; });
-                btn.addEventListener('mouseout', () => { btn.style.background = '#0d1117'; btn.style.borderColor = '#30363d'; });
-                btn.addEventListener('click', () => {
-                    // Highlight selected
-                    optList.querySelectorAll('button').forEach(b => { b.style.opacity = '0.5'; b.style.pointerEvents = 'none'; });
-                    btn.style.opacity = '1';
-                    btn.style.borderColor = '#4a6cf7';
-                    btn.style.background = '#1a2744';
-                    const dot = btn.querySelector('.radio-dot');
-                    if (dot) dot.style.display = 'block';
-                    // Send answer
-                    if (ws && ws.readyState === WebSocket.OPEN) {
-                        ws.send(JSON.stringify({type: 'answer', text: value}));
-                    }
-                    setBusy(true);
-                });
-                optList.appendChild(btn);
-            });
-            qDiv.appendChild(optList);
-        }
-        messagesEl.appendChild(qDiv);
+        showQuestionModal(event, (answer) => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({type: 'answer', text: answer}));
+            }
+            setBusy(true);
+        });
 
     } else if (etype === 'result') {
         setBusy(false);
@@ -412,6 +347,95 @@ function autoScroll() {
     if (messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 100) {
         messagesEl.scrollTop = messagesEl.scrollHeight;
     }
+}
+
+// --- Question modal ---
+function showQuestionModal(q, onAnswer) {
+    const inputArea = document.getElementById('input-area');
+    // Remove any existing modal
+    const old = document.getElementById('question-modal');
+    if (old) old.remove();
+
+    const modal = document.createElement('div');
+    modal.id = 'question-modal';
+    modal.style.cssText = 'position:absolute;inset:0;background:#0d0d1aee;z-index:50;display:flex;flex-direction:column;padding:14px 16px;overflow-y:auto;border-top:2px solid #4a6cf7;';
+
+    // Header
+    if (q.header) {
+        const hdr = document.createElement('div');
+        hdr.style.cssText = 'font-size:11px;color:#8b949e;margin-bottom:4px;font-weight:500;';
+        hdr.textContent = q.header;
+        modal.appendChild(hdr);
+    }
+
+    // Question text
+    const qText = document.createElement('div');
+    qText.style.cssText = 'color:#e0e0e0;line-height:1.5;font-size:14px;margin-bottom:10px;';
+    qText.innerHTML = _mdToHtml(q.question || q.text || '');
+    modal.appendChild(qText);
+
+    // Options
+    const opts = q.options || q.choices || [];
+    if (opts.length) {
+        opts.forEach(opt => {
+            const label = typeof opt === 'string' ? opt : (opt.label || opt.value || String(opt));
+            const desc = typeof opt === 'object' ? (opt.description || '') : '';
+            const value = typeof opt === 'string' ? opt : (opt.value || opt.label || String(opt));
+            const btn = document.createElement('button');
+            btn.style.cssText = 'background:#0d1117;color:#c0d0f0;border:1px solid #30363d;border-radius:8px;padding:10px 14px;cursor:pointer;font-size:13px;text-align:left;display:flex;align-items:center;gap:10px;margin-bottom:4px;width:100%;';
+            btn.innerHTML = `<span style="width:16px;height:16px;border:2px solid #4a6cf7;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;"></span><div><div>${escHtml(label)}</div>${desc ? `<div style="font-size:11px;color:#8b949e;margin-top:2px;">${escHtml(desc)}</div>` : ''}</div>`;
+            btn.addEventListener('mouseover', () => { btn.style.background = '#1a2744'; btn.style.borderColor = '#4a6cf7'; });
+            btn.addEventListener('mouseout', () => { btn.style.background = '#0d1117'; btn.style.borderColor = '#30363d'; });
+            btn.addEventListener('click', () => {
+                // Highlight selected
+                modal.querySelectorAll('button').forEach(b => { b.style.opacity = '0.5'; b.style.pointerEvents = 'none'; });
+                btn.style.opacity = '1'; btn.style.borderColor = '#4a6cf7'; btn.style.background = '#1a2744';
+                btn.querySelector('span').innerHTML = '<span style="width:8px;height:8px;border-radius:50%;background:#4a6cf7;display:block;"></span>';
+                // Remove modal after short delay
+                setTimeout(() => { modal.remove(); onAnswer(value); }, 300);
+            });
+            modal.appendChild(btn);
+        });
+    }
+
+    // Submit with text input (for free-form answers or "Other")
+    const freeRow = document.createElement('div');
+    freeRow.style.cssText = 'display:flex;gap:6px;margin-top:8px;align-items:center;';
+    const freeInput = document.createElement('input');
+    freeInput.type = 'text';
+    freeInput.placeholder = 'Submit answer...';
+    freeInput.style.cssText = 'flex:1;background:#0d1117;color:#e0e0e0;border:1px solid #30363d;border-radius:6px;padding:8px 10px;font-size:13px;outline:none;';
+    freeInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && freeInput.value.trim()) {
+            modal.remove();
+            onAnswer(freeInput.value.trim());
+        }
+    });
+    const submitBtn = document.createElement('button');
+    submitBtn.textContent = 'Submit';
+    submitBtn.style.cssText = 'background:#2563eb;color:white;border:none;border-radius:6px;padding:8px 14px;cursor:pointer;font-size:13px;';
+    submitBtn.addEventListener('click', () => {
+        if (freeInput.value.trim()) { modal.remove(); onAnswer(freeInput.value.trim()); }
+    });
+    freeRow.appendChild(freeInput);
+    freeRow.appendChild(submitBtn);
+    modal.appendChild(freeRow);
+
+    // Esc to dismiss
+    const escHint = document.createElement('div');
+    escHint.style.cssText = 'font-size:11px;color:#666;margin-top:6px;';
+    escHint.textContent = 'Esc to cancel';
+    modal.appendChild(escHint);
+
+    const escHandler = (e) => {
+        if (e.key === 'Escape') { modal.remove(); document.removeEventListener('keydown', escHandler); onAnswer('cancelled'); }
+    };
+    document.addEventListener('keydown', escHandler);
+
+    // Make input area position:relative if not already
+    inputArea.style.position = 'relative';
+    inputArea.appendChild(modal);
+    if (freeInput) freeInput.focus();
 }
 
 // --- Busy state ---
