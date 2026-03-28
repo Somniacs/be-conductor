@@ -1852,6 +1852,22 @@ async def observe_external_session(ws: WebSocket, file_id: str):
 
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Agent view — serves the standalone agent-view.html for IDE embedding
+# ---------------------------------------------------------------------------
+
+@router.get("/agent/{session_id}")
+async def agent_view(session_id: str):
+    """Serve the standalone agent session view (for IDE JCEF/webview embedding)."""
+    from pathlib import Path as _Path
+    static_dir = _Path(__file__).resolve().parent.parent.parent / "static"
+    html_path = static_dir / "agent-view.html"
+    if not html_path.exists():
+        raise HTTPException(status_code=404, detail="agent-view.html not found")
+    from starlette.responses import HTMLResponse
+    return HTMLResponse(html_path.read_text(encoding="utf-8"))
+
+
 # WebSocket — supports typed=true mode for agent clients
 # ---------------------------------------------------------------------------
 

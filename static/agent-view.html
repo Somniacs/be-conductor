@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>be-conductor agent</title>
+<style>
+:root {
+    --bg: #0d0d1a;
+    --fg: #e0e0e0;
+    --bg-secondary: #161b22;
+    --border: #30363d;
+    --accent: #4a6cf7;
+    --success: #3fb950;
+    --error: #f85149;
+    --muted: #8b949e;
+    --code-bg: #0d1117;
+    --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    --font-mono: 'JetBrains Mono', 'Cascadia Mono', Menlo, Consolas, monospace;
+}
+*, *::before, *::after { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 14px; height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+#messages { flex: 1; overflow-y: auto; padding: 12px 16px; min-height: 0; }
+#drag-handle { height: 6px; cursor: row-resize; background: var(--bg-secondary); flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+#drag-handle div { width: 30px; height: 2px; background: var(--border); border-radius: 1px; }
+#input-area { flex-shrink: 0; background: var(--bg-secondary); border-top: 1px solid var(--border); padding: 8px 12px; }
+#input-box { display: flex; align-items: flex-end; gap: 0; background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px; padding: 4px; }
+#prompt { flex: 1; resize: none; background: transparent; color: var(--fg); border: none; outline: none; padding: 6px 8px; font-family: inherit; font-size: 13px; height: 38px; max-height: 200px; line-height: 1.4; }
+.attach-btn, .mode-btn, .send-btn { flex-shrink: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.attach-btn { background: none; border: none; color: var(--muted); padding: 6px; border-radius: 6px; }
+.attach-btn:hover { color: var(--fg); background: #1a1f2b; }
+.mode-btn { background: none; color: var(--muted); border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px; font-size: 11px; gap: 4px; white-space: nowrap; position: relative; }
+.mode-btn:hover { color: var(--fg); border-color: #666; }
+.send-btn { background: #2563eb; color: white; border: none; border-radius: 50%; width: 28px; height: 28px; }
+.send-btn:hover { background: #3b82f6; }
+.send-btn.busy { background: #b91c1c; }
+.send-btn.busy:hover { background: #dc2626; }
+.right-group { display: flex; align-items: center; gap: 4px; flex-shrink: 0; position: relative; }
+.mode-popup { display: none; position: absolute; bottom: 100%; right: 0; margin-bottom: 8px; background: #1c2028; border: 1px solid var(--border); border-radius: 10px; padding: 8px 0; min-width: 300px; z-index: 100; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+.mode-item { padding: 8px 14px; cursor: pointer; display: flex; align-items: flex-start; gap: 10px; }
+.mode-item:hover { background: #2a2f3a; }
+.mode-item.active { background: #1a2744; }
+.effort-toggle { display: flex; gap: 2px; background: var(--code-bg); border-radius: 8px; padding: 2px; border: 1px solid var(--border); }
+.effort-btn { background: transparent; color: var(--muted); border: none; border-radius: 6px; padding: 2px 8px; font-size: 11px; cursor: pointer; font-weight: 500; }
+.effort-btn.active { background: #2563eb; color: white; }
+.attachment-preview { display: none; gap: 8px; padding: 4px 12px 0; flex-shrink: 0; overflow-x: auto; flex-wrap: wrap; }
+.attachment-item { position: relative; display: flex; align-items: center; gap: 4px; padding: 4px 8px; background: #1a1a2e; border: 1px solid #333; border-radius: 6px; font-size: 11px; color: #a0a0d0; }
+.attachment-item img { max-height: 40px; max-width: 60px; border-radius: 3px; object-fit: cover; }
+.attachment-item .remove-btn { background: none; border: none; color: #888; cursor: pointer; font-size: 14px; padding: 0 2px; line-height: 1; }
+.attachment-item .remove-btn:hover { color: #ff6666; }
+.file-link { color: #58a6ff; text-decoration: none; }
+.file-link:hover { text-decoration: underline; }
+#messages::-webkit-scrollbar { width: 8px; }
+#messages::-webkit-scrollbar-track { background: transparent; }
+#messages::-webkit-scrollbar-thumb { background: #30363d; border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<div id="messages"></div>
+<div id="drag-handle"><div></div></div>
+<div id="input-area">
+    <div class="attachment-preview" id="attach-preview"></div>
+    <div id="input-box">
+        <button class="attach-btn" id="attach-btn" title="Attach file or image">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 2a.75.75 0 01.75.75v4.5h4.5a.75.75 0 010 1.5h-4.5v4.5a.75.75 0 01-1.5 0v-4.5h-4.5a.75.75 0 010-1.5h4.5v-4.5A.75.75 0 018 2z"/></svg>
+        </button>
+        <textarea id="prompt" rows="1" placeholder="Message Claude..."></textarea>
+        <div class="right-group" id="right-group">
+            <div class="mode-popup" id="mode-popup"></div>
+            <button class="mode-btn" id="mode-btn" title="Modes &amp; Effort"></button>
+            <button class="send-btn" id="send-btn" title="Send (Enter)"></button>
+        </div>
+    </div>
+</div>
+<input type="file" id="file-input" multiple style="display:none" accept="image/*,.txt,.csv,.json,.md,.py,.js,.ts,.html,.css,.xml,.yaml,.yml,.toml,.sh,.log">
+
+<script>
+// --- Configuration ---
+const params = new URLSearchParams(location.search);
+const SESSION_ID = params.get('session') || window.__SESSION_ID || '';
+const WS_BASE = params.get('ws') || window.__WS_BASE || location.origin.replace(/^http/, 'ws');
+
+// --- IDE Bridge ---
+const ideBridge = {
+    openFile(path, line) {},
+    pickFile() {},
+    showDiff(path, oldText, newText) {},
+    runInTerminal(cmd) {},
+    _onFileData: null,
+};
+
+if (typeof window.cefQuery === 'function') {
+    ideBridge.openFile = (p, l) => window.cefQuery({request: JSON.stringify({type:'openFile', path:p, line:l||0})});
+    ideBridge.pickFile = () => window.cefQuery({request: JSON.stringify({type:'pickFile'})});
+    ideBridge.runInTerminal = (cmd) => window.cefQuery({request: JSON.stringify({type:'runInTerminal', command:cmd})});
+} else if (typeof acquireVsCodeApi !== 'undefined') {
+    const vscode = acquireVsCodeApi();
+    ideBridge.openFile = (p, l) => vscode.postMessage({type:'openFile', path:p, line:l||0});
+    ideBridge.pickFile = () => vscode.postMessage({type:'pickFile'});
+    ideBridge.runInTerminal = (cmd) => vscode.postMessage({type:'runInTerminal', command:cmd});
+    window.addEventListener('message', e => {
+        if (e.data && e.data.type === 'fileData' && ideBridge._onFileData) {
+            ideBridge._onFileData(e.data);
+        }
+    });
+}
+
+// --- DOM refs ---
+const messagesEl = document.getElementById('messages');
+const promptEl = document.getElementById('prompt');
+const sendBtn = document.getElementById('send-btn');
+const attachBtn = document.getElementById('attach-btn');
+const fileInput = document.getElementById('file-input');
+const attachPreview = document.getElementById('attach-preview');
+const modeBtn = document.getElementById('mode-btn');
+const modePopup = document.getElementById('mode-popup');
+const dragHandle = document.getElementById('drag-handle');
+const inputArea = document.getElementById('input-area');
+
+// --- State ---
+let busy = false;
+let ws = null;
+let retryCount = 0;
+const MAX_RETRIES = 10;
+const pendingAttachments = [];
+
+const SEND_ICON = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12V4M4 7l4-4 4 4"/></svg>';
+const STOP_ICON = '<svg width="10" height="10" viewBox="0 0 10 10"><rect width="10" height="10" rx="1.5" fill="white"/></svg>';
+
+// --- Rendering helpers (copied from dashboard) ---
+function escHtml(s) {
+    if (typeof s !== 'string') return '';
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function _mdToHtml(text) {
+    if (!text) return '';
+    let h = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    h = h.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
+        const label = lang ? `<div style="font-size:11px;color:#666;padding:4px 10px;background:#161b22;border-radius:6px 6px 0 0;border-bottom:1px solid #30363d;">${lang}</div>` : '';
+        return `<div style="margin:8px 0;border-radius:6px;overflow:hidden;border:1px solid #30363d;">${label}<pre style="margin:0;padding:10px 12px;background:#0d1117;overflow-x:auto;font-size:13px;line-height:1.45;color:#e6edf3;"><code>${code}</code></pre></div>`;
+    });
+    h = h.replace(/`([^`]+)`/g, '<code style="background:#1a1f2b;padding:2px 5px;border-radius:3px;font-size:0.9em;color:#e6edf3;">$1</code>');
+    h = h.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    h = h.replace(/\*(.+?)\*/g, '<em>$1</em>');
+    h = h.replace(/^### (.+)$/gm, '<div style="font-size:15px;font-weight:600;color:#e6edf3;margin:12px 0 4px;">$1</div>');
+    h = h.replace(/^## (.+)$/gm, '<div style="font-size:16px;font-weight:600;color:#e6edf3;margin:14px 0 6px;">$1</div>');
+    h = h.replace(/^# (.+)$/gm, '<div style="font-size:18px;font-weight:600;color:#e6edf3;margin:16px 0 8px;">$1</div>');
+    h = h.replace(/^- (.+)$/gm, '<div style="padding-left:16px;">&#8226; $1</div>');
+    h = h.replace(/^(\d+)\. (.+)$/gm, '<div style="padding-left:16px;">$1. $2</div>');
+    h = h.replace(/\n\n/g, '<div style="height:8px;"></div>');
+    h = h.replace(/\n/g, '<br>');
+    return h;
+}
+
+function _toolIcon(name) {
+    const s = 'width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"';
+    const icons = {
+        'Bash': `<svg ${s}><rect x="2" y="2" width="12" height="12" rx="2"/><path d="M5 6l2 2-2 2M9 10h2"/></svg>`,
+        'Read': `<svg ${s}><path d="M3 2h7l3 3v9H3z"/><path d="M10 2v3h3"/></svg>`,
+        'Write': `<svg ${s}><path d="M3 2h7l3 3v9H3z"/><path d="M10 2v3h3"/><path d="M6 9h4"/></svg>`,
+        'Edit': `<svg ${s}><path d="M11 2l3 3-9 9H2v-3z"/></svg>`,
+        'Glob': `<svg ${s}><circle cx="7" cy="7" r="4"/><path d="M10 10l4 4"/></svg>`,
+        'Grep': `<svg ${s}><circle cx="7" cy="7" r="4"/><path d="M10 10l4 4"/></svg>`,
+        'WebFetch': `<svg ${s}><circle cx="8" cy="8" r="6"/><path d="M2 8h12M8 2c-2 2-2 10 0 12M8 2c2 2 2 10 0 12"/></svg>`,
+        'WebSearch': `<svg ${s}><circle cx="8" cy="8" r="6"/><path d="M2 8h12M8 2c-2 2-2 10 0 12M8 2c2 2 2 10 0 12"/></svg>`,
+        'Agent': `<svg ${s}><circle cx="8" cy="5" r="3"/><path d="M3 14c0-3 2-5 5-5s5 2 5 5"/></svg>`,
+        'TodoWrite': `<svg ${s}><rect x="3" y="2" width="10" height="12" rx="1"/><path d="M6 6l1.5 1.5L10 5M6 10h4"/></svg>`,
+    };
+    return icons[name] || `<svg ${s}><circle cx="8" cy="8" r="5"/><path d="M8 5v3l2 1"/></svg>`;
+}
+
+function _toolInputSummary(name, input) {
+    if (!input) return '';
+    if (name === 'Bash' && input.command) return input.command;
+    if (name === 'Read' && input.file_path) return input.file_path;
+    if (name === 'Write' && input.file_path) return input.file_path;
+    if (name === 'Edit' && input.file_path) return input.file_path;
+    if (name === 'Glob' && input.pattern) return input.pattern;
+    if (name === 'Grep' && input.pattern) return input.pattern;
+    if (name === 'WebFetch' && input.url) return input.url;
+    if (name === 'WebSearch' && input.query) return input.query;
+    try { return JSON.stringify(input).slice(0, 120); } catch { return ''; }
+}
+
+function makeFileLinksClickable(html) {
+    return html.replace(/((?:\/[\w.-]+)+(?:\.\w+)?(?::(\d+))?)/g, (match, path, line) => {
+        return `<a class="file-link" href="#" onclick="ideBridge.openFile('${path.split(':')[0]}', ${line || 0}); return false;">${match}</a>`;
+    });
+}
+
+// --- Event renderer (pixel-identical to dashboard) ---
+function renderEvent(event) {
+    const ph = messagesEl.querySelector('[data-placeholder]');
+    if (ph) ph.remove();
+    const etype = event.type;
+
+    if (etype === 'user_message') {
+        const div = document.createElement('div');
+        div.style.cssText = 'margin:16px 0;';
+        div.innerHTML = `<div style="font-size:11px;color:#8b949e;margin-bottom:4px;font-weight:500;">You</div>
+            <div style="padding:10px 14px;background:#161b30;border-radius:8px;border-left:3px solid #4a6cf7;white-space:pre-wrap;line-height:1.5;">${escHtml(event.content || '')}</div>`;
+        messagesEl.appendChild(div);
+
+    } else if (etype === 'assistant_message') {
+        const wrapper = document.createElement('div');
+        wrapper.style.cssText = 'margin:16px 0;';
+        const label = document.createElement('div');
+        label.style.cssText = 'font-size:11px;color:#8b949e;margin-bottom:6px;font-weight:500;';
+        label.textContent = 'Claude';
+        wrapper.appendChild(label);
+
+        for (const block of (event.content || [])) {
+            if (block.type === 'text') {
+                const div = document.createElement('div');
+                div.style.cssText = 'line-height:1.6;color:#e0e0e0;';
+                div.innerHTML = _mdToHtml(block.text);
+                wrapper.appendChild(div);
+
+            } else if (block.type === 'thinking') {
+                const details = document.createElement('details');
+                details.style.cssText = 'margin:8px 0;border:1px solid #21262d;border-radius:6px;overflow:hidden;';
+                const summary = document.createElement('summary');
+                summary.style.cssText = 'padding:6px 10px;background:#161b22;color:#8b949e;font-size:12px;cursor:pointer;user-select:none;';
+                summary.textContent = 'Thinking...';
+                const content = document.createElement('div');
+                content.style.cssText = 'padding:8px 10px;font-size:12px;color:#7d8590;white-space:pre-wrap;max-height:300px;overflow-y:auto;';
+                content.textContent = block.thinking || '';
+                details.appendChild(summary);
+                details.appendChild(content);
+                wrapper.appendChild(details);
+
+            } else if (block.type === 'tool_use') {
+                const details = document.createElement('details');
+                details.style.cssText = 'margin:8px 0;border:1px solid #30363d;border-radius:6px;overflow:hidden;';
+                details.open = true;
+                const summary = document.createElement('summary');
+                summary.style.cssText = 'padding:8px 12px;background:#161b22;color:#e6edf3;font-size:13px;cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px;';
+                const toolName = block.tool || 'tool';
+                const inputSummary = _toolInputSummary(toolName, block.input);
+                summary.innerHTML = `<span>${_toolIcon(toolName)}</span><strong style="color:#f0a020;">${escHtml(toolName)}</strong><span style="color:#8b949e;font-weight:400;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${makeFileLinksClickable(escHtml(inputSummary))}</span>`;
+                const content = document.createElement('div');
+                content.style.cssText = 'padding:8px 12px;background:#0d1117;';
+                const pre = document.createElement('pre');
+                pre.style.cssText = 'margin:0;font-size:12px;color:#8b949e;overflow-x:auto;max-height:200px;white-space:pre-wrap;line-height:1.4;';
+                try { pre.textContent = JSON.stringify(block.input, null, 2); } catch { pre.textContent = String(block.input); }
+                content.appendChild(pre);
+                details.appendChild(summary);
+                details.appendChild(content);
+                wrapper.appendChild(details);
+
+            } else if (block.type === 'tool_result') {
+                const div = document.createElement('div');
+                const isErr = block.is_error;
+                div.style.cssText = `margin:4px 0 8px 0;padding:8px 12px;background:#0d1117;border-radius:0 0 6px 6px;border-top:1px solid ${isErr ? '#f8514933' : '#30363d'};font-size:12px;color:${isErr ? '#f85149' : '#8b949e'};max-height:300px;overflow-y:auto;white-space:pre-wrap;line-height:1.4;`;
+                const raw = String(block.content || '');
+                const truncated = raw.length > 3000 ? raw.slice(0, 3000) + '\n...(truncated)' : raw;
+                div.innerHTML = makeFileLinksClickable(escHtml(truncated));
+                wrapper.appendChild(div);
+            }
+        }
+        messagesEl.appendChild(wrapper);
+
+    } else if (etype === 'result') {
+        setBusy(false);
+        const div = document.createElement('div');
+        div.style.cssText = 'margin:16px 0;padding:10px 14px;background:#0d1a0d;border:1px solid #1a3a1a;border-radius:8px;font-size:13px;color:#3fb950;';
+        let html = '<strong>Done</strong>';
+        if (event.result) html += ` &mdash; ${escHtml(event.result).slice(0, 200)}`;
+        const meta = [];
+        if (event.num_turns) meta.push(`${event.num_turns} turns`);
+        if (event.duration_ms) meta.push(`${(event.duration_ms / 1000).toFixed(1)}s`);
+        if (event.total_cost_usd) meta.push(`$${Number(event.total_cost_usd).toFixed(4)}`);
+        if (meta.length) html += `<div style="font-size:11px;color:#8b949e;margin-top:4px;">${meta.join(' &middot; ')}</div>`;
+        div.innerHTML = html;
+        messagesEl.appendChild(div);
+
+    } else if (etype === 'error') {
+        setBusy(false);
+        const div = document.createElement('div');
+        div.style.cssText = 'margin:12px 0;padding:10px 14px;background:#1a0d0d;border:1px solid #3a1a1a;border-radius:8px;color:#f85149;font-size:13px;';
+        div.innerHTML = `<strong>Error</strong> &mdash; ${escHtml(event.error || 'Unknown error')}`;
+        messagesEl.appendChild(div);
+
+    } else if (etype === 'session_end') {
+        setBusy(false);
+        const div = document.createElement('div');
+        div.style.cssText = 'margin:16px 0;padding:10px;color:#8b949e;font-size:12px;text-align:center;border-top:1px solid #21262d;';
+        div.textContent = `Session ended (exit ${event.exit_code ?? 0})`;
+        messagesEl.appendChild(div);
+    }
+
+    // Auto-scroll to bottom (unless user scrolled up)
+    if (messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 100) {
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+}
+
+// --- Busy state ---
+function setBusy(b) {
+    busy = b;
+    sendBtn.innerHTML = b ? STOP_ICON : SEND_ICON;
+    sendBtn.className = 'send-btn' + (b ? ' busy' : '');
+    sendBtn.title = b ? 'Stop agent' : 'Send (Enter)';
+}
+setBusy(false);
+
+// --- WebSocket ---
+function connect() {
+    if (!SESSION_ID) {
+        const ph = document.createElement('div');
+        ph.style.cssText = 'padding:20px;color:#8b949e;text-align:center;';
+        ph.textContent = 'No session ID provided.';
+        messagesEl.appendChild(ph);
+        return;
+    }
+
+    const url = `${WS_BASE}/sessions/${SESSION_ID}/stream?source=agent-view`;
+    ws = new WebSocket(url);
+
+    ws.onopen = () => {
+        retryCount = 0;
+        const ph = messagesEl.querySelector('[data-placeholder]');
+        if (ph) ph.textContent = 'Connected. Waiting for response...';
+        promptEl.focus();
+    };
+
+    ws.onmessage = (e) => {
+        if (typeof e.data !== 'string') return;
+        try {
+            const msg = JSON.parse(e.data);
+            if (msg.type === 'history') {
+                for (const m of (msg.messages || [])) renderEvent(m);
+            } else if (msg.type === 'ping') {
+                return;
+            } else {
+                renderEvent(msg);
+            }
+        } catch { /* ignore non-JSON */ }
+    };
+
+    ws.onclose = () => {
+        ws = null;
+        if (retryCount < MAX_RETRIES) {
+            retryCount++;
+            setTimeout(connect, 3000);
+        }
+    };
+
+    ws.onerror = () => {};
+}
+
+// Show connecting placeholder
+const placeholder = document.createElement('div');
+placeholder.setAttribute('data-placeholder', '1');
+placeholder.style.cssText = 'padding:20px;color:#8b949e;text-align:center;';
+placeholder.textContent = 'Connecting to agent...';
+messagesEl.appendChild(placeholder);
+connect();
+
+// --- Send prompt ---
+function sendPrompt() {
+    const text = promptEl.value.trim();
+    if (!text && !pendingAttachments.length) return;
+    renderEvent({type: 'user_message', content: text || '(attachment)'});
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        const msg = {type: 'prompt', text};
+        if (pendingAttachments.length) {
+            msg.attachments = pendingAttachments.map(a => ({name: a.name, type: a.type, data: a.data}));
+        }
+        ws.send(JSON.stringify(msg));
+        setBusy(true);
+    } else {
+        renderEvent({type: 'error', error: 'Not connected to agent'});
+    }
+    promptEl.value = '';
+    promptEl.style.height = '38px';
+    pendingAttachments.length = 0;
+    refreshAttachmentPreview();
+    promptEl.focus();
+}
+
+// --- Input handlers ---
+promptEl.addEventListener('input', () => {
+    promptEl.style.height = '38px';
+    promptEl.style.height = Math.min(200, promptEl.scrollHeight) + 'px';
+});
+
+promptEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        if (busy) return;
+        sendPrompt();
+    }
+});
+
+sendBtn.addEventListener('click', () => {
+    if (busy) {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({type: 'interrupt'}));
+        }
+    } else {
+        sendPrompt();
+    }
+});
+
+// --- Attachments ---
+function readAttachmentFile(file) {
+    const reader = new FileReader();
+    reader.onload = () => {
+        const base64 = reader.result.split(',')[1];
+        pendingAttachments.push({
+            name: file.name,
+            type: file.type || 'application/octet-stream',
+            data: base64,
+            preview: file.type && file.type.startsWith('image/') ? reader.result : null,
+        });
+        refreshAttachmentPreview();
+    };
+    reader.readAsDataURL(file);
+}
+
+function refreshAttachmentPreview() {
+    attachPreview.innerHTML = '';
+    if (!pendingAttachments.length) { attachPreview.style.display = 'none'; return; }
+    attachPreview.style.display = 'flex';
+    pendingAttachments.forEach((att, idx) => {
+        const item = document.createElement('div');
+        item.className = 'attachment-item';
+        if (att.preview) {
+            const img = document.createElement('img');
+            img.src = att.preview;
+            img.alt = att.name;
+            item.appendChild(img);
+        }
+        const nameSpan = document.createElement('span');
+        nameSpan.textContent = att.name;
+        item.appendChild(nameSpan);
+        const removeBtn = document.createElement('button');
+        removeBtn.className = 'remove-btn';
+        removeBtn.innerHTML = '&times;';
+        removeBtn.addEventListener('click', () => {
+            pendingAttachments.splice(idx, 1);
+            refreshAttachmentPreview();
+        });
+        item.appendChild(removeBtn);
+        attachPreview.appendChild(item);
+    });
+}
+
+attachBtn.addEventListener('click', () => {
+    if (ideBridge.pickFile !== ideBridge.__noop) {
+        ideBridge.pickFile();
+    } else {
+        fileInput.click();
+    }
+});
+// Mark the default no-ops so we can detect IDE availability
+ideBridge.__noop = ideBridge.pickFile;
+
+fileInput.addEventListener('change', () => {
+    if (!fileInput.files) return;
+    for (const file of fileInput.files) readAttachmentFile(file);
+    fileInput.value = '';
+});
+
+// IDE bridge file callback
+ideBridge._onFileData = (data) => {
+    if (data.base64 && data.name) {
+        pendingAttachments.push({
+            name: data.name,
+            type: data.type || 'application/octet-stream',
+            data: data.base64,
+            preview: data.type && data.type.startsWith('image/') ? `data:${data.type};base64,${data.base64}` : null,
+        });
+        refreshAttachmentPreview();
+    }
+};
+
+// --- Mode & Effort popup ---
+const MODES = [
+    {value: 'default', label: 'Ask before edits', desc: 'Claude will ask for approval before making each edit',
+     icon: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2a5 5 0 00-5 5c0 1.5.7 2.8 1.7 3.7L5 14h6l.3-3.3A5 5 0 008 2z"/><path d="M6 14v1h4v-1"/></svg>'},
+    {value: 'acceptEdits', label: 'Edit automatically', desc: 'Claude will edit your selected text or the whole file',
+     icon: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13h8M5.5 3.5l5 5M4 10l-1 3 3-1 7-7-2-2z"/></svg>'},
+    {value: 'plan', label: 'Plan mode', desc: 'Claude will explore the code and present a plan before editing',
+     icon: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="1.5" width="10" height="13" rx="1.5"/><path d="M6 5h4M6 8h4M6 11h2"/></svg>'},
+];
+const EFFORTS = ['low', 'medium', 'high'];
+let modeIdx = 0;
+let effortIdx = 2;
+
+// Build popup
+const popupHeader = document.createElement('div');
+popupHeader.style.cssText = 'padding:8px 14px;font-size:12px;color:#8b949e;font-weight:600;';
+popupHeader.textContent = 'Modes';
+modePopup.appendChild(popupHeader);
+
+MODES.forEach((m, idx) => {
+    const item = document.createElement('div');
+    item.className = 'mode-item' + (idx === modeIdx ? ' active' : '');
+    item.innerHTML = `
+        <div style="color:#8b949e;flex-shrink:0;margin-top:2px;">${m.icon}</div>
+        <div style="flex:1;">
+            <div style="font-size:13px;color:#e0e0e0;font-weight:500;">${m.label}</div>
+            <div style="font-size:11px;color:#8b949e;margin-top:2px;">${m.desc}</div>
+        </div>
+        <div class="mode-check" style="color:#4a6cf7;flex-shrink:0;margin-top:2px;display:${idx === modeIdx ? 'block' : 'none'};">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 8l3.5 3.5L13 5"/></svg>
+        </div>`;
+    item.addEventListener('click', () => {
+        modeIdx = idx;
+        updateModeUI();
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({type: 'set_mode', mode: m.value}));
+        }
+        modePopup.style.display = 'none';
+    });
+    modePopup.appendChild(item);
+});
+
+const sep = document.createElement('div');
+sep.style.cssText = 'height:1px;background:#30363d;margin:6px 0;';
+modePopup.appendChild(sep);
+
+const effortRow = document.createElement('div');
+effortRow.style.cssText = 'padding:8px 14px;display:flex;align-items:center;gap:10px;';
+effortRow.innerHTML = `
+    <div style="color:#8b949e;flex-shrink:0;">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 10h2l2-4 3 8 2-6h3"/></svg>
+    </div>
+    <div style="flex:1;font-size:13px;color:#e0e0e0;">Effort</div>`;
+const effortToggle = document.createElement('div');
+effortToggle.className = 'effort-toggle';
+EFFORTS.forEach((e, idx) => {
+    const btn = document.createElement('button');
+    btn.className = 'effort-btn' + (idx === effortIdx ? ' active' : '');
+    btn.textContent = e.charAt(0).toUpperCase();
+    btn.title = e.charAt(0).toUpperCase() + e.slice(1) + ' effort';
+    btn.addEventListener('click', () => {
+        effortIdx = idx;
+        updateEffortUI();
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({type: 'set_effort', effort: EFFORTS[idx]}));
+        }
+    });
+    effortToggle.appendChild(btn);
+});
+effortRow.appendChild(effortToggle);
+modePopup.appendChild(effortRow);
+
+function updateModeUI() {
+    const items = modePopup.querySelectorAll('.mode-item');
+    items.forEach((item, i) => {
+        item.className = 'mode-item' + (i === modeIdx ? ' active' : '');
+        const check = item.querySelector('.mode-check');
+        if (check) check.style.display = i === modeIdx ? 'block' : 'none';
+    });
+    const m = MODES[modeIdx];
+    modeBtn.innerHTML = m.icon.replace('width="16"', 'width="14"').replace('height="16"', 'height="14"') + ' <span>' + m.label.split(' ').pop() + '</span>';
+}
+
+function updateEffortUI() {
+    const btns = effortToggle.children;
+    for (let i = 0; i < btns.length; i++) {
+        btns[i].className = 'effort-btn' + (i === effortIdx ? ' active' : '');
+    }
+}
+
+updateModeUI();
+
+modeBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    modePopup.style.display = modePopup.style.display === 'none' ? 'block' : 'none';
+});
+document.addEventListener('click', () => { modePopup.style.display = 'none'; });
+modePopup.addEventListener('click', (e) => e.stopPropagation());
+
+// --- Drag handle (resize input area) ---
+dragHandle.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startH = inputArea.offsetHeight;
+    const onMove = (ev) => {
+        const h = Math.max(60, startH + (startY - ev.clientY));
+        inputArea.style.height = h + 'px';
+        promptEl.style.maxHeight = (h - 50) + 'px';
+        promptEl.style.height = (h - 50) + 'px';
+    };
+    const onUp = () => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+});
+</script>
+</body>
+</html>

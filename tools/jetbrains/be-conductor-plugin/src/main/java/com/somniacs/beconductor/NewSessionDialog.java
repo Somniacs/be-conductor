@@ -145,7 +145,7 @@ public class NewSessionDialog extends DialogWrapper {
         c.weightx = 0;
         panel.add(new JBLabel("Type:"), c);
 
-        sessionTypeCombo = new JComboBox<>(new String[]{"Terminal (PTY)", "Agent (SDK)"});
+        sessionTypeCombo = new JComboBox<>(new String[]{"Agent (SDK)", "Terminal (PTY)"});
         sessionTypeCombo.setSelectedIndex(0);
         c.gridx = 1;
         c.gridwidth = 2;
@@ -300,7 +300,7 @@ public class NewSessionDialog extends DialogWrapper {
 
     /** @return "pty" or "agent" */
     public String getSessionType() {
-        return sessionTypeCombo.getSelectedIndex() == 1 ? "agent" : "pty";
+        return sessionTypeCombo.getSelectedIndex() == 0 ? "agent" : "pty";
     }
 
     /** Simple listener that fires a callback on any document change. */

@@ -322,7 +322,7 @@ public class SessionListPanel extends JPanel {
         // Agent sessions can always "attach" (opens browser), PTY sessions check terminal tracking
         attachBtn.setEnabled(running && (isAgent || !attachedSessions.contains(s.name)));
         attachBtn.setText(isAgent ? "Open" : "Attach");
-        attachBtn.setToolTipText(isAgent ? "Open agent session in dashboard" : "Open terminal attached to this session");
+        attachBtn.setToolTipText(isAgent ? "Open agent session in editor tab" : "Open terminal attached to this session");
         resumeBtn.setEnabled(resumable);
         stopBtn.setEnabled(alive);
         killBtn.setEnabled(alive);
@@ -389,7 +389,7 @@ public class SessionListPanel extends JPanel {
         if (alive) {
             if ("running".equals(session.status)) {
                 if (session.isAgent()) {
-                    JMenuItem openItem = new JMenuItem("Open in Dashboard");
+                    JMenuItem openItem = new JMenuItem("Open Agent");
                     openItem.addActionListener(e -> openAgentInBrowser(session.id));
                     menu.add(openItem);
                 } else {
@@ -523,27 +523,49 @@ public class SessionListPanel extends JPanel {
     }
 
     /**
-     * Open (or focus) an AgentSessionPanel tab in the be-conductor tool window.
+     * Open (or focus) an agent session as a dockable editor tab via HTMLEditorProvider,
+     * falling back to a tool window tab with JCEF if the API is unavailable.
      */
     private static void openAgentPanel(com.intellij.openapi.project.Project proj, String sessionId) {
+        String baseUrl = "http://127.0.0.1:7777";
+        String wsBase = "ws://127.0.0.1:7777";
+        String url = baseUrl + "/agent/" + java.net.URLEncoder.encode(sessionId, java.nio.charset.StandardCharsets.UTF_8)
+                + "?session=" + java.net.URLEncoder.encode(sessionId, java.nio.charset.StandardCharsets.UTF_8)
+                + "&ws=" + java.net.URLEncoder.encode(wsBase, java.nio.charset.StandardCharsets.UTF_8);
+
+        // Try HTMLEditorProvider first — opens as a dockable editor tab
+        try {
+            com.intellij.openapi.fileEditor.impl.HTMLEditorProvider.openEditor(
+                    proj,
+                    sessionId + " (Agent)",
+                    url,
+                    "<html><body style='background:#0d0d1a;color:#e0e0e0;padding:40px;font-family:sans-serif;'>"
+                    + "<p>Loading agent session...</p></body></html>"
+            );
+            return;
+        } catch (Exception | NoClassDefFoundError e) {
+            LOG.info("be-conductor: HTMLEditorProvider not available, falling back to tool window tab");
+        }
+
+        // Fallback: open in tool window tab with JCEF
         com.intellij.openapi.wm.ToolWindow tw = com.intellij.openapi.wm.ToolWindowManager
                 .getInstance(proj).getToolWindow("be-conductor");
         if (tw == null) return;
 
         // Check if a tab for this session already exists
         for (com.intellij.ui.content.Content c : tw.getContentManager().getContents()) {
-            if (c.getDisplayName().equals(sessionId + " (SDK)")) {
+            if (c.getDisplayName().equals(sessionId + " (Agent)")) {
                 tw.getContentManager().setSelectedContent(c);
                 tw.show();
                 return;
             }
         }
 
-        // Create a new AgentSessionPanel tab
+        // Create a new AgentSessionPanel tab (JCEF-based)
         com.somniacs.beconductor.agent.AgentSessionPanel panel =
                 new com.somniacs.beconductor.agent.AgentSessionPanel(proj, sessionId);
         com.intellij.ui.content.Content content = tw.getContentManager()
-                .getFactory().createContent(panel, sessionId + " (SDK)", true);
+                .getFactory().createContent(panel, sessionId + " (Agent)", true);
         content.setCloseable(true);
         content.setDisposer(panel);
         tw.getContentManager().addContent(content);
