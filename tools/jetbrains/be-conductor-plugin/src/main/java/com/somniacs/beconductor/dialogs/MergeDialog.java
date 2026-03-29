@@ -143,7 +143,7 @@ public class MergeDialog extends DialogWrapper {
             } catch (Exception ex) {
                 SwingUtilities.invokeLater(() ->
                         Notifications.Bus.notify(new Notification(
-                                "be-conductor", "Diff Failed", ex.getMessage(),
+                                "be-conductor", "Diff Failed", ex.getMessage() != null ? ex.getMessage() : ex.toString(),
                                 NotificationType.ERROR
                         ))
                 );

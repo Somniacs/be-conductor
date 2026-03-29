@@ -546,6 +546,9 @@ class Session:
             except Exception:
                 pass
 
+        # Record whether this was a graceful stop before changing status.
+        self._was_graceful = self.status == "stopping"
+
         # Now mark as exited — resume_id is already set (if found).
         self.status = "exited"
 

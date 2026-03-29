@@ -353,7 +353,7 @@ public class WorktreeListPanel extends JPanel {
                         } catch (Exception ex) {
                             SwingUtilities.invokeLater(() ->
                                     Notifications.Bus.notify(new Notification(
-                                            "be-conductor", "GC Failed", ex.getMessage(),
+                                            "be-conductor", "GC Failed", ex.getMessage() != null ? ex.getMessage() : ex.toString(),
                                             NotificationType.ERROR
                                     ))
                             );

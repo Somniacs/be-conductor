@@ -73,7 +73,7 @@ public class RunSessionAction extends AnAction {
                 LOG.warn("be-conductor: failed to create agent session", ex);
                 javax.swing.SwingUtilities.invokeLater(() ->
                         Notifications.Bus.notify(new Notification(
-                                "be-conductor", "Agent Session Failed", ex.getMessage(),
+                                "be-conductor", "Agent Session Failed", ex.getMessage() != null ? ex.getMessage() : ex.toString(),
                                 NotificationType.ERROR
                         ))
                 );

@@ -204,6 +204,7 @@ else:
             super().__init__(command, cwd, env=env)
             self._pty: WinPTY | None = None
             self._pid: int | None = None
+            self._proc_handle: int | None = None  # Win32 HANDLE for exit detection
 
         def spawn(self, rows: int = 24, cols: int = 80) -> None:
             self._pty = WinPTY(cols, rows)
@@ -224,10 +225,19 @@ else:
             cwd = self.cwd or os.getcwd()
             env_str = "\0".join(f"{k}={v}" for k, v in env.items()) + "\0"
             self._pty.spawn(appname, cmdline=cmdline, cwd=cwd, env=env_str)
-
-            # pywinpty doesn't directly expose PID in all versions;
-            # we store it if available
             self._pid = getattr(self._pty, "pid", None)
+            # Open a Win32 handle to the process for reliable exit detection.
+            # pywinpty's isalive()/get_exitstatus() don't work reliably —
+            # the ConPTY handle stays alive after the child exits.
+            if self._pid:
+                try:
+                    import ctypes
+                    # SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION
+                    self._proc_handle = ctypes.windll.kernel32.OpenProcess(
+                        0x00100000 | 0x1000, False, self._pid
+                    ) or None
+                except Exception:
+                    pass
 
         def read(self) -> bytes:
             if self._pty and not self.closed:
@@ -261,13 +271,39 @@ else:
 
         def poll(self) -> int | None:
             if self._pty:
-                return None if self._pty.isalive() else 0
+                if not self._pty.isalive():
+                    try:
+                        return self._pty.get_exitstatus()
+                    except Exception:
+                        return 0
+                # pywinpty's isalive() can return True even after the child
+                # exits (ConPTY handle stays open).  Use the Win32 process
+                # handle with WaitForSingleObject for reliable detection.
+                if self._proc_handle:
+                    try:
+                        import ctypes
+                        kernel32 = ctypes.windll.kernel32
+                        result = kernel32.WaitForSingleObject(self._proc_handle, 0)
+                        if result == 0:  # WAIT_OBJECT_0 — process exited
+                            code = ctypes.c_ulong()
+                            kernel32.GetExitCodeProcess(self._proc_handle, ctypes.byref(code))
+                            return code.value if code.value != 259 else 0
+                    except Exception:
+                        pass
+                return None
             return None
 
         def close(self) -> None:
             if not self.closed:
                 self.closed = True
                 self.kill()
+                if self._proc_handle:
+                    try:
+                        import ctypes
+                        ctypes.windll.kernel32.CloseHandle(self._proc_handle)
+                    except Exception:
+                        pass
+                    self._proc_handle = None
                 self._pty = None
 
         @property

@@ -174,7 +174,7 @@ class SessionRegistry:
         # Keep session as resumable when it has a resume token, a worktree,
         # was explicitly stopped via graceful stop, or the server is
         # shutting down (so no session is silently lost on restart).
-        was_graceful = session.status == "stopping"
+        was_graceful = getattr(session, '_was_graceful', False) or session.status == "stopping"
         if session.resume_id or session.worktree or was_graceful or self._shutting_down:
             meta = session.to_dict()
             meta["status"] = "exited"

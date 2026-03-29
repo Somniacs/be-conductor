@@ -243,6 +243,8 @@ class AgentSession:
                 while self.status == "running":
                     try:
                         item = await self._input_queue.get()
+                        if isinstance(item, dict) and item.get("_shutdown"):
+                            break
                         if isinstance(item, dict):
                             text = item.get("text", "")
                             attachments = item.get("attachments")
@@ -618,7 +620,14 @@ class AgentSession:
         self.cols = cols
 
     def interrupt(self, timeout: float = 30.0) -> None:
-        """Interrupt the current query without killing the session."""
+        """Interrupt the current query, or stop the session if graceful-stopping."""
+        if self.status == "stopping":
+            # Graceful stop: interrupt any running query, then signal the
+            # agent loop to exit by changing status and unblocking the queue.
+            if self._client:
+                asyncio.ensure_future(self._do_interrupt())
+            asyncio.ensure_future(self._graceful_shutdown())
+            return
         if self._client:
             asyncio.ensure_future(self._do_interrupt())
         # Don't cancel _run_task — the SDK's interrupt will stop the
@@ -630,6 +639,20 @@ class AgentSession:
                 await self._client.interrupt()
             except Exception:
                 pass
+
+    async def _graceful_shutdown(self) -> None:
+        """Signal the agent loop to exit for graceful stop."""
+        self._was_graceful = True
+        # Unblock _input_queue.get() so the loop can check status and exit
+        try:
+            self._input_queue.put_nowait({"text": "", "_shutdown": True})
+        except Exception:
+            pass
+        # Give the loop a moment to exit cleanly, then force-cancel.
+        # The finally block in _agent_loop handles status and _on_exit.
+        await asyncio.sleep(3)
+        if self._run_task and not self._run_task.done():
+            self._run_task.cancel()
 
     async def kill(self) -> None:
         self.status = "killed"

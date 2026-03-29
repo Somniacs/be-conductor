@@ -3521,7 +3521,7 @@
             const shortPath = data.current.replace(/^\/home\/[^/]+/, '~').replace(/^C:\\Users\\[^\\]+/, '~');
             let html = `
                 <div class="dir-current">
-                    ${data.parent ? `<button onclick="browseTo('${data.parent.replace(/'/g, "\\'")}', '${serverKey}')" title="Go up">&#8592;</button>` : ''}
+                    ${data.parent ? `<button onclick="browseTo('${data.parent.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}', '${serverKey}')" title="Go up">&#8592;</button>` : ''}
                     <span>${shortPath}</span>
                 </div>
             `;
@@ -3529,7 +3529,7 @@
                 html += '<div class="dir-empty">No subdirectories</div>';
             } else {
                 html += data.directories.map(d =>
-                    `<div class="dir-entry" onclick="browseTo('${d.path.replace(/'/g, "\\'")}', '${serverKey}')">
+                    `<div class="dir-entry" onclick="browseTo('${d.path.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}', '${serverKey}')">
                         <span class="dir-icon">&#128193;</span>
                         <span>${d.name}</span>
                     </div>`
