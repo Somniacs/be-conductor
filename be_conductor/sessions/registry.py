@@ -187,7 +187,8 @@ class SessionRegistry:
         # was explicitly stopped via graceful stop, or the server is
         # shutting down (so no session is silently lost on restart).
         was_graceful = getattr(session, '_was_graceful', False) or session.status == "stopping"
-        if session.resume_id or session.worktree or was_graceful or self._shutting_down:
+        is_agent = getattr(session, 'session_type', 'pty') == 'agent'
+        if session.resume_id or session.worktree or was_graceful or self._shutting_down or is_agent:
             meta = session.to_dict()
             meta["status"] = "exited"
             self.resumable[session_id] = meta
