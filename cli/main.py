@@ -1476,7 +1476,7 @@ def qr():
     svg_path = os.path.join(tempfile.gettempdir(), "be-conductor-qr.svg")
     img.save(svg_path)
 
-    svg_data = Path(svg_path).read_text()
+    svg_data = Path(svg_path).read_text(encoding="utf-8")
 
     html_path = os.path.join(tempfile.gettempdir(), "be-conductor-qr.html")
     Path(html_path).write_text(f"""<!DOCTYPE html>
@@ -1497,7 +1497,7 @@ h1 {{ font-size:28px; color:#8080ff; margin:0 0 6px; font-weight:600; }}
 <div class="qr">{svg_data}</div>
 <p class="url"><a href="{url}" style="color:#a0a0d0">{url}</a></p>
 {"" if url == local_url else f'<p class="url"><a href="{local_url}" style="color:#a0a0d0">{local_url}</a></p>'}
-</body></html>""")
+</body></html>""", encoding="utf-8")
 
     file_url = f"file://{html_path}"
     click.echo(f"  QR page: {file_url}")

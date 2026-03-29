@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "be-conductor"
-version = "0.3.34"
+version = "0.3.35"
 description = "Local orchestration layer for interactive terminal processes"
 requires-python = ">=3.10"
 dependencies = [
@@ -24,6 +24,7 @@ agent = ["claude-agent-sdk>=0.1.0"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["be_conductor", "cli"]
+artifacts = ["be_conductor/static/**"]
 
 [project.scripts]
 be-conductor = "cli.main:cli"

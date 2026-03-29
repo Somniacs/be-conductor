@@ -2,6 +2,13 @@
 
 All notable changes to be-conductor are documented here.
 
+## v0.3.35
+
+### Fixed
+
+- **Windows: dashboard 404** — the static files (dashboard HTML, fonts, service worker) were not found when the server was started from outside the repo directory. Moved `static/` into the `be_conductor` package so it ships correctly with pip/pipx installs
+- **Windows: QR command crash** — `be-conductor qr` failed with a `UnicodeEncodeError` because `Path.write_text()` defaulted to the system's cp1252 encoding, which can't encode the ♭ character. Now explicitly uses UTF-8
+
 ## v0.3.34
 
 ### New

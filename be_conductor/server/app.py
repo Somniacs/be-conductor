@@ -159,7 +159,7 @@ def create_app() -> FastAPI:
     app.include_router(router)
 
     # Serve dashboard
-    static_dir = Path(__file__).parent.parent.parent / "static"
+    static_dir = Path(__file__).resolve().parent.parent / "static"
     if static_dir.exists():
 
         @app.get("/")

@@ -1860,7 +1860,7 @@ async def observe_external_session(ws: WebSocket, file_id: str):
 async def agent_view(session_id: str):
     """Serve the standalone agent session view (for IDE JCEF/webview embedding)."""
     from pathlib import Path as _Path
-    static_dir = _Path(__file__).resolve().parent.parent.parent / "static"
+    static_dir = _Path(__file__).resolve().parent.parent / "static"
     html_path = static_dir / "agent-view.html"
     if not html_path.exists():
         raise HTTPException(status_code=404, detail="agent-view.html not found")
