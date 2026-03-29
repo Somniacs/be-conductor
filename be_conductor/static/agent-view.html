@@ -385,8 +385,12 @@ function _mdToHtml(text) {
         var link = _linkStore[parseInt(idx)];
         return '<a href="' + link.url + '" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;">' + link.text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</a>';
     });
-    // Bare URLs (not already in an <a> tag)
-    h = h.replace(/(?<!href=")(https?:\/\/[^\s<"&]+)/g, '<a href="$1" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;">$1</a>');
+    // Bare URLs — skip if already inside an href
+    h = h.replace(/(https?:\/\/[^\s<"&]+)/g, function(match, url, offset, str) {
+        var before = str.substring(Math.max(0, offset - 6), offset);
+        if (before.indexOf('href=') >= 0) return match;
+        return '<a href="' + url + '" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;">' + url + '</a>';
+    });
     // Paragraphs
     h = h.replace(/\n\n/g, '<div style="height:8px;"></div>');
     h = h.replace(/\n/g, '<br>');
