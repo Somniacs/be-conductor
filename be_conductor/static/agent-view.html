@@ -352,10 +352,11 @@ function _mdToHtml(text) {
         html += '</table>';
         return html;
     });
-    // Blockquotes (> lines) — must come before line-level transforms
+    // Blockquotes (> lines) — collapsible
     h = h.replace(/((?:^&gt; .+$\n?)+)/gm, function(block) {
         var inner = block.replace(/^&gt; /gm, '');
-        return '<div style="margin:8px 0;padding:8px 14px;border-left:3px solid #444;background:rgba(255,255,255,0.03);color:var(--muted);font-style:italic;border-radius:0 4px 4px 0;">' + inner.trim() + '</div>';
+        var preview = inner.trim().split('\n')[0].slice(0, 60);
+        return '<details style="margin:8px 0;border-left:3px solid #444;border-radius:0 4px 4px 0;background:rgba(255,255,255,0.03);"><summary style="padding:6px 14px;color:var(--muted);font-size:12px;cursor:pointer;font-style:italic;user-select:none;">\u26a0\ufe0f ' + preview + (inner.trim().length > 60 ? '...' : '') + '</summary><div style="padding:6px 14px 10px;color:var(--muted);font-style:italic;line-height:1.5;">' + inner.trim() + '</div></details>';
     });
     // Inline code
     h = h.replace(/`([^`]+)`/g, '<code style="background:var(--tool-bg);padding:2px 5px;border-radius:3px;font-size:0.9em;color:var(--fg);">$1</code>');
@@ -372,8 +373,10 @@ function _mdToHtml(text) {
     h = h.replace(/^(\d+)\. (.+)$/gm, '<div style="padding-left:16px;margin:1px 0;line-height:1.5;">$1. $2</div>');
     // Remove all whitespace between consecutive list items
     h = h.replace(/<\/div>\s+<div style="padding-left/g, '</div><div style="padding-left');
-    // Markdown links [text](url)
-    h = h.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;">$1</a>');
+    // Markdown links [text](url) — handle nested parens in link text
+    h = h.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;">$1</a>');
+    // Bare URLs (not already in href)
+    h = h.replace(/(?<!href="|href=&quot;)(https?:\/\/[^\s<"&]+)/g, '<a href="$1" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;">$1</a>');
     // Paragraphs
     h = h.replace(/\n\n/g, '<div style="height:8px;"></div>');
     h = h.replace(/\n/g, '<br>');
