@@ -1926,9 +1926,12 @@ async def _stream_agent(ws: WebSocket, session: Any):
     if history:
         await ws.send_json({"type": "history", "messages": history})
 
-    # Send current settings (mode/effort) so the UI reflects the right state
+    # Send current settings (mode/effort/model) so the UI reflects the right state
     if hasattr(session, 'get_settings'):
-        await ws.send_json({"type": "settings", **session.get_settings()})
+        settings = {"type": "settings", **session.get_settings()}
+        if hasattr(session, 'get_models'):
+            settings["models"] = await session.get_models()
+        await ws.send_json(settings)
 
     queue = session.subscribe()
 
@@ -1985,6 +1988,17 @@ async def _stream_agent(ws: WebSocket, session: Any):
                             effort = msg.get("effort", "high")
                             if hasattr(session, "set_effort"):
                                 session.set_effort(effort)
+                        elif msg_type == "set_model":
+                            model = msg.get("model", "default")
+                            if hasattr(session, "set_model_async"):
+                                await session.set_model_async(model)
+                        elif msg_type == "get_models":
+                            if hasattr(session, "get_models"):
+                                models = await session.get_models()
+                                try:
+                                    await ws.send_json({"type": "models", "models": models})
+                                except Exception:
+                                    pass
                         elif msg_type == "interrupt":
                             session.interrupt()
                     except (json.JSONDecodeError, TypeError):

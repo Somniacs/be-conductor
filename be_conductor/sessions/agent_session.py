@@ -617,12 +617,40 @@ class AgentSession:
             pass
         self._broadcast_settings()
 
+    async def set_model_async(self, model: str) -> None:
+        """Change the model at runtime."""
+        self._current_model = model
+        if self._client is None:
+            return
+        try:
+            await self._client.set_model(model if model != 'default' else None)
+        except Exception:
+            pass
+        self._broadcast_settings()
+
+    async def get_models(self) -> list:
+        """Get available models from the SDK."""
+        if self._client is not None:
+            try:
+                info = await self._client.get_server_info()
+                if info and 'models' in info:
+                    return info['models']
+            except Exception:
+                pass
+        # Fallback — common Claude models
+        return [
+            {"value": "default", "displayName": "Default (Opus 4.6)", "description": "Most capable, 1M context"},
+            {"value": "sonnet", "displayName": "Sonnet 4.6", "description": "Best for everyday tasks"},
+            {"value": "haiku", "displayName": "Haiku 4.5", "description": "Fastest for quick answers"},
+        ]
+
     def _broadcast_settings(self) -> None:
-        """Broadcast current mode/effort to all subscribers."""
+        """Broadcast current mode/effort/model to all subscribers."""
         event = {
             "type": "settings",
             "mode": getattr(self, '_current_mode', 'default'),
             "effort": getattr(self, '_current_effort', 'high'),
+            "model": getattr(self, '_current_model', 'default'),
         }
         for queue in list(self.subscribers):
             try:
@@ -631,10 +659,11 @@ class AgentSession:
                 pass
 
     def get_settings(self) -> dict:
-        """Return current mode/effort for new subscribers."""
+        """Return current mode/effort/model for new subscribers."""
         return {
             "mode": getattr(self, '_current_mode', 'default'),
             "effort": getattr(self, '_current_effort', 'high'),
+            "model": getattr(self, '_current_model', 'default'),
         }
 
     def _build_prompt_with_attachments(
