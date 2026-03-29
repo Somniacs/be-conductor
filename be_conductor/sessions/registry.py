@@ -150,6 +150,18 @@ class SessionRegistry:
                     m = _re.search(rf'{_re.escape(flag)}\s+(\S+)', cmd)
                     if m:
                         meta["resume_id"] = m.group(1)
+                    # Agent sessions: recover resume_id from history file
+                    if not meta.get("resume_id") and meta.get("session_type") == "agent":
+                        history_path = SESSIONS_DIR / f"{meta['id']}.history.json"
+                        if history_path.exists():
+                            try:
+                                history = json.loads(history_path.read_text(encoding="utf-8"))
+                                for evt in reversed(history):
+                                    if evt.get("type") == "result" and evt.get("session_id"):
+                                        meta["resume_id"] = evt["session_id"]
+                                        break
+                            except Exception:
+                                pass
                     meta["status"] = "exited"
                     path.write_text(json.dumps(meta))
 

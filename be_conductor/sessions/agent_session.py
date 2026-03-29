@@ -245,18 +245,29 @@ class AgentSession:
                         item = await self._input_queue.get()
                         if isinstance(item, dict) and item.get("_shutdown"):
                             break
+                        is_btw = False
                         if isinstance(item, dict):
                             text = item.get("text", "")
                             attachments = item.get("attachments")
+                            is_btw = item.get("_btw", False)
                         else:
                             text = item
                             attachments = None
-                        # Save to history for replay (not broadcast — client renders optimistically)
-                        self._save_to_history({
-                            "type": "user_message",
-                            "content": text,
-                            "timestamp": time.time(),
-                        })
+                        # Assign a turn ID to group query + response
+                        self._turn_counter = getattr(self, '_turn_counter', 0) + 1
+                        turn_id = f"turn-{self._turn_counter}"
+                        self._current_turn_id = turn_id
+                        self._current_turn_btw = is_btw
+                        if is_btw:
+                            self._broadcast_event({"type": "btw_start", "text": text})
+                        # Save to history (skip for btw — ephemeral)
+                        if not is_btw:
+                            self._save_to_history({
+                                "type": "user_message",
+                                "content": text,
+                                "turn_id": turn_id,
+                                "timestamp": time.time(),
+                            })
                         if attachments:
                             prompt_with_files = self._build_prompt_with_attachments(
                                 text, attachments
@@ -265,6 +276,8 @@ class AgentSession:
                         else:
                             await client.query(text)
                         await self._stream_response(client)
+                        if is_btw:
+                            self._broadcast_event({"type": "btw_end"})
                     except asyncio.CancelledError:
                         # Interrupt — stay in the loop, wait for next prompt
                         continue
@@ -328,6 +341,16 @@ class AgentSession:
                     "session_id": message.session_id,
                 })
                 self.resume_id = message.session_id
+                # Persist metadata now that we have a resume ID —
+                # if the server crashes, this survives for recovery.
+                if self._on_exit:
+                    try:
+                        from be_conductor.utils.config import SESSIONS_DIR
+                        import json as _json
+                        path = SESSIONS_DIR / f"{self.id}.json"
+                        path.write_text(_json.dumps(self.to_dict(), indent=2))
+                    except Exception:
+                        pass
             elif isinstance(message, SystemMessage):
                 self._emit_event({
                     "type": "system",
@@ -447,10 +470,26 @@ class AgentSession:
         self._message_history.append(event)
         self._save_history()
 
+    def _broadcast_event(self, event: dict) -> None:
+        """Broadcast event to subscribers WITHOUT saving to history."""
+        event = self._json_safe(event)
+        event.setdefault("timestamp", time.time())
+        for queue in list(self.subscribers):
+            try:
+                queue.put_nowait(event)
+            except asyncio.QueueFull:
+                pass
+
     def _emit_event(self, event: dict) -> None:
         """Broadcast a structured event and append to console buffer."""
         event = self._json_safe(event)
         event.setdefault("timestamp", time.time())
+        # Tag with current turn ID for query/response grouping
+        turn_id = getattr(self, '_current_turn_id', None)
+        if turn_id and 'turn_id' not in event:
+            event['turn_id'] = turn_id
+            if getattr(self, '_current_turn_btw', False):
+                event['btw'] = True
         self._message_history.append(event)
         self._save_history()
         self._append_console(event)
@@ -497,15 +536,46 @@ class AgentSession:
         self,
         text: str,
         attachments: list[dict] | None = None,
+        btw: bool = False,
     ) -> None:
         """Enqueue a follow-up prompt, optionally with file attachments."""
-        if attachments:
-            self._input_queue.put_nowait({
-                "text": text,
-                "attachments": attachments,
-            })
+        msg: dict | str
+        if attachments or btw:
+            msg = {"text": text}
+            if attachments:
+                msg["attachments"] = attachments
+            if btw:
+                msg["_btw"] = True
+            self._input_queue.put_nowait(msg)
         else:
             self._input_queue.put_nowait(text)
+
+    async def _send_btw(self, text: str) -> None:
+        """Send a /btw query directly to Claude Code CLI, bypassing the queue.
+
+        The /btw prefix tells Claude Code to handle this as an ephemeral
+        side-channel query that doesn't get added to conversation history.
+        """
+        if not self._client:
+            self._emit_event({"type": "btw_end", "error": "Not connected"})
+            return
+        self._btw_active = True
+        self._btw_response_text = ""
+        # Emit btw_start so frontend shows the panel
+        for queue in list(self.subscribers):
+            try:
+                queue.put_nowait({"type": "btw_start", "text": text, "timestamp": time.time()})
+            except asyncio.QueueFull:
+                pass
+        try:
+            await self._client.query("/btw " + text)
+        except Exception as e:
+            self._btw_active = False
+            for queue in list(self.subscribers):
+                try:
+                    queue.put_nowait({"type": "btw_end", "error": str(e), "timestamp": time.time()})
+                except asyncio.QueueFull:
+                    pass
 
     def send_input_bytes(self, data: bytes) -> None:
         self.send_input(data.decode("utf-8", errors="replace"))
@@ -520,6 +590,7 @@ class AgentSession:
 
         Valid modes: "default", "plan", "acceptEdits".
         """
+        self._current_mode = mode
         if self._client is None:
             return
         try:
@@ -528,12 +599,14 @@ class AgentSession:
             pass
         except Exception:
             pass
+        self._broadcast_settings()
 
     def set_effort(self, effort: str) -> None:
         """Change the agent effort level at runtime.
 
-        Valid levels: "low", "medium", "high".
+        Valid levels: "low", "medium", "high", "max".
         """
+        self._current_effort = effort
         if self._client is None:
             return
         try:
@@ -542,6 +615,27 @@ class AgentSession:
             pass
         except Exception:
             pass
+        self._broadcast_settings()
+
+    def _broadcast_settings(self) -> None:
+        """Broadcast current mode/effort to all subscribers."""
+        event = {
+            "type": "settings",
+            "mode": getattr(self, '_current_mode', 'default'),
+            "effort": getattr(self, '_current_effort', 'high'),
+        }
+        for queue in list(self.subscribers):
+            try:
+                queue.put_nowait(event)
+            except asyncio.QueueFull:
+                pass
+
+    def get_settings(self) -> dict:
+        """Return current mode/effort for new subscribers."""
+        return {
+            "mode": getattr(self, '_current_mode', 'default'),
+            "effort": getattr(self, '_current_effort', 'high'),
+        }
 
     def _build_prompt_with_attachments(
         self,

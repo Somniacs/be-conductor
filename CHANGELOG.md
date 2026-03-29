@@ -2,6 +2,22 @@
 
 All notable changes to be-conductor are documented here.
 
+## v0.3.36
+
+### New
+
+- **Command palette** — click the `/` button or type `/` in the GUI input to open a command palette with modes (ask/edit/plan), effort control, thinking toggle, compact, clear, and model switching
+- **Token usage in spinner** — the working spinner now shows live token count while Claude is responding
+- **Message queuing** — sending a message while Claude is still responding queues it and sends after the current response finishes, preventing interleaved output
+- **Input history** — arrow up/down cycles through previous messages, persists across session reload
+- **Turn-based grouping** — each query/response pair is tagged with a turn ID for accurate message grouping
+- **Settings sync** — mode and effort changes are persisted in the session and synced to new subscribers on connect
+
+### Fixed
+
+- **Crash recovery for GUI sessions** — agent session resume IDs are now persisted to disk immediately when received, and recovered from history files on crash
+- **Four effort levels** — effort now supports low, medium, high, and max
+
 ## v0.3.35
 
 ### Fixed

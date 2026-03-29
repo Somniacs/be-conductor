@@ -1926,6 +1926,10 @@ async def _stream_agent(ws: WebSocket, session: Any):
     if history:
         await ws.send_json({"type": "history", "messages": history})
 
+    # Send current settings (mode/effort) so the UI reflects the right state
+    if hasattr(session, 'get_settings'):
+        await ws.send_json({"type": "settings", **session.get_settings()})
+
     queue = session.subscribe()
 
     async def writer():
@@ -1968,6 +1972,7 @@ async def _stream_agent(ws: WebSocket, session: Any):
                             session.send_input(
                                 msg.get("text", ""),
                                 attachments=attachments,
+                                btw=msg.get("btw", False),
                             )
                         elif msg_type == "answer":
                             if hasattr(session, "answer_question"):

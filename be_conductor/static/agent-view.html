@@ -49,6 +49,23 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--fo
 @keyframes spin { to { transform: rotate(360deg); } }
 .right-group { display: flex; align-items: center; gap: 4px; flex-shrink: 0; position: relative; }
 .mode-popup { display: none; position: absolute; bottom: 100%; right: 0; margin-bottom: 8px; background: #1c2028; border: 1px solid var(--border); border-radius: 10px; padding: 8px 0; min-width: 300px; z-index: 100; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+.slash-popup { display: none; position: absolute; bottom: 100%; left: 0; right: 0; margin-bottom: 4px; background: #1c2028; border: 1px solid var(--border); border-radius: 10px; padding: 6px 0; z-index: 150; box-shadow: 0 8px 24px rgba(0,0,0,0.5); max-height: 360px; overflow-y: auto; }
+.slash-popup.open { display: block; }
+.slash-section { padding: 6px 14px 2px; font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+.slash-item { padding: 7px 14px; cursor: pointer; display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--fg); }
+.slash-item:hover, .slash-item.selected { background: #2a2f3a; }
+.slash-item .slash-desc { color: var(--muted); font-size: 12px; margin-left: auto; }
+.btw-panel { display: none; background: #1c1206; border: 2px solid #e67e22; border-radius: 8px; padding: 14px 16px; margin: 0 0 4px 0; flex-shrink: 0; max-height: 40vh; overflow-y: auto; }
+.btw-panel.open { display: block; animation: btwSlideUp 0.2s ease-out; }
+.btw-panel .btw-header { display: flex; align-items: center; margin-bottom: 10px; }
+.btw-panel .btw-label { font-size: 12px; color: #f39c12; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
+.btw-panel .btw-close { margin-left: auto; background: none; border: none; color: #e67e22; font-size: 18px; cursor: pointer; padding: 2px 6px; border-radius: 4px; line-height: 1; }
+.btw-panel .btw-close:hover { color: #f5b041; background: rgba(230,126,34,0.2); }
+.btw-panel .btw-question { font-size: 13px; color: #f0d0a0; padding: 8px 12px; background: rgba(230,126,34,0.1); border-radius: 6px; border-left: 3px solid #e67e22; line-height: 1.5; margin-bottom: 10px; }
+.btw-panel .btw-waiting { font-size: 12px; color: #c89040; display: flex; align-items: center; gap: 8px; }
+.btw-panel .btw-response { font-size: 13px; color: #e0d0b0; line-height: 1.6; padding: 8px 12px; background: rgba(230,126,34,0.06); border-radius: 6px; margin-top: 8px; }
+.btw-panel .btw-response strong { color: #f0e0c0; }
+@keyframes btwSlideUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 .mode-item { padding: 8px 14px; cursor: pointer; display: flex; align-items: flex-start; gap: 10px; }
 .mode-item:hover { background: #2a2f3a; }
 .mode-item.active { background: #1a2744; }
@@ -85,14 +102,19 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--fo
 <body>
 
 <div id="messages"></div>
+<div class="btw-panel" id="btw-panel"></div>
 <div id="drag-handle"><div></div></div>
 <div id="input-area">
+    <div class="slash-popup" id="slash-popup"></div>
     <div class="attachment-preview" id="attach-preview"></div>
     <div id="input-box">
         <textarea id="prompt" rows="1" placeholder="Message Claude..."></textarea>
         <div id="input-toolbar">
             <button class="attach-btn" id="attach-btn" title="Attach file or image">
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 2a.75.75 0 01.75.75v4.5h4.5a.75.75 0 010 1.5h-4.5v4.5a.75.75 0 01-1.5 0v-4.5h-4.5a.75.75 0 010-1.5h4.5v-4.5A.75.75 0 018 2z"/></svg>
+            </button>
+            <button class="attach-btn" id="slash-btn" title="Commands">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M10 3L6 13"/></svg>
             </button>
             <div style="flex:1;"></div>
             <div class="right-group" id="right-group">
@@ -261,6 +283,17 @@ function updateContextRing(usage) {
     if (contextIndicator) {
         contextIndicator.title = `Context: ${k}K / ${MAX_CONTEXT/1000}K tokens (${pctStr}%)${cache ? '\nCache: ' + (cache/1000).toFixed(0) + 'K' : ''}`;
     }
+    // Update spinner with token count
+    if (spinnerEl) {
+        var tokenInfo = spinnerEl.querySelector('.spinner-tokens');
+        if (!tokenInfo) {
+            tokenInfo = document.createElement('span');
+            tokenInfo.className = 'spinner-tokens';
+            tokenInfo.style.cssText = 'color:var(--muted);font-size:11px;opacity:0.7;';
+            spinnerEl.appendChild(tokenInfo);
+        }
+        tokenInfo.textContent = k + 'K tokens';
+    }
 }
 
 if (contextIndicator) {
@@ -389,6 +422,39 @@ function renderEvent(event) {
     const etype = event.type;
     // Skip internal events
     if (etype === 'system' || etype === 'rate_limit') return;
+    // Apply settings from server
+    if (etype === 'settings') {
+        var modeMap = {default: 0, acceptEdits: 1, plan: 2};
+        var effortMap = {low: 0, medium: 1, high: 2, max: 3};
+        if (event.mode in modeMap) { modeIdx = modeMap[event.mode]; updateModeUI(); }
+        if (event.effort in effortMap) { effortIdx = effortMap[event.effort]; updateEffortUI(); }
+        return;
+    }
+
+    // BTW lifecycle — btw_start opens panel, btw responses tagged with btw:true
+    if (etype === 'btw_start') {
+        _btwActive = true;
+        _btwResponseText = '';
+        // Panel already open from sendPrompt — update spinner text
+        var waiting = _btwPanel.querySelector('.btw-waiting');
+        if (waiting) waiting.innerHTML = '<span class="agent-spinner"></span> Claude is responding...';
+        return;
+    }
+    if (etype === 'btw_end') {
+        _btwActive = false;
+        if (_btwResponseText.trim()) _btwShowResponse(_btwResponseText.trim());
+        else _btwShowResponse('(no response)');
+        return;
+    }
+    // Intercept btw-tagged responses — route to panel, not main chat
+    if (event.btw && etype === 'assistant_message') {
+        var blocks = event.content || [];
+        for (var bi = 0; bi < blocks.length; bi++) {
+            if (blocks[bi].type === 'text') _btwResponseText += blocks[bi].text + '\n';
+        }
+        if (_btwResponseText.trim()) _btwShowResponse(_btwResponseText.trim());
+        return;
+    }
 
     if (etype === 'user_message') {
         const content = (event.content || '').trim();
@@ -409,11 +475,13 @@ function renderEvent(event) {
         div.innerHTML = `<div style="padding:10px 14px;background:var(--user-bg);border-radius:8px;border-left:3px solid var(--accent);white-space:pre-wrap;line-height:1.5;">${escHtml(content)}</div>`;
         messagesEl.appendChild(div);
         // Close previous group and start a new one
+        var turnId = event.turn_id || '';
         const oldGroup = document.getElementById('current-group');
         if (oldGroup) oldGroup.removeAttribute('id');
         const group = document.createElement('div');
         group.className = 'msg-group';
         group.id = 'current-group';
+        if (turnId) group.setAttribute('data-turn', turnId);
         messagesEl.appendChild(group);
 
     } else if (etype === 'assistant_message') {
@@ -478,8 +546,14 @@ function renderEvent(event) {
                 }
             }
         }
-        const group = document.getElementById('current-group') || messagesEl;
-        group.appendChild(wrapper);
+        // Find the right group — match by turn_id if available, else current-group
+        var targetGroup;
+        if (event.turn_id) {
+            targetGroup = document.querySelector('[data-turn="' + event.turn_id + '"]') || document.getElementById('current-group') || messagesEl;
+        } else {
+            targetGroup = document.getElementById('current-group') || messagesEl;
+        }
+        targetGroup.appendChild(wrapper);
 
     } else if (etype === 'question') {
         if (_replayingHistory) return;
@@ -494,6 +568,7 @@ function renderEvent(event) {
     } else if (etype === 'result') {
         setBusy(false);
         if (event.usage) updateContextRing(event.usage);
+        // (token usage shown in spinner instead)
 
     } else if (etype === 'error') {
         setBusy(false);
@@ -657,6 +732,33 @@ function showQuestionModal(q, onAnswer) {
 let spinnerEl = null;
 let busyStartTime = 0;
 let spinnerInterval = null;
+let _pendingUserMessage = null;
+var _btwPanel = document.getElementById('btw-panel');
+var _btwActive = false;
+var _btwResponseText = '';
+
+function _openBtwPanel(question) {
+    _btwPanel.innerHTML = '<div class="btw-header"><span class="btw-label">BTW</span><button class="btw-close" id="btw-close-btn">&times;</button></div>'
+        + '<div class="btw-question">' + escHtml(question) + '</div>'
+        + '<div class="btw-waiting"><span class="agent-spinner"></span> Waiting for response...</div>';
+    _btwPanel.classList.add('open');
+    document.getElementById('btw-close-btn').addEventListener('click', _closeBtwPanel);
+}
+function _btwShowResponse(text) {
+    var waiting = _btwPanel.querySelector('.btw-waiting');
+    if (waiting) waiting.remove();
+    var existing = _btwPanel.querySelector('.btw-response');
+    if (existing) existing.remove();
+    var resp = document.createElement('div');
+    resp.className = 'btw-response';
+    resp.innerHTML = _mdToHtml(text);
+    _btwPanel.appendChild(resp);
+}
+function _closeBtwPanel() {
+    _btwPanel.classList.remove('open');
+    _btwActive = false;
+    _btwResponseText = '';
+}
 
 function setBusy(b) {
     busy = b;
@@ -689,6 +791,15 @@ function setBusy(b) {
     } else {
         if (spinnerEl) { spinnerEl.remove(); spinnerEl = null; }
         if (spinnerInterval) { clearInterval(spinnerInterval); spinnerInterval = null; }
+        if (_pendingUserMessage) {
+            const pending = _pendingUserMessage;
+            _pendingUserMessage = null;
+            if (!pending._skipRender) renderEvent({type: 'user_message', content: pending.text});
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify(pending.msg));
+                setBusy(true);
+            }
+        }
     }
 }
 
@@ -754,7 +865,10 @@ function connect() {
             if (msg.type === 'history') {
                 const msgs = msg.messages || [];
                 _replayingHistory = true;
-                for (const m of msgs) renderEvent(m);
+                for (const m of msgs) {
+                    renderEvent(m);
+                    if (m.type === 'user_message' && m.content) _inputHistory.push(m.content);
+                }
                 _replayingHistory = false;
                 // Scroll to end after replay
                 messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -813,14 +927,33 @@ connect();
 function sendPrompt() {
     const text = promptEl.value.trim();
     if (!text && !pendingAttachments.length) return;
+    if (text) { _inputHistory.push(text); _historyIdx = -1; _historyDraft = ''; }
     _userDismissedQuestion = true;
-    renderEvent({type: 'user_message', content: text || '(attachment)'});
-    // Build message before clearing
-    const msg = {type: 'prompt', text};
-    if (pendingAttachments.length) {
-        msg.attachments = pendingAttachments.map(a => ({name: a.name, type: a.type, data: a.data}));
+    // Handle slash commands
+    if (text.startsWith('/') && !text.includes(' ') && !text.includes('\n')) {
+        var matched = _slashFiltered.filter(function(c) { return !c.section; });
+        if (matched.length > 0) { _slashSelect(); return; }
     }
-    // Clear input BEFORE setting busy so button shows stop (not orange)
+    // /btw — open panel immediately, send directly (bypasses queue)
+    if (text.toLowerCase().startsWith('/btw ')) {
+        var btwText = text.slice(5).trim();
+        if (!btwText) return;
+        closeSlashPopup();
+        promptEl.value = '';
+        promptEl.style.height = '38px';
+        _openBtwPanel(btwText);
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({type: 'prompt', text: btwText, btw: true}));
+        }
+        promptEl.focus();
+        return;
+    }
+    // Build message before clearing
+    var msg = {type: 'prompt', text: text};
+    if (pendingAttachments.length) {
+        msg.attachments = pendingAttachments.map(function(a) { return {name: a.name, type: a.type, data: a.data}; });
+    }
+    // Clear input
     promptEl.value = '';
     promptEl.style.height = '38px';
     inputArea.style.height = '';
@@ -828,26 +961,69 @@ function sendPrompt() {
     _manualResize = false;
     pendingAttachments.length = 0;
     refreshAttachmentPreview();
-    if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify(msg));
-        setBusy(true);
-    } else {
+    closeSlashPopup();
+    if (ws && ws.readyState !== WebSocket.OPEN) {
         renderEvent({type: 'error', error: 'Not connected to agent'});
+        promptEl.focus();
+        return;
     }
+    // Queue if busy
+    if (busy) {
+        _pendingUserMessage = {msg: msg, text: text || '(attachment)'};
+        updateSendBtn();
+        promptEl.focus();
+        return;
+    }
+    renderEvent({type: 'user_message', content: text || '(attachment)'});
+    ws.send(JSON.stringify(msg));
+    setBusy(true);
     promptEl.focus();
 }
 
 // --- Input handlers ---
-let _manualResize = false;
+var _manualResize = false;
+var _slashOpen = false, _slashIdx = 0, _slashFiltered = [];
+var _inputHistory = [], _historyIdx = -1, _historyDraft = '';
 promptEl.addEventListener('input', () => {
     if (!_manualResize) {
         promptEl.style.height = '38px';
         promptEl.style.height = promptEl.scrollHeight + 'px';
     }
     updateSendBtn();
+    updateSlashPopup();
 });
 
 promptEl.addEventListener('keydown', (e) => {
+    if (_slashOpen) {
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            e.preventDefault();
+            _slashNavigate(e.key === 'ArrowDown' ? 1 : -1);
+            return;
+        }
+        if (e.key === 'Enter') { e.preventDefault(); _slashSelect(); return; }
+        if (e.key === 'Escape') { e.preventDefault(); closeSlashPopup(); return; }
+    }
+    // Input history (ArrowUp/Down when input is single-line)
+    if (e.key === 'ArrowUp' && !e.shiftKey && _inputHistory.length > 0 && promptEl.selectionStart === 0 && !promptEl.value.includes('\n')) {
+        e.preventDefault();
+        if (_historyIdx === -1) { _historyDraft = promptEl.value; _historyIdx = _inputHistory.length; }
+        if (_historyIdx > 0) {
+            _historyIdx--;
+            promptEl.value = _inputHistory[_historyIdx];
+        }
+        return;
+    }
+    if (e.key === 'ArrowDown' && !e.shiftKey && _historyIdx >= 0 && !promptEl.value.includes('\n')) {
+        e.preventDefault();
+        _historyIdx++;
+        if (_historyIdx >= _inputHistory.length) {
+            _historyIdx = -1;
+            promptEl.value = _historyDraft;
+        } else {
+            promptEl.value = _inputHistory[_historyIdx];
+        }
+        return;
+    }
     if (e.key === 'Tab' && e.shiftKey) {
         // Shift+Tab cycles through modes
         e.preventDefault();
@@ -948,6 +1124,14 @@ function refreshAttachmentPreview() {
     });
 }
 
+document.getElementById('slash-btn').addEventListener('click', function(e) {
+    e.stopPropagation();
+    if (_slashOpen) { closeSlashPopup(); return; }
+    promptEl.value = '/';
+    promptEl.focus();
+    updateSlashPopup();
+});
+
 attachBtn.addEventListener('click', () => {
     if (ideBridge.pickFile !== ideBridge.__noop) {
         ideBridge.pickFile();
@@ -1008,7 +1192,7 @@ const MODES = [
     {value: 'plan', label: 'Plan mode', desc: 'Claude will explore the code and present a plan before editing',
      icon: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="2" width="10" height="12" rx="1.5"/><path d="M6 5.5h4M6 8h4M6 10.5h2.5"/></svg>'},
 ];
-const EFFORTS = ['low', 'medium', 'high'];
+const EFFORTS = ['low', 'medium', 'high', 'max'];
 let modeIdx = 0;
 let effortIdx = 2;
 
@@ -1098,6 +1282,141 @@ modeBtn.addEventListener('click', (e) => {
 });
 document.addEventListener('click', () => { modePopup.style.display = 'none'; });
 modePopup.addEventListener('click', (e) => e.stopPropagation());
+
+// --- Slash command popup (command palette) ---
+var _slashPopupEl = document.getElementById('slash-popup');
+var _thinkingEnabled = false;
+
+// All items: {section}, {cmd, label, action}, or {type:'widget', id, render}
+function _getSlashItems() {
+    var shortLabels = {0: 'Ask', 1: 'Edit', 2: 'Plan'};
+    return [
+        {section: 'Context'},
+        // /btw hidden — SDK doesn't support ephemeral side-queries yet (CLI-only)
+        {cmd: '/compact', label: 'Compact conversation', desc: 'Free up tokens', action: function() {
+            if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type: 'prompt', text: '/compact'}));
+        }},
+        {cmd: '/clear', label: 'Clear conversation', action: function() { messagesEl.innerHTML = ''; }},
+        {section: 'Model'},
+        {cmd: '/model', label: 'Switch model...', right: 'Default (recommended)', action: function() {
+            if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type: 'prompt', text: '/model'}));
+        }},
+        {type: 'effort'},
+        {type: 'thinking'},
+        {section: 'Mode'},
+        {cmd: '/ask', label: 'Ask before edits', right: modeIdx === 0 ? '\u2713' : '', action: function() {
+            modeIdx = 0; updateModeUI();
+            if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type: 'set_mode', mode: 'default'}));
+        }},
+        {cmd: '/edit', label: 'Edit automatically', right: modeIdx === 1 ? '\u2713' : '', action: function() {
+            modeIdx = 1; updateModeUI();
+            if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type: 'set_mode', mode: 'acceptEdits'}));
+        }},
+        {cmd: '/plan', label: 'Plan mode', right: modeIdx === 2 ? '\u2713' : '', action: function() {
+            modeIdx = 2; updateModeUI();
+            if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type: 'set_mode', mode: 'plan'}));
+        }},
+    ];
+}
+
+function _renderEffortWidget() {
+    var dots = EFFORTS.map(function(e, i) {
+        var active = i === effortIdx;
+        var size = active ? 10 : 6;
+        var color = active ? '#e0e0e0' : '#555';
+        return '<span style="display:inline-block;width:' + size + 'px;height:' + size + 'px;border-radius:50%;background:' + color + ';cursor:pointer;vertical-align:middle;" data-effort="' + i + '"></span>';
+    }).join('');
+    return '<div class="slash-item" style="cursor:default;">Effort (' + EFFORTS[effortIdx].charAt(0).toUpperCase() + EFFORTS[effortIdx].slice(1) + ')<span style="margin-left:auto;display:flex;align-items:center;gap:6px;">' + dots + '</span></div>';
+}
+
+function _renderThinkingWidget() {
+    var on = _thinkingEnabled;
+    return '<div class="slash-item" id="slash-thinking-toggle" style="cursor:pointer;">Thinking<span style="margin-left:auto;"><span style="display:inline-block;width:32px;height:18px;border-radius:9px;background:' + (on ? '#4a6cf7' : '#333') + ';position:relative;vertical-align:middle;transition:background 0.2s;"><span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:#e0e0e0;position:absolute;top:2px;' + (on ? 'left:16px' : 'left:2px') + ';transition:left 0.2s;"></span></span></span></div>';
+}
+
+function updateSlashPopup() {
+    var text = promptEl.value;
+    // Only open on "/" at start without spaces
+    if (!text.startsWith('/') || text.includes(' ') || text.includes('\n')) { closeSlashPopup(); return; }
+    var filter = text.toLowerCase();
+    var all = _getSlashItems();
+    // Filter: keep sections, widgets, and matching items
+    _slashFiltered = all.filter(function(c) {
+        if (c.section) return true;
+        if (c.type) return filter === '/';  // only show widgets when unfiltered
+        return c.cmd.startsWith(filter) || c.label.toLowerCase().includes(filter.slice(1));
+    });
+    // Remove sections with no following items
+    var cleaned = [];
+    for (var i = 0; i < _slashFiltered.length; i++) {
+        if (_slashFiltered[i].section) {
+            if (i + 1 < _slashFiltered.length && !_slashFiltered[i + 1].section) cleaned.push(_slashFiltered[i]);
+        } else { cleaned.push(_slashFiltered[i]); }
+    }
+    _slashFiltered = cleaned;
+    var actionItems = _slashFiltered.filter(function(c) { return !c.section && !c.type; });
+    if (actionItems.length === 0 && _slashFiltered.filter(function(c) { return c.type; }).length === 0) { closeSlashPopup(); return; }
+    _slashIdx = 0;
+    _renderSlashPopup();
+    _slashPopupEl.classList.add('open');
+    _slashOpen = true;
+}
+
+function _renderSlashPopup() {
+    var itemIdx = 0;
+    var html = _slashFiltered.map(function(c) {
+        if (c.section) return '<div class="slash-section">' + c.section + '</div>';
+        if (c.type === 'effort') return _renderEffortWidget();
+        if (c.type === 'thinking') return _renderThinkingWidget();
+        var cls = itemIdx === _slashIdx ? 'slash-item selected' : 'slash-item';
+        var idx = itemIdx++;
+        var right = c.right ? '<span style="margin-left:auto;color:var(--muted);font-size:12px;">' + escHtml(c.right) + '</span>' : '';
+        return '<div class="' + cls + '" data-idx="' + idx + '">' + escHtml(c.label) + right + '</div>';
+    }).join('');
+    _slashPopupEl.innerHTML = html;
+    // Bind click on action items
+    _slashPopupEl.querySelectorAll('.slash-item[data-idx]').forEach(function(el) {
+        el.addEventListener('click', function() { _slashIdx = parseInt(el.dataset.idx); _slashSelect(); });
+    });
+    // Bind effort dots
+    _slashPopupEl.querySelectorAll('[data-effort]').forEach(function(el) {
+        el.addEventListener('click', function(e) {
+            e.stopPropagation();
+            effortIdx = parseInt(el.dataset.effort);
+            updateEffortUI();
+            if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type: 'set_effort', effort: EFFORTS[effortIdx]}));
+            _renderSlashPopup();
+        });
+    });
+    // Bind thinking toggle
+    var thinkEl = document.getElementById('slash-thinking-toggle');
+    if (thinkEl) {
+        thinkEl.addEventListener('click', function(e) {
+            e.stopPropagation();
+            _thinkingEnabled = !_thinkingEnabled;
+            if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type: 'prompt', text: _thinkingEnabled ? '/think' : '/nothink'}));
+            _renderSlashPopup();
+        });
+    }
+}
+
+function _slashNavigate(dir) {
+    var items = _slashFiltered.filter(function(c) { return !c.section && !c.type; });
+    if (!items.length) return;
+    _slashIdx = (_slashIdx + dir + items.length) % items.length;
+    _renderSlashPopup();
+}
+function _slashSelect() {
+    var items = _slashFiltered.filter(function(c) { return !c.section && !c.type; });
+    if (_slashIdx >= 0 && _slashIdx < items.length) {
+        var cmd = items[_slashIdx];
+        promptEl.value = '';
+        promptEl.style.height = '38px';
+        closeSlashPopup();
+        if (cmd.action) cmd.action();
+    }
+}
+function closeSlashPopup() { _slashPopupEl.classList.remove('open'); _slashOpen = false; }
 
 // --- Drag handle (resize input area) ---
 dragHandle.addEventListener('mousedown', (e) => {
