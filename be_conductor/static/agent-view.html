@@ -566,9 +566,27 @@ function renderEvent(event) {
         });
 
     } else if (etype === 'result') {
-        setBusy(false);
         if (event.usage) updateContextRing(event.usage);
-        // (token usage shown in spinner instead)
+        // Show final token summary
+        if (!_replayingHistory && event.usage) {
+            var u = event.usage;
+            var inp = Number(u.input_tokens || u.inputTokens || 0);
+            var out = Number(u.output_tokens || u.outputTokens || 0);
+            var cch = Number(u.cache_read_input_tokens || u.cacheReadInputTokens || 0);
+            var parts = [];
+            if (inp || out) parts.push(Math.round(inp/1000) + 'K in \u00b7 ' + Math.round(out/1000) + 'K out');
+            if (cch) parts.push(Math.round(cch/1000) + 'K cache');
+            if (event.duration_ms) parts.push((event.duration_ms/1000).toFixed(1) + 's');
+            if (event.total_cost_usd) parts.push('$' + Number(event.total_cost_usd).toFixed(4));
+            if (parts.length) {
+                var info = document.createElement('div');
+                info.style.cssText = 'text-align:right;font-size:11px;color:var(--muted);padding:2px 8px 6px 0;opacity:0.6;';
+                info.textContent = parts.join(' \u00b7 ');
+                var grp = document.getElementById('current-group') || messagesEl;
+                grp.appendChild(info);
+            }
+        }
+        setBusy(false);
 
     } else if (etype === 'error') {
         setBusy(false);

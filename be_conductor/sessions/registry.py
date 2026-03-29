@@ -521,6 +521,7 @@ class SessionRegistry:
         """
         session = self.sessions.get(session_id)
         if session and session.status in ("running", "starting"):
+            session.status = "stopping"
             session.interrupt(timeout=cfg.GRACEFUL_STOP_TIMEOUT)
 
     def forget(self, session_id: str):
