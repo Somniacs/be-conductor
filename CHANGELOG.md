@@ -8,6 +8,11 @@ All notable changes to be-conductor are documented here.
 
 - **Windows: dashboard 404** — the static files (dashboard HTML, fonts, service worker) were not found when the server was started from outside the repo directory. Moved `static/` into the `be_conductor` package so it ships correctly with pip/pipx installs
 - **Windows: QR command crash** — `be-conductor qr` failed with a `UnicodeEncodeError` because `Path.write_text()` defaulted to the system's cp1252 encoding, which can't encode the ♭ character. Now explicitly uses UTF-8
+- **Windows: process exit not detected** — pywinpty's `isalive()` returns True even after the child process exits (ConPTY handle stays open). Now uses `WaitForSingleObject` on the process handle for reliable exit detection
+- **Windows: graceful stop deletes sessions** — "Stop & save for later" deleted the session instead of keeping it as resumable. The `_was_graceful` flag is now preserved before the status changes to exited
+- **Windows: GUI sessions hang on stop** — agent (GUI) sessions didn't respond to graceful stop, causing the dashboard to time out. The agent loop now exits cleanly when stopped
+- **Windows: directory picker broken** — backslashes in Windows paths broke the onclick handlers in the dashboard directory browser. Paths are now properly escaped
+- **JetBrains plugin crash** — creating an agent session with the server down caused an `IllegalArgumentException` because `ex.getMessage()` returned null. Now falls back to `ex.toString()`
 
 ## v0.3.34
 
