@@ -6,16 +6,19 @@ All notable changes to be-conductor are documented here.
 
 ### New
 
-- **Command palette** — click the `/` button or type `/` in the GUI input to open a command palette with modes (ask/edit/plan), effort control, thinking toggle, compact, clear, and model switching
-- **Token usage in spinner** — the working spinner now shows live token count while Claude is responding
+- **Command palette** — click the `/` button or type `/` in the GUI input to open a command palette with modes (ask/edit/plan), effort control with interactive dots, thinking toggle, compact, clear, and model selector dropdown
+- **Model switching** — select Default (Opus 4.6), Sonnet 4.6, or Haiku 4.5 from the command palette dropdown. Uses the SDK's `set_model()` with models from `get_server_info()`
 - **Message queuing** — sending a message while Claude is still responding queues it and sends after the current response finishes, preventing interleaved output
 - **Input history** — arrow up/down cycles through previous messages, persists across session reload
 - **Turn-based grouping** — each query/response pair is tagged with a turn ID for accurate message grouping
-- **Settings sync** — mode and effort changes are persisted in the session and synced to new subscribers on connect
+- **Settings sync** — mode, effort, and model changes are persisted in the session and synced to new subscribers on connect
+- **Token usage summary** — shown after each response with input/output tokens, cache, duration, and cost
+- **Markdown rendering** — blockquotes (`>`), markdown links, bold, italic, headers, lists, tables, and inline code all render properly in GUI mode
 
 ### Fixed
 
-- **Crash recovery for GUI sessions** — agent session resume IDs are now persisted to disk immediately when received, and recovered from history files on crash
+- **Crash recovery for GUI sessions** — agent session resume IDs persisted to disk immediately and recovered from history files on crash. Agent sessions always kept as resumable on exit
+- **Graceful stop for agent sessions** — registry now sets `status=stopping` before calling `interrupt()`, fixing the timeout on "Stop & save for later"
 - **Four effort levels** — effort now supports low, medium, high, and max
 
 ## v0.3.35
