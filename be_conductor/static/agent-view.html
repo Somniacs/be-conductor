@@ -326,7 +326,14 @@ function escHtml(s) {
 
 function _mdToHtml(text) {
     if (!text) return '';
-    let h = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    // Extract markdown links before HTML escaping (parens in text would break regex after escaping)
+    var _linkStore = [];
+    var h = text.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, function(_, linkText, url) {
+        var idx = _linkStore.length;
+        _linkStore.push('<a href="' + url + '" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;">' + linkText.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</a>');
+        return '\x00LINK' + idx + '\x00';
+    });
+    h = h.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     // Fenced code blocks
     h = h.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
         const label = lang ? `<div style="font-size:11px;color:#666;padding:4px 10px;background:var(--tool-header);border-radius:6px 6px 0 0;border-bottom:1px solid var(--border);">${lang}</div>` : '';
@@ -373,10 +380,10 @@ function _mdToHtml(text) {
     h = h.replace(/^(\d+)\. (.+)$/gm, '<div style="padding-left:16px;margin:1px 0;line-height:1.5;">$1. $2</div>');
     // Remove all whitespace between consecutive list items
     h = h.replace(/<\/div>\s+<div style="padding-left/g, '</div><div style="padding-left');
-    // Markdown links [text](url) — handle nested parens in link text
-    h = h.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;">$1</a>');
-    // Bare URLs (not already in href)
-    h = h.replace(/(?<!href="|href=&quot;)(https?:\/\/[^\s<"&]+)/g, '<a href="$1" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;">$1</a>');
+    // Bare URLs (not already in a link placeholder)
+    h = h.replace(/(https?:\/\/[^\s<"&]+)/g, '<a href="$1" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;">$1</a>');
+    // Restore markdown links extracted before escaping
+    h = h.replace(/\x00LINK(\d+)\x00/g, function(_, idx) { return _linkStore[parseInt(idx)]; });
     // Paragraphs
     h = h.replace(/\n\n/g, '<div style="height:8px;"></div>');
     h = h.replace(/\n/g, '<br>');
