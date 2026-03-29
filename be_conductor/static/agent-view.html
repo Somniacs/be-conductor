@@ -283,8 +283,8 @@ function updateContextRing(usage) {
     if (contextIndicator) {
         contextIndicator.title = `Context: ${k}K / ${MAX_CONTEXT/1000}K tokens (${pctStr}%)${cache ? '\nCache: ' + (cache/1000).toFixed(0) + 'K' : ''}`;
     }
-    // Update spinner with token count
-    if (spinnerEl) {
+    // Update spinner with token count (only when > 0)
+    if (spinnerEl && totalTokens > 0) {
         var tokenInfo = spinnerEl.querySelector('.spinner-tokens');
         if (!tokenInfo) {
             tokenInfo = document.createElement('span');
