@@ -403,6 +403,37 @@ class SessionRegistry:
         if not parent or parent.status != "running":
             raise ValueError("Source session not found or not running")
 
+        effective_cwd = cwd or parent.live_cwd or parent.cwd
+        st = getattr(parent, 'session_type', 'pty')
+
+        # --- Native Claude fork (instant, full history) ---
+        if parent.resume_id:
+            try:
+                if st == "agent":
+                    # GUI: fork via SDK, resume the fork in a new agent session
+                    from claude_agent_sdk._internal.session_mutations import fork_session as _fork
+                    result = _fork(parent.resume_id, directory=effective_cwd, title=name)
+                    session = await self.create(
+                        name, "claude", cwd=effective_cwd,
+                        rows=rows, cols=cols, source=source, worktree=worktree,
+                        session_type="agent",
+                        agent_options={"resume": result.session_id},
+                    )
+                    return session
+                else:
+                    # Terminal: use --fork-session CLI flag
+                    fork_cmd = f"claude --resume {parent.resume_id} --fork-session"
+                    session = await self.create(
+                        name, fork_cmd, cwd=effective_cwd,
+                        rows=rows, cols=cols, source=source, worktree=worktree,
+                    )
+                    return session
+            except ImportError:
+                log.info("claude-agent-sdk not available for fork; using legacy clone")
+            except Exception as e:
+                log.warning("SDK fork failed for '%s': %s; using legacy clone", parent_id, e)
+
+        # --- Legacy clone (context file) ---
         SPAWN_CONTEXT_DIR.mkdir(parents=True, exist_ok=True)
         context_file = SPAWN_CONTEXT_DIR / f"{name}.md"
 
