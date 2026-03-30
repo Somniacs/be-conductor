@@ -501,7 +501,18 @@ class Session:
             clean = _ANSI_RE.sub("", tail)
             match = pattern.search(clean)
             if match:
-                self.resume_id = match.group(1)
+                rid = match.group(1).strip('"').strip("'")
+                # If it's a name, try to resolve to UUID
+                import re as _re_uuid
+                if not _re_uuid.match(
+                    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+                    rid, _re_uuid.I,
+                ):
+                    from be_conductor.sessions.registry import _lookup_claude_session_uuid
+                    uuid = _lookup_claude_session_uuid(rid, self.cwd or "")
+                    if uuid:
+                        rid = uuid
+                self.resume_id = rid
         except Exception:
             pass
 

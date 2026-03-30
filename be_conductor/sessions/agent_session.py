@@ -170,6 +170,8 @@ class AgentSession:
             return
 
         resume_id = self._agent_options.get("resume")
+        if resume_id:
+            self.resume_id = resume_id
 
         # Queue for receiving answers to AskUserQuestion from the UI
         self._question_answer_queue: asyncio.Queue[str] = asyncio.Queue()
@@ -441,6 +443,12 @@ class AgentSession:
                     self._message_history = data
                     for event in data:
                         self._append_console(event)
+                    # Recover resume_id from history if not already set
+                    if not self.resume_id:
+                        for evt in reversed(data):
+                            if evt.get("type") == "result" and evt.get("session_id"):
+                                self.resume_id = evt["session_id"]
+                                break
             except Exception:
                 pass
 

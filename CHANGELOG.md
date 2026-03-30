@@ -6,6 +6,8 @@ All notable changes to be-conductor are documented here.
 
 ### New
 
+- **Session forking** — fork any running session into an independent copy with full conversation history. GUI sessions use the Claude Agent SDK's native `fork_session()` for instant forking. Terminal sessions use `claude --resume <id> --fork-session`. The forked session opens maximized with a spinner overlay until it's fully loaded
+- **Fork dialog** — click the fork button on any running session with a resume ID. Auto-increments the name if a fork already exists. Spinner stays visible until the forked session is ready
 - **Command palette** — click the `/` button or type `/` in the GUI input to open a command palette with modes (ask/edit/plan), effort control with interactive dots, thinking toggle, compact, clear, and model selector dropdown
 - **Model switching** — select Default (Opus 4.6), Sonnet 4.6, or Haiku 4.5 from the command palette dropdown. Uses the SDK's `set_model()` with models from `get_server_info()`
 - **Message queuing** — sending a message while Claude is still responding queues it and sends after the current response finishes, preventing interleaved output
@@ -17,6 +19,7 @@ All notable changes to be-conductor are documented here.
 
 ### Fixed
 
+- **Resume ID recovery** — agent sessions recover their resume ID from conversation history on load. PTY sessions with name-based resume IDs are resolved to UUIDs by looking up Claude's session storage. All sessions that were ever resumed now reliably have their resume ID available
 - **Crash recovery for GUI sessions** — agent session resume IDs persisted to disk immediately and recovered from history files on crash. Agent sessions always kept as resumable on exit
 - **Graceful stop for agent sessions** — registry now sets `status=stopping` before calling `interrupt()`, fixing the timeout on "Stop & save for later"
 - **Four effort levels** — effort now supports low, medium, high, and max
@@ -50,10 +53,6 @@ All notable changes to be-conductor are documented here.
 - **Themes** — six color themes (Default, Dark, Mid, Bright, Bernstein, Green) apply to both terminal and GUI views. Full theme support throughout
 - **Touch support** — drag handle to resize the input area, on-screen keyboard works correctly, extra keys hidden in GUI mode
 - **Animated status** — baroque-themed rotating status words while Claude works (Composing, Orchestrating, Fuguing, Tempering...)
-
-### Known Issues
-
-- **Session cloning** — the clone feature needs further testing and may not work reliably with GUI sessions. Use with caution
 
 ### Fixed
 

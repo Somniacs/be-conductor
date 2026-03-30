@@ -32,6 +32,51 @@ from be_conductor.utils.config import SESSIONS_DIR, ensure_dirs
 log = logging.getLogger(__name__)
 
 SPAWN_CONTEXT_DIR = Path(cfg.CONDUCTOR_DIR) / "spawn-context"
+_UUID_RE = re.compile(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+    re.IGNORECASE,
+)
+
+
+def _lookup_claude_session_uuid(session_name: str, cwd: str) -> str | None:
+    """Look up a Claude Code session UUID by its display name.
+
+    Searches ``~/.claude/projects/<project>/`` for JSONL files whose
+    ``custom-title`` or ``agent-name`` entry matches *session_name*.
+    Returns the most recently modified match, or ``None``.
+    """
+    claude_dir = Path.home() / ".claude" / "projects"
+    if not claude_dir.exists():
+        return None
+    # Claude encodes the CWD as the project dir name (/ → -)
+    project_name = cwd.replace("/", "-")
+    project_path = claude_dir / project_name
+    if not project_path.is_dir():
+        return None
+    found: list[tuple[str, float]] = []
+    for jsonl in project_path.glob("*.jsonl"):
+        uuid = jsonl.stem
+        if not _UUID_RE.match(uuid):
+            continue
+        try:
+            with open(jsonl) as f:
+                for line in f:
+                    try:
+                        entry = json.loads(line)
+                        etype = entry.get("type", "")
+                        if etype in ("custom-title", "agent-name"):
+                            title = entry.get("customTitle") or entry.get("agentName", "")
+                            if title == session_name:
+                                found.append((uuid, jsonl.stat().st_mtime))
+                                break
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+    if found:
+        # Most recently modified file wins
+        return max(found, key=lambda x: x[1])[0]
+    return None
 
 
 async def _wait_for_file(path: Path, timeout: float = 60,
@@ -149,21 +194,33 @@ class SessionRegistry:
                     flag = meta.get("resume_flag", "--resume")
                     m = _re.search(rf'{_re.escape(flag)}\s+(\S+)', cmd)
                     if m:
-                        meta["resume_id"] = m.group(1)
-                    # Agent sessions: recover resume_id from history file
-                    if not meta.get("resume_id") and meta.get("session_type") == "agent":
-                        history_path = SESSIONS_DIR / f"{meta['id']}.history.json"
-                        if history_path.exists():
-                            try:
-                                history = json.loads(history_path.read_text(encoding="utf-8"))
-                                for evt in reversed(history):
-                                    if evt.get("type") == "result" and evt.get("session_id"):
-                                        meta["resume_id"] = evt["session_id"]
-                                        break
-                            except Exception:
-                                pass
+                        meta["resume_id"] = m.group(1).strip('"').strip("'")
                     meta["status"] = "exited"
                     path.write_text(json.dumps(meta))
+
+                # Agent sessions: recover resume_id from history file if missing
+                if not meta.get("resume_id") and meta.get("session_type") == "agent":
+                    history_path = SESSIONS_DIR / f"{meta['id']}.history.json"
+                    if history_path.exists():
+                        try:
+                            history = json.loads(history_path.read_text(encoding="utf-8"))
+                            for evt in reversed(history):
+                                if evt.get("type") == "result" and evt.get("session_id"):
+                                    meta["resume_id"] = evt["session_id"]
+                                    path.write_text(json.dumps(meta))
+                                    break
+                        except Exception:
+                            pass
+
+                # PTY sessions: if resume_id is a name (not UUID), look up
+                # the real UUID from Claude's session storage.
+                rid = meta.get("resume_id", "")
+                if rid and not _UUID_RE.match(rid):
+                    uuid = _lookup_claude_session_uuid(
+                        rid, meta.get("cwd", ""))
+                    if uuid:
+                        meta["resume_id"] = uuid
+                        path.write_text(json.dumps(meta))
 
                 self.resumable[meta["id"]] = meta
             except Exception:
@@ -315,6 +372,9 @@ class SessionRegistry:
         if not meta:
             raise ValueError(f"No resumable session '{session_id}'")
 
+        # Strip stale quotes from resume_id
+        if meta.get("resume_id"):
+            meta["resume_id"] = meta["resume_id"].strip('"').strip("'")
         has_resume_id = bool(meta.get("resume_id"))
         has_worktree = bool(meta.get("worktree"))
 
@@ -364,6 +424,9 @@ class SessionRegistry:
                                     rows=rows, cols=cols,
                                     session_type=st,
                                     agent_options=agent_opts)
+        # Carry forward resume_id so fork works immediately
+        if has_resume_id:
+            session.resume_id = meta["resume_id"]
         self.resumable.pop(session_id, None)
         self._delete_metadata(session_id)
 
@@ -406,32 +469,34 @@ class SessionRegistry:
         effective_cwd = cwd or parent.live_cwd or parent.cwd
         st = getattr(parent, 'session_type', 'pty')
 
-        # --- Native Claude fork (instant, full history) ---
-        if parent.resume_id:
+        # --- Agent sessions: always use SDK fork ---
+        if st == "agent":
+            if not parent.resume_id:
+                raise ValueError("Cannot clone: session has no resume ID yet (send a message first)")
+            from claude_agent_sdk._internal.session_mutations import fork_session as _fork
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None, lambda: _fork(parent.resume_id, directory=effective_cwd, title=name)
+            )
+            session = await self.create(
+                name, "claude", cwd=effective_cwd,
+                rows=rows, cols=cols, source=source, worktree=worktree,
+                session_type="agent",
+                agent_options={"resume": result.session_id},
+            )
+            return session
+
+        # --- PTY sessions: try CLI fork (UUID only), fall back to legacy ---
+        if parent.resume_id and _UUID_RE.match(parent.resume_id):
             try:
-                if st == "agent":
-                    # GUI: fork via SDK, resume the fork in a new agent session
-                    from claude_agent_sdk._internal.session_mutations import fork_session as _fork
-                    result = _fork(parent.resume_id, directory=effective_cwd, title=name)
-                    session = await self.create(
-                        name, "claude", cwd=effective_cwd,
-                        rows=rows, cols=cols, source=source, worktree=worktree,
-                        session_type="agent",
-                        agent_options={"resume": result.session_id},
-                    )
-                    return session
-                else:
-                    # Terminal: use --fork-session CLI flag
-                    fork_cmd = f"claude --resume {parent.resume_id} --fork-session"
-                    session = await self.create(
-                        name, fork_cmd, cwd=effective_cwd,
-                        rows=rows, cols=cols, source=source, worktree=worktree,
-                    )
-                    return session
-            except ImportError:
-                log.info("claude-agent-sdk not available for fork; using legacy clone")
+                fork_cmd = f"claude --resume {parent.resume_id} --fork-session"
+                session = await self.create(
+                    name, fork_cmd, cwd=effective_cwd,
+                    rows=rows, cols=cols, source=source, worktree=worktree,
+                )
+                return session
             except Exception as e:
-                log.warning("SDK fork failed for '%s': %s; using legacy clone", parent_id, e)
+                log.warning("CLI fork failed for '%s': %s; using legacy clone", parent_id, e)
 
         # --- Legacy clone (context file) ---
         SPAWN_CONTEXT_DIR.mkdir(parents=True, exist_ok=True)

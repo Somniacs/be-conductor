@@ -1329,6 +1329,24 @@ async def clone_session(session_id: str, req: CloneRequest, request: Request):
                 detail=f"Command '{base_cmd}' not allowed",
             )
 
+    # Sessions with UUID resume_id: fork is fast — await and return directly.
+    parent_type = getattr(parent, "session_type", "pty")
+    import re as _re_uuid
+    _uuid_ok = _re_uuid.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-', _re_uuid.I)
+    if parent.resume_id and _uuid_ok.match(parent.resume_id):
+        try:
+            session = await registry.spawn(
+                parent_id=session_id, name=req.name, command=req.command,
+                cwd=req.cwd, worktree=req.worktree,
+                rows=req.rows, cols=req.cols, source=req.source,
+            )
+            d = session.to_dict()
+            d["ws_url"] = _ws_url_for(request, session.id)
+            return {"status": "ready", "session": d}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    # PTY sessions: async clone with context file.
     clone_id = f"clone-{req.name}"
 
     # Future resolved by /clone-decide endpoint when summary times out.
