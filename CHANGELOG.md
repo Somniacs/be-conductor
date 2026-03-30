@@ -10,9 +10,9 @@ All notable changes to be-conductor are documented here.
 - **Fork dialog** — click the fork button on any running session with a resume ID. Auto-increments the name if a fork already exists. Spinner stays visible until the forked session is ready
 - **Command palette** — click the `/` button or type `/` in the GUI input to open a command palette with modes (ask/edit/plan), effort control with interactive dots, thinking toggle, compact, clear, and model selector dropdown
 - **Model switching** — select Default (Opus 4.6), Sonnet 4.6, or Haiku 4.5 from the command palette dropdown. Uses the SDK's `set_model()` with models from `get_server_info()`
-- **Message queuing** — sending a message while Claude is still responding queues it and sends after the current response finishes, preventing interleaved output
+- **Message queuing** — send follow-up questions while Claude is still responding. Queued messages appear immediately with a badge and output is grouped under the right question
+- **Tool call visibility** — Bash, Read, Grep, Glob, Agent and other tool calls now show as collapsible panels in GUI mode
 - **Input history** — arrow up/down cycles through previous messages, persists across session reload
-- **Turn-based grouping** — each query/response pair is tagged with a turn ID for accurate message grouping
 - **Settings sync** — mode, effort, and model changes are persisted in the session and synced to new subscribers on connect
 - **Token usage summary** — shown after each response with input/output tokens, cache, duration, and cost
 - **Markdown rendering** — blockquotes (`>`), markdown links, bold, italic, headers, lists, tables, and inline code all render properly in GUI mode

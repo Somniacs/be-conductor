@@ -485,7 +485,8 @@ function renderEvent(event) {
         }
         const div = document.createElement('div');
         div.className = 'msg msg-user';
-        div.innerHTML = `<div style="padding:10px 14px;background:var(--user-bg);border-radius:8px;border-left:3px solid var(--accent);white-space:pre-wrap;line-height:1.5;">${escHtml(content)}</div>`;
+        const queuedBadge = event._queued ? '<span style="float:right;font-size:10px;color:var(--accent);opacity:0.7;">queued</span>' : '';
+        div.innerHTML = `<div style="padding:10px 14px;background:var(--user-bg);border-radius:8px;border-left:3px solid var(--accent);white-space:pre-wrap;line-height:1.5;">${queuedBadge}${escHtml(content)}</div>`;
         messagesEl.appendChild(div);
         // Close previous group and start a new one
         var turnId = event.turn_id || '';
@@ -500,8 +501,21 @@ function renderEvent(event) {
     } else if (etype === 'assistant_message') {
         if (!busy) setBusy(true);
         if (event.usage) updateContextRing(event.usage);
+        // Tag the current group with the server's turn_id if not set yet
+        if (event.turn_id) {
+            var cg = document.getElementById('current-group');
+            if (cg && !cg.getAttribute('data-turn')) {
+                cg.setAttribute('data-turn', event.turn_id);
+            }
+        }
         const blocks = event.content || [];
-        const hasVisibleContent = blocks.some(b => b.type === 'text' || (b.type === 'tool_use' && ['Edit', 'Write'].includes(b.tool)) || (b.type === 'tool_result' && b.is_error));
+        // Hidden tools — these are internal and don't need to be shown
+        const _hiddenTools = new Set(['ToolSearch', 'TodoWrite', 'thinking']);
+        const hasVisibleContent = blocks.some(b =>
+            b.type === 'text' ||
+            (b.type === 'tool_use' && !_hiddenTools.has(b.tool)) ||
+            (b.type === 'tool_result' && b.is_error)
+        );
         if (!hasVisibleContent) {
             // Only AskUserQuestion — handle modals, skip rendering
             for (const block of blocks) {
@@ -528,8 +542,8 @@ function renderEvent(event) {
             } else if (block.type === 'thinking') {
                 // Hidden — thinking is internal, not shown in the UI
 
-            } else if (block.type === 'tool_use' && !['Edit', 'Write'].includes(block.tool)) {
-                // Hide internal/read-only tool calls — only show Edit and Write (file changes)
+            } else if (block.type === 'tool_use' && _hiddenTools.has(block.tool)) {
+                // Skip hidden internal tools
 
             } else if (block.type === 'tool_use') {
                 const details = document.createElement('details');
@@ -580,7 +594,7 @@ function renderEvent(event) {
 
     } else if (etype === 'result') {
         if (event.usage) updateContextRing(event.usage);
-        // Show final token summary
+        // Show final token summary in the correct turn group
         if (!_replayingHistory && event.usage) {
             var u = event.usage;
             var inp = Number(u.input_tokens || u.inputTokens || 0);
@@ -595,7 +609,7 @@ function renderEvent(event) {
                 var info = document.createElement('div');
                 info.style.cssText = 'text-align:right;font-size:11px;color:var(--muted);padding:2px 8px 6px 0;opacity:0.6;';
                 info.textContent = parts.join(' \u00b7 ');
-                var grp = document.getElementById('current-group') || messagesEl;
+                var grp = (event.turn_id && document.querySelector('[data-turn="' + event.turn_id + '"]')) || document.getElementById('current-group') || messagesEl;
                 grp.appendChild(info);
             }
         }
@@ -619,9 +633,9 @@ function renderEvent(event) {
 
 
 function autoScroll() {
-    // Keep spinner at the very bottom
-    if (spinnerEl && spinnerEl.parentNode === messagesEl) {
-        messagesEl.appendChild(spinnerEl);
+    // Keep spinner at the bottom of its group
+    if (spinnerEl && spinnerEl.parentNode) {
+        spinnerEl.parentNode.appendChild(spinnerEl);
     }
     // Update line for each group
     messagesEl.querySelectorAll('.msg-group').forEach(g => {
@@ -804,7 +818,9 @@ function setBusy(b) {
             spinnerEl = document.createElement('div');
             spinnerEl.style.cssText = 'padding:8px 0;color:var(--muted);font-size:13px;display:flex;align-items:center;gap:8px;';
             spinnerEl.innerHTML = '<span class="agent-spinner"></span><span class="spinner-text"></span>';
-            messagesEl.appendChild(spinnerEl);
+            // Place spinner inside the current group
+            var grp = document.getElementById('current-group');
+            (grp || messagesEl).appendChild(spinnerEl);
         }
         let verbIdx = Math.floor(Math.random() * _verbs.length);
         const updateSpinner = () => {
@@ -827,6 +843,9 @@ function setBusy(b) {
         if (_pendingUserMessage) {
             const pending = _pendingUserMessage;
             _pendingUserMessage = null;
+            // Remove "queued" badge from the already-rendered user message
+            var qBadges = messagesEl.querySelectorAll('.msg-user span[style*="float:right"]');
+            if (qBadges.length) qBadges[qBadges.length - 1].remove();
             if (!pending._skipRender) renderEvent({type: 'user_message', content: pending.text});
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify(pending.msg));
@@ -1000,9 +1019,10 @@ function sendPrompt() {
         promptEl.focus();
         return;
     }
-    // Queue if busy
+    // Queue if busy — show the message immediately with queued indicator
     if (busy) {
-        _pendingUserMessage = {msg: msg, text: text || '(attachment)'};
+        _pendingUserMessage = {msg: msg, text: text || '(attachment)', _skipRender: true};
+        renderEvent({type: 'user_message', content: text || '(attachment)', _queued: true});
         updateSendBtn();
         promptEl.focus();
         return;
