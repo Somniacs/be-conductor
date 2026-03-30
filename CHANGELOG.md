@@ -2,6 +2,30 @@
 
 All notable changes to be-conductor are documented here.
 
+## v0.3.37
+
+### New
+
+- **Strict serial timeline** — GUI agent view now renders all events in strict chronological order within each turn, matching the VSC Claude extension style. Every block (text, thoughts, tools, questions) gets a dot and connector line
+- **Thinking blocks visible** — Claude's internal reasoning is shown as a collapsible "Thoughts" panel with chevron toggle and preview text
+- **AskUserQuestion display** — questions from Claude appear inline in the timeline with purple styling and option list. Answers create a new turn naturally
+- **Formatted tool inputs** — Write shows the actual file content as code, Edit shows old→new as a red/green diff, Bash shows the command, Read shows file path and line range. No more raw JSON dumps
+- **Chevrons on all collapsible blocks** — thoughts, tool calls, and tool results use a `▶`/`▼` chevron instead of the native browser triangle
+- **Multi-message queue** — send multiple follow-up messages while Claude is busy. All queued messages are preserved in a FIFO queue (previously only the last one survived)
+- **Font size controls** — adjust font size from the mode popup (+/−) or the dashboard panel menu (Smaller/Bigger). Persists across reloads via localStorage
+- **Markdown file links** — `[file.py](src/file.py)` links in Claude's responses now open in the file viewer, not just bare file paths
+- **Clickable working directory** — the session's cwd path in the header is now a link that opens the folder in the file viewer
+- **Folder-aware file viewer** — clicking a directory path opens the folder browser directly instead of showing "File not found"
+
+### Changed
+
+- **Clone renamed to Fork** — session cloning now uses the Claude Agent SDK's native `fork_session()` instead of replaying history. The UI button, dialog, and terminology all changed from "clone" to "fork"
+
+### Fixed
+
+- **Reply grouping** — replies now always land under their corresponding question via turn-based grouping. Queued messages create their groups immediately so the DOM order is always correct
+- **Queued message promotion** — queued messages are promoted in-place (opacity restored, badge removed) instead of being deleted and re-rendered, preventing group duplication
+
 ## v0.3.36
 
 ### New

@@ -91,9 +91,12 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--fo
 .msg-group:empty { display: none; }
 .msg-group::before { content: ''; position: absolute; left: 3px; top: var(--line-top, 14px); height: var(--line-height, 0); width: 1px; background: var(--muted); opacity: 0.5; }
 .msg-group.single-dot::before { display: none; }
-.msg-claude { padding-top: 2px; padding-bottom: 2px; }
+.msg-claude { padding-top: 4px; padding-bottom: 4px; }
 .msg-claude-dot { position: relative; }
-.msg-claude-dot::before { content: ''; position: absolute; left: -20px; top: 8px; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); z-index: 1; box-shadow: 0 0 0 3px var(--bg); }
+.msg-claude-dot::before { content: ''; position: absolute; left: -20px; top: var(--dot-top, calc(0.8em - 1px)); width: 7px; height: 7px; border-radius: 50%; background: var(--muted); z-index: 1; box-shadow: 0 0 0 3px var(--bg); }
+summary[style*="list-style:none"]::-webkit-details-marker { display: none; }
+.msg-group[data-queued-group] { opacity: 0.4; }
+.msg-group[data-queued-group]::before { display: none; }
 #messages::-webkit-scrollbar { width: 8px; }
 #messages::-webkit-scrollbar-track { background: transparent; }
 #messages::-webkit-scrollbar-thumb { background: #30363d; border-radius: 4px; }
@@ -193,7 +196,18 @@ function applyTheme(t) {
 const themeName = params.get('theme') || window.__THEME || 'default';
 applyTheme(THEMES[themeName] || THEMES.default);
 window.addEventListener('message', (e) => {
-    if (e.data && e.data.type === 'setTheme' && THEMES[e.data.theme]) applyTheme(THEMES[e.data.theme]);
+    if (!e.data) return;
+    if (e.data.type === 'setTheme' && THEMES[e.data.theme]) applyTheme(THEMES[e.data.theme]);
+    if (e.data.type === 'changeFontSize') {
+        var fs = parseInt(document.body.style.fontSize) || 14;
+        fs = Math.min(24, Math.max(10, fs + (e.data.delta || 0)));
+        document.body.style.fontSize = fs + 'px';
+        localStorage.setItem('agent-view-fontsize', fs);
+        // Sync the label in the mode popup if it exists
+        if (typeof _fontSize !== 'undefined') { _fontSize = fs; }
+        var lbl = document.querySelector('#mode-popup .effort-toggle span[style*="text-align:center"]');
+        if (lbl) lbl.textContent = fs + 'px';
+    }
 });
 
 // --- IDE Bridge ---
@@ -372,8 +386,18 @@ function _mdToHtml(text) {
     h = h.replace(/^(\d+)\. (.+)$/gm, '<div style="padding-left:16px;margin:1px 0;line-height:1.5;">$1. $2</div>');
     // Remove all whitespace between consecutive list items
     h = h.replace(/<\/div>\s+<div style="padding-left/g, '</div><div style="padding-left');
-    // Markdown links [text](url)
-    h = h.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;">$1</a>');
+    // Markdown links [text](url) — http links open in new tab, file paths open in file viewer
+    h = h.replace(/\[([^\]]+)\]\(([^\s)]+)\)/g, (m, text, href) => {
+        if (/^https?:\/\//.test(href)) {
+            return '<a href="' + href + '" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;">' + text + '</a>';
+        }
+        // File path link — extract path and optional line number (path#L42 or path:42)
+        var filePath = href.replace(/#L(\d+)$/, ':$1').replace(/#L(\d+)-L\d+$/, ':$1');
+        var parts = filePath.split(':');
+        var cleanPath = parts[0];
+        var line = parts[1] || 0;
+        return '<a class="file-link" href="#" onclick="ideBridge.openFile(\'' + cleanPath + '\', ' + line + '); return false;">' + text + '</a>';
+    });
     // Paragraphs
     h = h.replace(/\n\n/g, '<div style="height:8px;"></div>');
     h = h.replace(/\n/g, '<br>');
@@ -411,6 +435,33 @@ function _toolInputSummary(name, input) {
     if (name === 'WebFetch' && input.url) return input.url;
     if (name === 'WebSearch' && input.query) return input.query;
     try { return JSON.stringify(input).slice(0, 120); } catch { return ''; }
+}
+
+function _formatToolInput(name, input) {
+    if (!input) return '';
+    const codeStyle = 'margin:0;font-size:12px;color:var(--muted);white-space:pre-wrap;line-height:1.4;overflow-x:auto;';
+    const codeWrap = 'padding:8px 12px;background:var(--code-bg);border-radius:4px;max-height:300px;overflow-y:auto;';
+    if (name === 'Write' && input.content != null) {
+        return '<div style="font-size:11px;color:var(--muted);margin-bottom:4px;">' + makeFileLinksClickable(escHtml(input.file_path || '')) + '</div><div style="' + codeWrap + '"><pre style="' + codeStyle + '">' + escHtml(input.content) + '</pre></div>';
+    }
+    if (name === 'Edit') {
+        var h = '<div style="font-size:11px;color:var(--muted);margin-bottom:4px;">' + makeFileLinksClickable(escHtml(input.file_path || '')) + '</div>';
+        if (input.old_string != null) h += '<div style="' + codeWrap + 'border-left:3px solid var(--error);margin-bottom:4px;"><pre style="' + codeStyle + 'color:#f87171;">' + escHtml(input.old_string) + '</pre></div>';
+        if (input.new_string != null) h += '<div style="' + codeWrap + 'border-left:3px solid var(--success);"><pre style="' + codeStyle + 'color:#86efac;">' + escHtml(input.new_string) + '</pre></div>';
+        return h;
+    }
+    if (name === 'Bash' && input.command) {
+        return '<div style="' + codeWrap + '"><pre style="' + codeStyle + '">' + escHtml(input.command) + '</pre></div>';
+    }
+    if (name === 'Read' && input.file_path) {
+        var h = '<div style="font-size:11px;color:var(--muted);">' + makeFileLinksClickable(escHtml(input.file_path)) + '</div>';
+        if (input.offset || input.limit) h += '<div style="font-size:11px;color:var(--muted);">lines ' + (input.offset || 1) + (input.limit ? '–' + ((input.offset || 1) + input.limit - 1) : '') + '</div>';
+        return h;
+    }
+    if (name === 'Agent' && input.prompt) {
+        return '<div style="' + codeWrap + '"><pre style="' + codeStyle + '">' + escHtml(input.prompt) + '</pre></div>';
+    }
+    try { return '<pre style="' + codeStyle + 'max-height:200px;">' + escHtml(JSON.stringify(input, null, 2)) + '</pre>'; } catch { return escHtml(String(input)); }
 }
 
 function makeFileLinksClickable(html) {
@@ -485,104 +536,150 @@ function renderEvent(event) {
         }
         const div = document.createElement('div');
         div.className = 'msg msg-user';
-        const queuedBadge = event._queued ? '<span style="float:right;font-size:10px;color:var(--accent);opacity:0.7;">queued</span>' : '';
-        div.innerHTML = `<div style="padding:10px 14px;background:var(--user-bg);border-radius:8px;border-left:3px solid var(--accent);white-space:pre-wrap;line-height:1.5;">${queuedBadge}${escHtml(content)}</div>`;
+        const isQueued = !!event._queued;
+        if (isQueued) {
+            div.innerHTML = `<div style="padding:10px 14px;background:var(--user-bg);border-radius:8px;border-left:3px solid var(--accent);white-space:pre-wrap;line-height:1.5;opacity:0.6;"><span style="float:right;font-size:10px;color:var(--accent);">queued</span>${escHtml(content)}</div>`;
+            div.setAttribute('data-queued', '1');
+        } else {
+            div.innerHTML = `<div style="padding:10px 14px;background:var(--user-bg);border-radius:8px;border-left:3px solid var(--accent);white-space:pre-wrap;line-height:1.5;">${escHtml(content)}</div>`;
+        }
         messagesEl.appendChild(div);
-        // Close previous group and start a new one
+        // Always create a group — for queued messages too, so replies land in the right place
         var turnId = event.turn_id || '';
-        const oldGroup = document.getElementById('current-group');
-        if (oldGroup) oldGroup.removeAttribute('id');
+        var localSeq = event._localSeq || (++_localSeqCounter);
+        // Only non-queued messages take over current-group; queued ones sit dormant
+        if (!isQueued) {
+            const oldGroup = document.getElementById('current-group');
+            if (oldGroup) oldGroup.removeAttribute('id');
+        }
         const group = document.createElement('div');
         group.className = 'msg-group';
-        group.id = 'current-group';
+        if (!isQueued) group.id = 'current-group';
         if (turnId) group.setAttribute('data-turn', turnId);
+        group.setAttribute('data-local-seq', localSeq);
+        if (isQueued) group.setAttribute('data-queued-group', '1');
         messagesEl.appendChild(group);
 
     } else if (etype === 'assistant_message') {
         if (!busy) setBusy(true);
         if (event.usage) updateContextRing(event.usage);
-        // Tag the current group with the server's turn_id if not set yet
-        if (event.turn_id) {
-            var cg = document.getElementById('current-group');
-            if (cg && !cg.getAttribute('data-turn')) {
-                cg.setAttribute('data-turn', event.turn_id);
-            }
-        }
         const blocks = event.content || [];
-        // Hidden tools — these are internal and don't need to be shown
-        const _hiddenTools = new Set(['ToolSearch', 'TodoWrite', 'thinking']);
-        const hasVisibleContent = blocks.some(b =>
-            b.type === 'text' ||
-            (b.type === 'tool_use' && !_hiddenTools.has(b.tool)) ||
-            (b.type === 'tool_result' && b.is_error)
-        );
-        if (!hasVisibleContent) {
-            // Only AskUserQuestion — handle modals, skip rendering
-            for (const block of blocks) {
-                if (block.type === 'tool_use' && block.tool === 'AskUserQuestion' && !_replayingHistory) {
-                    (block.input.questions || [block.input]).forEach(q => {
-                        showQuestionModal(q, (answer) => { promptEl.value = answer; sendPrompt(); });
-                    });
-                }
+        const _hiddenTools = new Set(['ToolSearch', 'TodoWrite']);
+
+        // Handle AskUserQuestion modals (trigger before rendering)
+        for (const block of blocks) {
+            if (block.type === 'tool_use' && block.tool === 'AskUserQuestion' && !_replayingHistory) {
+                (block.input.questions || [block.input]).forEach(q => {
+                    showQuestionModal(q, (answer) => { promptEl.value = answer; sendPrompt(); });
+                });
             }
-            autoScroll();
-            return;
         }
-        const wrapper = document.createElement('div');
-        const hasText = blocks.some(b => b.type === 'text');
-        wrapper.className = 'msg msg-claude' + (hasText ? ' msg-claude-dot' : '');
+
+        // Find target turn group
+        var targetGroup = document.getElementById('current-group') || messagesEl;
+        if (event.turn_id) {
+            var byTurn = document.querySelector('[data-turn="' + event.turn_id + '"]');
+            if (byTurn) {
+                targetGroup = byTurn;
+            } else if (targetGroup !== messagesEl) {
+                targetGroup.setAttribute('data-turn', event.turn_id);
+            }
+        }
+
+        // Render each block as its own element in the turn group — all get dots
+        const _chevron = '<span class="chevron" style="display:inline-block;transition:transform 0.15s;font-size:10px;">\u25B6</span>';
+        function _addChevron(details) {
+            details.addEventListener('toggle', () => {
+                var c = details.querySelector('.chevron');
+                if (c) c.style.transform = details.open ? 'rotate(90deg)' : '';
+            });
+        }
 
         for (const block of blocks) {
             if (block.type === 'text') {
-                const div = document.createElement('div');
-                div.style.cssText = 'line-height:1.6;color:#e0e0e0;';
-                div.innerHTML = _mdToHtml(block.text);
-                wrapper.appendChild(div);
+                const el = document.createElement('div');
+                el.className = 'msg msg-claude msg-claude-dot';
+                el.style.cssText = 'line-height:1.6;color:#e0e0e0;';
+                el.innerHTML = _mdToHtml(block.text);
+                targetGroup.appendChild(el);
 
             } else if (block.type === 'thinking') {
-                // Hidden — thinking is internal, not shown in the UI
-
-            } else if (block.type === 'tool_use' && _hiddenTools.has(block.tool)) {
-                // Skip hidden internal tools
-
-            } else if (block.type === 'tool_use') {
+                const thinkText = (block.thinking || '').trim();
+                if (!thinkText) continue;
+                const el = document.createElement('div');
+                el.className = 'msg msg-claude msg-claude-dot';
+                el.style.setProperty('--dot-top', 'calc(6px + 0.42em)');
                 const details = document.createElement('details');
-                details.style.cssText = 'margin:8px 0;border:1px solid #30363d;border-radius:6px;overflow:hidden;';
+                details.style.cssText = 'margin:0;border:1px solid #2d333b;border-radius:6px;overflow:hidden;';
                 const summary = document.createElement('summary');
-                summary.style.cssText = 'padding:8px 12px;background:var(--tool-header);color:var(--fg);font-size:13px;cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px;';
-                const toolName = block.tool || 'tool';
-                const inputSummary = _toolInputSummary(toolName, block.input);
-                summary.innerHTML = `<span>${_toolIcon(toolName)}</span><strong style="color:var(--accent);">${escHtml(toolName)}</strong><span style="color:var(--muted);font-weight:400;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${makeFileLinksClickable(escHtml(inputSummary))}</span>`;
+                summary.style.cssText = 'padding:5px 10px;background:#1a1a2e;color:var(--muted);font-size:12px;cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px;list-style:none;';
+                const preview = thinkText.length > 80 ? thinkText.slice(0, 80).replace(/\n/g, ' ') + '\u2026' : thinkText.replace(/\n/g, ' ');
+                summary.innerHTML = _chevron + ' <strong style="color:#a0a0c0;">Thoughts</strong><span style="color:var(--muted);font-size:11px;opacity:0.7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escHtml(preview) + '</span>';
+                _addChevron(details);
                 const content = document.createElement('div');
-                content.style.cssText = 'padding:8px 12px;background:var(--tool-bg);';
+                content.style.cssText = 'padding:10px 12px;background:#12121f;max-height:300px;overflow-y:auto;';
                 const pre = document.createElement('pre');
-                pre.style.cssText = 'margin:0;font-size:12px;color:var(--muted);overflow-x:auto;max-height:200px;white-space:pre-wrap;line-height:1.4;';
-                try { pre.textContent = JSON.stringify(block.input, null, 2); } catch { pre.textContent = String(block.input); }
+                pre.style.cssText = 'margin:0;font-size:12px;color:#a0a0c0;white-space:pre-wrap;line-height:1.5;';
+                pre.textContent = thinkText;
                 content.appendChild(pre);
                 details.appendChild(summary);
                 details.appendChild(content);
-                wrapper.appendChild(details);
+                el.appendChild(details);
+                targetGroup.appendChild(el);
+
+            } else if (block.type === 'tool_use' && _hiddenTools.has(block.tool)) {
+                // Hidden internal tools
+
+            } else if (block.type === 'tool_use' && block.tool === 'AskUserQuestion') {
+                const questions = block.input.questions || [block.input];
+                for (const q of questions) {
+                    const el = document.createElement('div');
+                    el.className = 'msg msg-claude msg-claude-dot';
+                    el.style.setProperty('--dot-top', 'calc(10px + 0.4em)');
+                    el.innerHTML = '<div style="padding:10px 14px;background:#1a1a2e;border-radius:8px;border-left:3px solid #c084fc;line-height:1.5;"><div style="font-size:11px;color:#c084fc;font-weight:600;margin-bottom:4px;">Question</div>' + _mdToHtml(q.question || q.text || '') + (q.options && q.options.length ? '<div style="margin-top:6px;font-size:12px;color:var(--muted);">' + q.options.map(o => '<div style="padding:2px 0;">\u2022 ' + escHtml(typeof o === 'string' ? o : (o.label || o.value || String(o))) + '</div>').join('') + '</div>' : '') + '</div>';
+                    targetGroup.appendChild(el);
+                }
+
+            } else if (block.type === 'tool_use') {
+                const el = document.createElement('div');
+                el.className = 'msg msg-claude msg-claude-dot';
+                el.style.setProperty('--dot-top', 'calc(7px + 0.42em)');
+                const details = document.createElement('details');
+                details.style.cssText = 'margin:0;border:1px solid #30363d;border-radius:6px;overflow:hidden;';
+                const summary = document.createElement('summary');
+                summary.style.cssText = 'padding:6px 10px;background:var(--tool-header);color:var(--fg);font-size:12px;cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px;list-style:none;';
+                const toolName = block.tool || 'tool';
+                const inputSummary = _toolInputSummary(toolName, block.input);
+                summary.innerHTML = _chevron + ` <span>${_toolIcon(toolName)}</span><strong style="color:var(--accent);">${escHtml(toolName)}</strong><span style="color:var(--muted);font-weight:400;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${makeFileLinksClickable(escHtml(inputSummary))}</span>`;
+                _addChevron(details);
+                const content = document.createElement('div');
+                content.style.cssText = 'padding:8px 12px;background:var(--tool-bg);';
+                content.innerHTML = _formatToolInput(toolName, block.input);
+                details.appendChild(summary);
+                details.appendChild(content);
+                el.appendChild(details);
+                targetGroup.appendChild(el);
 
             } else if (block.type === 'tool_result') {
-                // Only show errors — successful results are reflected in Claude's text
                 if (block.is_error) {
-                    const div = document.createElement('div');
-                    div.style.cssText = 'margin:4px 0 8px 0;padding:8px 12px;background:var(--error-bg);border-radius:6px;border:1px solid var(--error);font-size:12px;color:var(--error);max-height:200px;overflow-y:auto;white-space:pre-wrap;';
-                    div.textContent = String(block.content || 'Tool error');
-                    wrapper.appendChild(div);
+                    const el = document.createElement('div');
+                    el.className = 'msg msg-claude msg-claude-dot';
+                    el.style.setProperty('--dot-top', 'calc(8px + 0.42em)');
+                    el.innerHTML = '<div style="padding:8px 12px;background:var(--error-bg);border-radius:6px;border:1px solid var(--error);font-size:12px;color:var(--error);max-height:200px;overflow-y:auto;white-space:pre-wrap;">' + escHtml(block.content || 'Tool error') + '</div>';
+                    targetGroup.appendChild(el);
                 }
             }
         }
-        // Find the right group — match by turn_id if available, else current-group
-        var targetGroup;
-        if (event.turn_id) {
-            targetGroup = document.querySelector('[data-turn="' + event.turn_id + '"]') || document.getElementById('current-group') || messagesEl;
-        } else {
-            targetGroup = document.getElementById('current-group') || messagesEl;
-        }
-        targetGroup.appendChild(wrapper);
 
     } else if (etype === 'question') {
+        // Render the question in the timeline with a dot
+        var qBlock = document.createElement('div');
+        qBlock.className = 'msg msg-claude msg-claude-dot';
+        qBlock.style.setProperty('--dot-top', 'calc(10px + 0.4em)');
+        qBlock.innerHTML = '<div style="padding:10px 14px;background:#1a1a2e;border-radius:8px;border-left:3px solid #c084fc;line-height:1.5;"><div style="font-size:11px;color:#c084fc;font-weight:600;margin-bottom:4px;">Question</div>' + _mdToHtml(event.question || '') + '</div>';
+        var qGroup = document.getElementById('current-group') || messagesEl;
+        qGroup.appendChild(qBlock);
+
         if (_replayingHistory) return;
         setBusy(false);
         showQuestionModal(event, (answer) => {
@@ -594,25 +691,6 @@ function renderEvent(event) {
 
     } else if (etype === 'result') {
         if (event.usage) updateContextRing(event.usage);
-        // Show final token summary in the correct turn group
-        if (!_replayingHistory && event.usage) {
-            var u = event.usage;
-            var inp = Number(u.input_tokens || u.inputTokens || 0);
-            var out = Number(u.output_tokens || u.outputTokens || 0);
-            var cch = Number(u.cache_read_input_tokens || u.cacheReadInputTokens || 0);
-            var parts = [];
-            if (inp || out) parts.push(Math.round(inp/1000) + 'K in \u00b7 ' + Math.round(out/1000) + 'K out');
-            if (cch) parts.push(Math.round(cch/1000) + 'K cache');
-            if (event.duration_ms) parts.push((event.duration_ms/1000).toFixed(1) + 's');
-            if (event.total_cost_usd) parts.push('$' + Number(event.total_cost_usd).toFixed(4));
-            if (parts.length) {
-                var info = document.createElement('div');
-                info.style.cssText = 'text-align:right;font-size:11px;color:var(--muted);padding:2px 8px 6px 0;opacity:0.6;';
-                info.textContent = parts.join(' \u00b7 ');
-                var grp = (event.turn_id && document.querySelector('[data-turn="' + event.turn_id + '"]')) || document.getElementById('current-group') || messagesEl;
-                grp.appendChild(info);
-            }
-        }
         setBusy(false);
 
     } else if (etype === 'error') {
@@ -645,8 +723,11 @@ function autoScroll() {
         if (dots.length >= 2) {
             const first = dots[0];
             const last = dots[dots.length - 1];
-            const top = first.offsetTop + 12; // dot center
-            const bottom = last.offsetTop + 12;
+            // Read actual dot ::before top for each endpoint
+            const firstTop = parseFloat(getComputedStyle(first, '::before').top) || 0;
+            const lastTop = parseFloat(getComputedStyle(last, '::before').top) || 0;
+            const top = first.offsetTop + firstTop + 3.5;
+            const bottom = last.offsetTop + lastTop + 3.5;
             const line = g.querySelector(':scope::before') || g;
             g.style.setProperty('--line-top', top + 'px');
             g.style.setProperty('--line-height', (bottom - top) + 'px');
@@ -777,7 +858,8 @@ function showQuestionModal(q, onAnswer) {
 let spinnerEl = null;
 let busyStartTime = 0;
 let spinnerInterval = null;
-let _pendingUserMessage = null;
+let _pendingQueue = [];       // FIFO queue of {msg, text} for messages sent while busy
+let _localSeqCounter = 0;     // monotonic counter for user message groups
 var _currentModel = 'default';
 var _availableModels = [];
 var _btwPanel = document.getElementById('btw-panel');
@@ -840,13 +922,28 @@ function setBusy(b) {
     } else {
         if (spinnerEl) { spinnerEl.remove(); spinnerEl = null; }
         if (spinnerInterval) { clearInterval(spinnerInterval); spinnerInterval = null; }
-        if (_pendingUserMessage) {
-            const pending = _pendingUserMessage;
-            _pendingUserMessage = null;
-            // Remove "queued" badge from the already-rendered user message
-            var qBadges = messagesEl.querySelectorAll('.msg-user span[style*="float:right"]');
-            if (qBadges.length) qBadges[qBadges.length - 1].remove();
-            if (!pending._skipRender) renderEvent({type: 'user_message', content: pending.text});
+        if (_pendingQueue.length > 0) {
+            const pending = _pendingQueue.shift();
+            // Promote the oldest queued message in-place (don't remove + re-render)
+            var queuedEl = messagesEl.querySelector('[data-queued]');
+            if (queuedEl) {
+                queuedEl.removeAttribute('data-queued');
+                var inner = queuedEl.querySelector('div');
+                if (inner) {
+                    inner.style.opacity = '1';
+                    var badge = inner.querySelector('span');
+                    if (badge && badge.textContent.trim() === 'queued') badge.remove();
+                }
+            }
+            // Promote the corresponding group: make it current-group
+            var queuedGroup = messagesEl.querySelector('[data-queued-group]');
+            if (queuedGroup) {
+                var oldCurrent = document.getElementById('current-group');
+                if (oldCurrent) oldCurrent.removeAttribute('id');
+                queuedGroup.removeAttribute('data-queued-group');
+                queuedGroup.id = 'current-group';
+            }
+            // Send the message
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify(pending.msg));
                 setBusy(true);
@@ -905,7 +1002,9 @@ function connect() {
             if (info && info.cwd) {
                 _sessionCwd = info.cwd;
                 const cwdEl = welcome.querySelector('.agent-cwd');
-                if (cwdEl) cwdEl.textContent = info.cwd.replace(/^\/home\/[^/]+/, '~');
+                if (cwdEl) {
+                    cwdEl.innerHTML = '<a class="file-link" href="#" onclick="ideBridge.openFile(\'' + info.cwd.replace(/'/g, "\\'") + '\', 0); return false;" style="color:var(--muted);">' + escHtml(info.cwd.replace(/^\/home\/[^/]+/, '~')) + '</a>';
+                }
             }
         }).catch(() => {});
     };
@@ -946,7 +1045,7 @@ function connect() {
             } else {
                 renderEvent(msg);
             }
-        } catch { /* ignore non-JSON */ }
+        } catch (err) { console.error('[agent-view] renderEvent error:', err, e.data); }
     };
 
     ws.onclose = () => {
@@ -1021,13 +1120,15 @@ function sendPrompt() {
     }
     // Queue if busy — show the message immediately with queued indicator
     if (busy) {
-        _pendingUserMessage = {msg: msg, text: text || '(attachment)', _skipRender: true};
-        renderEvent({type: 'user_message', content: text || '(attachment)', _queued: true});
+        var seq = ++_localSeqCounter;
+        _pendingQueue.push({msg: msg, text: text || '(attachment)', localSeq: seq});
+        renderEvent({type: 'user_message', content: text || '(attachment)', _queued: true, _localSeq: seq});
         updateSendBtn();
         promptEl.focus();
         return;
     }
-    renderEvent({type: 'user_message', content: text || '(attachment)'});
+    var seq = ++_localSeqCounter;
+    renderEvent({type: 'user_message', content: text || '(attachment)', _localSeq: seq});
     ws.send(JSON.stringify(msg));
     setBusy(true);
     promptEl.focus();
@@ -1307,6 +1408,48 @@ EFFORTS.forEach((e, idx) => {
 });
 effortRow.appendChild(effortToggle);
 modePopup.appendChild(effortRow);
+
+// --- Font size controls ---
+const fontSep = document.createElement('div');
+fontSep.style.cssText = 'height:1px;background:#30363d;margin:6px 0;';
+modePopup.appendChild(fontSep);
+
+const fontRow = document.createElement('div');
+fontRow.style.cssText = 'padding:8px 14px;display:flex;align-items:center;gap:10px;';
+fontRow.innerHTML = `
+    <div style="color:var(--muted);flex-shrink:0;">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13V3h4l3 5-3 5"/><path d="M13 8H7"/></svg>
+    </div>
+    <div style="flex:1;font-size:13px;color:#e0e0e0;">Font size</div>`;
+const fontToggle = document.createElement('div');
+fontToggle.className = 'effort-toggle';
+let _fontSize = parseInt(localStorage.getItem('agent-view-fontsize') || '14');
+document.body.style.fontSize = _fontSize + 'px';
+function _updateFontLabel() {
+    fontLabel.textContent = _fontSize + 'px';
+}
+const fontMinus = document.createElement('button');
+fontMinus.className = 'effort-btn';
+fontMinus.textContent = '\u2212';
+fontMinus.title = 'Decrease font size';
+fontMinus.addEventListener('click', () => {
+    if (_fontSize > 10) { _fontSize--; document.body.style.fontSize = _fontSize + 'px'; localStorage.setItem('agent-view-fontsize', _fontSize); _updateFontLabel(); autoScroll(); }
+});
+const fontLabel = document.createElement('span');
+fontLabel.style.cssText = 'font-size:11px;color:var(--fg);min-width:30px;text-align:center;';
+fontLabel.textContent = _fontSize + 'px';
+const fontPlus = document.createElement('button');
+fontPlus.className = 'effort-btn';
+fontPlus.textContent = '+';
+fontPlus.title = 'Increase font size';
+fontPlus.addEventListener('click', () => {
+    if (_fontSize < 24) { _fontSize++; document.body.style.fontSize = _fontSize + 'px'; localStorage.setItem('agent-view-fontsize', _fontSize); _updateFontLabel(); autoScroll(); }
+});
+fontToggle.appendChild(fontMinus);
+fontToggle.appendChild(fontLabel);
+fontToggle.appendChild(fontPlus);
+fontRow.appendChild(fontToggle);
+modePopup.appendChild(fontRow);
 
 function updateModeUI() {
     const items = modePopup.querySelectorAll('.mode-item');

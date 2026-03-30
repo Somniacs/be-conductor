@@ -4984,7 +4984,13 @@
 
         function changeFontSize(id, delta) {
             const panel = panels.find(p => p.id === id);
-            if (!panel || !panel.terminal) return;
+            if (!panel) return;
+            // Agent sessions: forward to iframe
+            if (panel._agentIframe && panel._agentIframe.contentWindow) {
+                panel._agentIframe.contentWindow.postMessage({type: 'changeFontSize', delta: delta}, '*');
+                return;
+            }
+            if (!panel.terminal) return;
             const current = panel.terminal.options.fontSize || 14;
             const next = Math.min(28, Math.max(3, current + delta));
             panel.terminal.options.fontSize = next;
@@ -9836,11 +9842,18 @@
                 const cwd = (sess && sess.cwd) || '';
                 if (cwd) path = cwd.replace(/\/$/, '') + '/' + path;
             }
-            const ext = path.split('.').pop().toLowerCase();
-            const type = ['png','jpg','jpeg','gif','webp','svg'].includes(ext) ? 'image'
-                       : ['pdf'].includes(ext) ? 'pdf' : 'text';
+            const lastSegment = path.split('/').pop() || '';
+            const hasExt = lastSegment.includes('.');
             const rootPath = sessions.find(s => s.id === sessionId)?.cwd || null;
-            openFileViewerAtFile(path, type, server, rootPath);
+            if (!hasExt) {
+                // No extension — treat as directory, open folder view
+                openFileViewer(path, server, rootPath || path);
+            } else {
+                const ext = lastSegment.split('.').pop().toLowerCase();
+                const type = ['png','jpg','jpeg','gif','webp','svg'].includes(ext) ? 'image'
+                           : ['pdf'].includes(ext) ? 'pdf' : 'text';
+                openFileViewerAtFile(path, type, server, rootPath);
+            }
         });
 
         function closeFileOverlay() {
