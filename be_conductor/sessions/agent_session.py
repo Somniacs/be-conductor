@@ -199,9 +199,57 @@ class AgentSession:
 
             return {"content": [{"type": "text", "text": answer}]}
 
+        # Hook to intercept ExitPlanMode — show plan to user for approval
+        async def _exit_plan_hook(tool_input, tool_use_id=None, **kwargs):
+            from pathlib import Path
+            # Read the plan file if specified
+            plan_content = ""
+            plan_file = tool_input.get("planFile", "")
+            if not plan_file:
+                # Try to find it from context — Claude writes to a plan file
+                import glob as _glob
+                plan_files = _glob.glob(
+                    str(Path.home() / ".claude/plans/*.md"))
+                if plan_files:
+                    latest = max(plan_files, key=lambda f: Path(f).stat().st_mtime)
+                    try:
+                        plan_content = Path(latest).read_text(encoding="utf-8")
+                        plan_file = latest
+                    except Exception:
+                        pass
+            elif plan_file:
+                try:
+                    plan_content = Path(plan_file).read_text(encoding="utf-8")
+                except Exception:
+                    pass
+
+            # Emit plan review event to UI
+            self._emit_event({
+                "type": "plan_review",
+                "plan": plan_content,
+                "plan_file": plan_file,
+                "tool_use_id": tool_use_id,
+            })
+
+            # Wait for user approval
+            try:
+                answer = await asyncio.wait_for(
+                    self._question_answer_queue.get(), timeout=600
+                )
+            except asyncio.TimeoutError:
+                answer = "rejected"
+
+            if answer.lower() in ("approve", "approved", "yes", "ok"):
+                return None  # Allow the tool to proceed
+            else:
+                return {"content": [{"type": "text", "text": answer}]}
+
         try:
             hooks_config = {
-                "PreToolUse": [{"matcher": "AskUserQuestion", "hooks": [_ask_user_hook]}]
+                "PreToolUse": [
+                    {"matcher": "AskUserQuestion", "hooks": [_ask_user_hook]},
+                    {"matcher": "ExitPlanMode", "hooks": [_exit_plan_hook]},
+                ]
             }
         except Exception:
             hooks_config = None
@@ -210,7 +258,7 @@ class AgentSession:
             cwd=self.cwd or ".",
             allowed_tools=self._agent_options.get("allowed_tools"),
             permission_mode=self._agent_options.get(
-                "permission_mode", "bypassPermissions"
+                "permission_mode", "default"
             ),
             system_prompt=self._agent_options.get("system_prompt"),
             max_turns=self._agent_options.get("max_turns"),
@@ -256,8 +304,12 @@ class AgentSession:
                             text = item
                             attachments = None
                         # Assign a turn ID to group query + response
+                        # Use a unique prefix per agent loop to avoid collisions after stop/resume
+                        if not hasattr(self, '_turn_prefix'):
+                            import uuid as _uuid
+                            self._turn_prefix = _uuid.uuid4().hex[:6]
                         self._turn_counter = getattr(self, '_turn_counter', 0) + 1
-                        turn_id = f"turn-{self._turn_counter}"
+                        turn_id = f"turn-{self._turn_prefix}-{self._turn_counter}"
                         self._current_turn_id = turn_id
                         self._current_turn_btw = is_btw
                         if is_btw:
@@ -324,12 +376,23 @@ class AgentSession:
 
         try:
             response_iter = client.receive_response()
-        except Exception:
+        except Exception as e:
+            self._emit_event({
+                "type": "error",
+                "error": f"Response stream failed: {e}",
+            })
             return
 
         async for message in response_iter:
             if isinstance(message, AssistantMessage):
-                self._emit_event(self._format_assistant(message))
+                formatted = self._format_assistant(message)
+                self._emit_event(formatted)
+                # Detect ExitPlanMode — SDK handles it internally so PreToolUse hook won't fire.
+                # Read the plan file and emit plan_review so the frontend can show approval UI.
+                for _blk in formatted.get("content", []):
+                    if _blk.get("type") == "tool_use" and _blk.get("tool") == "ExitPlanMode":
+                        self._emit_plan_review()
+                        break
             elif isinstance(message, ResultMessage):
                 self._emit_event({
                     "type": "result",
@@ -369,6 +432,27 @@ class AgentSession:
                     "type": "rate_limit",
                     "info": str(rli) if rli else None,
                 })
+
+    def _emit_plan_review(self) -> None:
+        """Read the latest plan file and emit a plan_review event."""
+        from pathlib import Path
+        import glob as _glob
+        plan_content = ""
+        plan_file = ""
+        plan_files = _glob.glob(
+            str(Path.home() / ".claude/plans/*.md"))
+        if plan_files:
+            latest = max(plan_files, key=lambda f: Path(f).stat().st_mtime)
+            try:
+                plan_content = Path(latest).read_text(encoding="utf-8")
+                plan_file = latest
+            except Exception:
+                pass
+        self._emit_event({
+            "type": "plan_review",
+            "plan": plan_content,
+            "plan_file": plan_file,
+        })
 
     @staticmethod
     def _format_assistant(message: Any) -> dict:
@@ -598,13 +682,20 @@ class AgentSession:
 
         Valid modes: "default", "plan", "acceptEdits".
         """
+        import asyncio
         self._current_mode = mode
         if self._client is None:
+            self._broadcast_settings()
             return
+
+        async def _do_set_mode():
+            try:
+                await self._client.set_permission_mode(mode)
+            except Exception:
+                pass
+
         try:
-            self._client.set_permission_mode(mode)
-        except AttributeError:
-            pass
+            asyncio.ensure_future(_do_set_mode())
         except Exception:
             pass
         self._broadcast_settings()
@@ -614,13 +705,20 @@ class AgentSession:
 
         Valid levels: "low", "medium", "high", "max".
         """
+        import asyncio
         self._current_effort = effort
         if self._client is None:
+            self._broadcast_settings()
             return
+
+        async def _do_set_effort():
+            try:
+                await self._client.set_model(effort=effort)
+            except Exception:
+                pass
+
         try:
-            self._client.set_model(effort=effort)
-        except (AttributeError, TypeError):
-            pass
+            asyncio.ensure_future(_do_set_effort())
         except Exception:
             pass
         self._broadcast_settings()

@@ -25,9 +25,14 @@
 }
 *, *::before, *::after { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 14px; height: 100vh; height: 100dvh; overflow: hidden; display: flex; flex-direction: column; }
-#messages { flex: 1; overflow-y: auto; padding: 12px 16px; min-height: 0; }
-#drag-handle { height: 6px; cursor: row-resize; background: var(--bg-secondary); flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
-#drag-handle div { width: 30px; height: 2px; background: var(--border); border-radius: 1px; }
+#messages { flex: 1; overflow-y: auto; padding: 12px 16px 12px 16px; min-height: 0; position: relative; scroll-behavior: smooth; }
+#msg-nav { position: sticky; bottom: 0; float: right; display: flex; gap: 2px; padding: 4px; z-index: 10; }
+#msg-nav button { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 5px; width: 22px; height: 22px; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--muted); transition: opacity 0.15s, background 0.15s; }
+#msg-nav button:hover:not(:disabled) { background: var(--border); opacity: 1 !important; }
+#msg-nav button:disabled { cursor: default; }
+#drag-handle { height: 4px; cursor: row-resize; background: transparent; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+#drag-handle div { width: 24px; height: 2px; background: var(--border); border-radius: 1px; opacity: 0.4; }
+#drag-handle:hover div { opacity: 0.8; }
 #input-area { flex-shrink: 0; background: var(--bg-secondary); border-top: 1px solid var(--border); padding: 8px 12px; position: relative; }
 #input-box { display: flex; flex-direction: column; background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px; padding: 0; }
 #input-toolbar { display: flex; align-items: center; gap: 0; padding: 2px 4px; border-top: 1px solid var(--border); border-radius: 0 0 10px 10px; }
@@ -97,14 +102,25 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--fo
 summary[style*="list-style:none"]::-webkit-details-marker { display: none; }
 .msg-group[data-queued-group] { opacity: 0.4; }
 .msg-group[data-queued-group]::before { display: none; }
-#messages::-webkit-scrollbar { width: 8px; }
-#messages::-webkit-scrollbar-track { background: transparent; }
-#messages::-webkit-scrollbar-thumb { background: #30363d; border-radius: 4px; }
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #484f58; }
+::-webkit-scrollbar-corner { background: transparent; }
 </style>
 </head>
 <body>
 
-<div id="messages"></div>
+<div id="messages">
+    <div id="msg-nav">
+        <button id="nav-up" title="Previous question" disabled style="opacity:0.25;">
+            <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M2 7l4-4 4 4"/></svg>
+        </button>
+        <button id="nav-down" title="Next question" disabled style="opacity:0.25;">
+            <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M2 5l4 4 4-4"/></svg>
+        </button>
+    </div>
+</div>
 <div class="btw-panel" id="btw-panel"></div>
 <div id="drag-handle"><div></div></div>
 <div id="input-area">
@@ -119,13 +135,14 @@ summary[style*="list-style:none"]::-webkit-details-marker { display: none; }
             <button class="attach-btn" id="slash-btn" title="Commands">
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M10 3L6 13"/></svg>
             </button>
+            <div class="context-indicator" id="context-indicator" title="Context window usage" style="gap:4px;">
+                <svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="var(--border)" stroke-width="2"/><circle cx="8" cy="8" r="6" fill="none" stroke="var(--muted)" stroke-width="2" stroke-dasharray="37.7" stroke-dashoffset="37.7" id="context-ring" transform="rotate(-90 8 8)"/></svg>
+                <span id="context-label" style="font-size:10px;color:var(--muted);white-space:nowrap;"></span>
+            </div>
             <div style="flex:1;"></div>
             <div class="right-group" id="right-group">
                 <div class="mode-popup" id="mode-popup"></div>
                 <button class="mode-btn" id="mode-btn" title="Modes &amp; Effort"></button>
-                <div class="context-indicator" id="context-indicator" title="Context window usage">
-                    <svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="var(--border)" stroke-width="2"/><circle cx="8" cy="8" r="6" fill="none" stroke="var(--muted)" stroke-width="2" stroke-dasharray="37.7" stroke-dashoffset="37.7" id="context-ring" transform="rotate(-90 8 8)"/></svg>
-                </div>
                 <button class="send-btn" id="send-btn" title="Send (Enter)"></button>
             </div>
         </div>
@@ -282,8 +299,11 @@ function updateContextRing(usage) {
     if (!usage) return;
     const input = Number(usage.input_tokens || usage.inputTokens || 0);
     const output = Number(usage.output_tokens || usage.outputTokens || 0);
-    const cache = Number(usage.cache_read_input_tokens || usage.cacheReadInputTokens || 0);
-    totalTokens = input + output;
+    const cacheRead = Number(usage.cache_read_input_tokens || usage.cacheReadInputTokens || 0);
+    const cacheCreate = Number(usage.cache_creation_input_tokens || 0);
+    // Total context = all input tokens (including cached) + output
+    totalTokens = input + cacheRead + cacheCreate + output;
+    const cache = cacheRead + cacheCreate;
     const pct = Math.min(1, totalTokens / MAX_CONTEXT);
     const circumference = 37.7;
     const offset = circumference * (1 - pct);
@@ -295,7 +315,25 @@ function updateContextRing(usage) {
     const k = (totalTokens / 1000).toFixed(0);
     const pctStr = (pct * 100).toFixed(0);
     if (contextIndicator) {
-        contextIndicator.title = `Context: ${k}K / ${MAX_CONTEXT/1000}K tokens (${pctStr}%)${cache ? '\nCache: ' + (cache/1000).toFixed(0) + 'K' : ''}`;
+        contextIndicator.title = `Context: ${k}K / ${MAX_CONTEXT/1000}K tokens (${pctStr}%)${cache ? '\nCache: ' + (cache/1000).toFixed(0) + 'K' : ''}\nClick to compact`;
+        // JCEF tooltip (title doesn't work in JCEF)
+        var tooltip = contextIndicator.querySelector('.ctx-tooltip');
+        if (!tooltip) {
+            tooltip = document.createElement('div');
+            tooltip.className = 'ctx-tooltip';
+            tooltip.style.cssText = 'display:none;position:absolute;bottom:100%;left:0;margin-bottom:6px;background:#1c2028;border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:11px;color:var(--fg);white-space:nowrap;z-index:100;pointer-events:none;box-shadow:0 4px 12px rgba(0,0,0,0.4);';
+            contextIndicator.style.position = 'relative';
+            contextIndicator.appendChild(tooltip);
+            contextIndicator.addEventListener('mouseenter', () => { tooltip.style.display = 'block'; });
+            contextIndicator.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
+        }
+        tooltip.textContent = `${k}K / ${(MAX_CONTEXT/1000)}K tokens (${pctStr}%)` + (cache ? ` · Cache: ${(cache/1000).toFixed(0)}K` : '');
+        const label = document.getElementById('context-label');
+        if (label) {
+            const color = pct < 0.5 ? 'var(--muted)' : pct < 0.8 ? '#c4a000' : pct < 0.95 ? '#f0a020' : 'var(--error)';
+            label.textContent = k + 'K';
+            label.style.color = color;
+        }
     }
     // Update spinner with token count (only when > 0)
     if (spinnerEl && totalTokens > 0) {
@@ -311,12 +349,56 @@ function updateContextRing(usage) {
 }
 
 if (contextIndicator) {
-    contextIndicator.addEventListener('click', () => {
-        if (ws && ws.readyState === WebSocket.OPEN && totalTokens > 0) {
-            ws.send(JSON.stringify({type: 'prompt', text: '/compact'}));
-            setBusy(true);
+    // Context menu popup (like slash commands)
+    var _ctxPopup = document.createElement('div');
+    _ctxPopup.style.cssText = 'display:none;position:absolute;bottom:100%;left:0;margin-bottom:8px;background:#1c2028;border:1px solid var(--border);border-radius:10px;padding:6px 0;min-width:200px;z-index:150;box-shadow:0 8px 24px rgba(0,0,0,0.5);';
+    contextIndicator.style.position = 'relative';
+    contextIndicator.appendChild(_ctxPopup);
+
+    function _ctxMenuItem(label, desc, action) {
+        var item = document.createElement('div');
+        item.style.cssText = 'padding:7px 14px;cursor:pointer;font-size:13px;color:var(--fg);display:flex;align-items:center;gap:8px;';
+        item.innerHTML = '<div><div>' + label + '</div>' + (desc ? '<div style="font-size:11px;color:var(--muted);">' + desc + '</div>' : '') + '</div>';
+        item.addEventListener('mouseover', () => { item.style.background = '#2a2f3a'; });
+        item.addEventListener('mouseout', () => { item.style.background = ''; });
+        item.addEventListener('click', (e) => {
+            e.stopPropagation();
+            _ctxPopup.style.display = 'none';
+            action();
+        });
+        return item;
+    }
+
+    function _buildCtxPopup() {
+        _ctxPopup.innerHTML = '';
+        var header = document.createElement('div');
+        header.style.cssText = 'padding:6px 14px 2px;font-size:11px;color:var(--muted);font-weight:600;';
+        header.textContent = 'Context';
+        _ctxPopup.appendChild(header);
+
+        _ctxPopup.appendChild(_ctxMenuItem('/compact', 'Summarize conversation to free tokens', () => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({type: 'prompt', text: '/compact'}));
+                setBusy(true);
+            }
+        }));
+        _ctxPopup.appendChild(_ctxMenuItem('/clear', 'Clear the display', () => {
+            messagesEl.innerHTML = '';
+            if (navEl) messagesEl.appendChild(navEl);
+        }));
+    }
+
+    contextIndicator.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (_ctxPopup.style.display === 'none') {
+            _buildCtxPopup();
+            _ctxPopup.style.display = 'block';
+        } else {
+            _ctxPopup.style.display = 'none';
         }
     });
+    document.addEventListener('click', () => { _ctxPopup.style.display = 'none'; });
+    _ctxPopup.addEventListener('click', (e) => e.stopPropagation());
 }
 
 // --- State ---
@@ -487,11 +569,11 @@ function renderEvent(event) {
         if (event.mode in modeMap) { modeIdx = modeMap[event.mode]; updateModeUI(); }
         if (event.effort in effortMap) { effortIdx = effortMap[event.effort]; updateEffortUI(); }
         if (event.model) _currentModel = event.model;
-        if (event.models && event.models.length) _availableModels = event.models;
+        if (event.models && event.models.length) { _availableModels = event.models; if (typeof _updateModelSelect === 'function') _updateModelSelect(); }
         return;
     }
     if (etype === 'models') {
-        if (event.models && event.models.length) _availableModels = event.models;
+        if (event.models && event.models.length) { _availableModels = event.models; if (typeof _updateModelSelect === 'function') _updateModelSelect(); }
         return;
     }
 
@@ -544,6 +626,15 @@ function renderEvent(event) {
             div.innerHTML = `<div style="padding:10px 14px;background:var(--user-bg);border-radius:8px;border-left:3px solid var(--accent);white-space:pre-wrap;line-height:1.5;">${escHtml(content)}</div>`;
         }
         messagesEl.appendChild(div);
+        // Set this new message as the current nav position
+        _navUserAction = false;
+        var allUserMsgs = _getUserMessages();
+        _navIdx = allUserMsgs.length - 1;
+        // Highlight only this one's inner box
+        allUserMsgs.forEach((m, i) => {
+            var inner = m.querySelector('div');
+            if (inner) inner.style.boxShadow = i === _navIdx ? 'inset 0 0 0 2px var(--accent)' : '';
+        });
         // Always create a group — for queued messages too, so replies land in the right place
         var turnId = event.turn_id || '';
         var localSeq = event._localSeq || (++_localSeqCounter);
@@ -640,6 +731,11 @@ function renderEvent(event) {
                     targetGroup.appendChild(el);
                 }
 
+            } else if (block.type === 'tool_use' && block.tool === 'ExitPlanMode') {
+                // Skip rendering — the backend emits a separate plan_review event
+                // with the actual plan file content + the approval UI.
+                continue;
+
             } else if (block.type === 'tool_use') {
                 const el = document.createElement('div');
                 el.className = 'msg msg-claude msg-claude-dot';
@@ -689,6 +785,51 @@ function renderEvent(event) {
             setBusy(true);
         });
 
+    } else if (etype === 'plan_review') {
+        // Show plan marker in timeline
+        var planGroup = document.getElementById('current-group') || messagesEl;
+        var planEl = document.createElement('div');
+        planEl.className = 'msg msg-claude msg-claude-dot';
+        planEl.style.setProperty('--dot-top', 'calc(10px + 0.4em)');
+        var planContent = event.plan || '(empty plan)';
+
+        if (_replayingHistory) {
+            // During replay: show plan inline (no modal)
+            planEl.innerHTML = '<div style="padding:12px 16px;background:#1a1a2e;border-radius:8px;border-left:3px solid #c084fc;line-height:1.5;">' +
+                '<div style="font-size:11px;color:#c084fc;font-weight:600;margin-bottom:8px;">Plan Review</div>' +
+                '<div style="max-height:400px;overflow-y:auto;">' + _mdToHtml(planContent) + '</div></div>';
+            planGroup.appendChild(planEl);
+        } else {
+            // Live: show full plan inline + approval modal in input area
+            planEl.innerHTML = '<div style="padding:12px 16px;background:#1a1a2e;border-radius:8px;border-left:3px solid #c084fc;line-height:1.5;">' +
+                '<div style="font-size:11px;color:#c084fc;font-weight:600;margin-bottom:8px;">Plan Review</div>' +
+                '<div style="max-height:60vh;overflow-y:auto;">' + _mdToHtml(planContent) + '</div></div>';
+            planGroup.appendChild(planEl);
+            setBusy(false);
+
+            showPlanModal(planContent, function(answer) {
+                if (answer.startsWith('feedback:')) {
+                    // User typed feedback in the free text input
+                    var text = answer.slice(9);
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({type: 'answer', text: text}));
+                    }
+                    setBusy(true);
+                } else if (answer === 'approved') {
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({type: 'answer', text: 'approved'}));
+                    }
+                    setBusy(true);
+                } else if (answer === 'rejected') {
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({type: 'answer', text: 'rejected'}));
+                    }
+                    setBusy(true);
+                }
+                // cancelled: do nothing, user can still type
+            });
+        }
+
     } else if (etype === 'result') {
         if (event.usage) updateContextRing(event.usage);
         setBusy(false);
@@ -711,31 +852,208 @@ function renderEvent(event) {
 
 
 function autoScroll() {
+    // Keep nav buttons at the very end of messages
+    if (navEl && navEl.parentNode === messagesEl) {
+        messagesEl.appendChild(navEl);
+    }
     // Keep spinner at the bottom of its group
     if (spinnerEl && spinnerEl.parentNode) {
         spinnerEl.parentNode.appendChild(spinnerEl);
     }
-    // Update line for each group
+    // Update line for each group — connect first dot to last dot only
     messagesEl.querySelectorAll('.msg-group').forEach(g => {
         const dots = g.querySelectorAll('.msg-claude-dot');
         g.classList.toggle('single-dot', dots.length <= 1);
-        // Set line height to connect first dot to last dot
         if (dots.length >= 2) {
             const first = dots[0];
             const last = dots[dots.length - 1];
-            // Read actual dot ::before top for each endpoint
             const firstTop = parseFloat(getComputedStyle(first, '::before').top) || 0;
             const lastTop = parseFloat(getComputedStyle(last, '::before').top) || 0;
             const top = first.offsetTop + firstTop + 3.5;
             const bottom = last.offsetTop + lastTop + 3.5;
-            const line = g.querySelector(':scope::before') || g;
             g.style.setProperty('--line-top', top + 'px');
-            g.style.setProperty('--line-height', (bottom - top) + 'px');
+            g.style.setProperty('--line-height', Math.max(0, bottom - top) + 'px');
+        } else {
+            // No line when 0 or 1 dot
+            g.style.setProperty('--line-height', '0');
         }
     });
     if (messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 100) {
         messagesEl.scrollTop = messagesEl.scrollHeight;
     }
+    // Update navigation buttons
+    if (typeof _updateNavButtons === 'function') _updateNavButtons();
+}
+
+// --- Message navigation (jump between user questions) ---
+// _navIdx always points to a valid user message index.
+// Starts at the last message. Up goes older, down goes newer.
+var _navIdx = -1;  // will be set to last on first update
+const navUpBtn = document.getElementById('nav-up');
+const navDownBtn = document.getElementById('nav-down');
+const navEl = document.getElementById('msg-nav');
+
+function _getUserMessages() {
+    return Array.from(messagesEl.querySelectorAll('.msg-user'));
+}
+
+var _navUserAction = false;  // true when user clicked a nav button (prevents autoScroll reset)
+var _navHoldTimer = null;
+
+function _updateNavButtons() {
+    const msgs = _getUserMessages();
+    const count = msgs.length;
+    if (count === 0) { _navIdx = -1; return; }
+    // Only clamp to last if NOT actively navigating
+    if (!_navUserAction) {
+        if (_navIdx < 0 || _navIdx >= count) _navIdx = count - 1;
+    } else {
+        // Just keep in bounds
+        if (_navIdx >= count) _navIdx = count - 1;
+        if (_navIdx < 0) _navIdx = 0;
+    }
+    navUpBtn.disabled = count < 2 || _navIdx <= 0;
+    navDownBtn.disabled = count < 2 || _navIdx >= count - 1;
+    navUpBtn.style.opacity = navUpBtn.disabled ? '0.25' : '0.7';
+    navDownBtn.style.opacity = navDownBtn.disabled ? '0.25' : '0.7';
+}
+
+function _navTo(idx) {
+    const msgs = _getUserMessages();
+    if (msgs.length < 2) return;
+    _navUserAction = true;
+    _navIdx = Math.max(0, Math.min(idx, msgs.length - 1));
+    // Highlight current message's inner box, remove from others
+    msgs.forEach((m, i) => {
+        var inner = m.querySelector('div');
+        if (!inner) return;
+        if (i === _navIdx) {
+            inner.style.boxShadow = 'inset 0 0 0 2px var(--accent)';
+        } else {
+            inner.style.boxShadow = '';
+        }
+    });
+    msgs[_navIdx].scrollIntoView({ block: 'start', behavior: 'smooth' });
+    _updateNavButtons();
+}
+
+// Single click: one step
+navUpBtn.addEventListener('click', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    _navTo(_navIdx - 1);
+});
+navDownBtn.addEventListener('click', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    _navTo(_navIdx + 1);
+});
+
+// Long press (3s): jump to first/last
+function _startHold(btn, targetFn) {
+    _navHoldTimer = setTimeout(() => {
+        _navHoldTimer = null;
+        targetFn();
+    }, 1000);
+}
+function _cancelHold() {
+    if (_navHoldTimer) { clearTimeout(_navHoldTimer); _navHoldTimer = null; }
+}
+navUpBtn.addEventListener('mousedown', () => _startHold(navUpBtn, () => _navTo(0)));
+navUpBtn.addEventListener('mouseup', _cancelHold);
+navUpBtn.addEventListener('mouseleave', _cancelHold);
+navDownBtn.addEventListener('mousedown', () => _startHold(navDownBtn, () => _navTo(_getUserMessages().length - 1)));
+navDownBtn.addEventListener('mouseup', _cancelHold);
+navDownBtn.addEventListener('mouseleave', _cancelHold);
+
+// --- Plan modal (overlay over messages) ---
+function showPlanModal(planText, onAnswer) {
+    var inputArea = document.getElementById('input-area');
+    var inputBox = document.getElementById('input-box');
+    var handle = document.getElementById('drag-handle');
+
+    // Remove any existing modal
+    var old = document.getElementById('question-modal');
+    if (old) old.remove();
+
+    // Hide normal input + drag handle
+    if (inputBox) inputBox.style.display = 'none';
+    if (handle) handle.style.display = 'none';
+
+    // Scroll to bottom
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+
+    // Build modal in the input area (same pattern as showQuestionModal)
+    var modal = document.createElement('div');
+    modal.id = 'question-modal';
+    modal.style.cssText = 'padding:14px 16px;overflow-y:auto;border-top:2px solid #c084fc;position:relative;';
+
+    // Close X
+    var closeBtn = document.createElement('button');
+    closeBtn.innerHTML = '&times;';
+    closeBtn.style.cssText = 'position:absolute;top:8px;right:10px;background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;padding:2px 6px;line-height:1;border-radius:4px;';
+    closeBtn.addEventListener('mouseover', function() { closeBtn.style.color = 'var(--fg)'; closeBtn.style.background = 'var(--border)'; });
+    closeBtn.addEventListener('mouseout', function() { closeBtn.style.color = 'var(--muted)'; closeBtn.style.background = 'none'; });
+    closeBtn.addEventListener('click', function() { dismiss('cancelled'); });
+    modal.appendChild(closeBtn);
+
+    // Header
+    var hdr = document.createElement('div');
+    hdr.style.cssText = 'font-size:14px;color:var(--fg);font-weight:500;margin-bottom:10px;padding-right:24px;';
+    hdr.textContent = 'Approve this plan?';
+    modal.appendChild(hdr);
+
+    // Option buttons (VSCode permission prompt style)
+    var options = [
+        {num: '1', label: 'Approve & Implement', value: 'approved'},
+        {num: '2', label: 'Reject', value: 'rejected'},
+    ];
+    options.forEach(function(opt) {
+        var btn = document.createElement('button');
+        btn.style.cssText = 'background:var(--code-bg);color:var(--fg);border:1px solid var(--border);border-radius:8px;padding:10px 14px;cursor:pointer;font-size:13px;text-align:left;display:flex;align-items:center;gap:10px;margin-bottom:4px;width:100%;';
+        btn.innerHTML = '<span style="min-width:16px;flex-shrink:0;font-size:13px;color:var(--muted);font-weight:500;">' + opt.num + '</span><div>' + escHtml(opt.label) + '</div>';
+        btn.addEventListener('mouseover', function() { btn.style.borderColor = 'var(--accent)'; });
+        btn.addEventListener('mouseout', function() { btn.style.borderColor = 'var(--border)'; });
+        btn.addEventListener('click', function() {
+            modal.querySelectorAll('button').forEach(function(b) { b.style.opacity = '0.4'; b.style.pointerEvents = 'none'; });
+            btn.style.opacity = '1'; btn.style.borderColor = 'var(--accent)';
+            setTimeout(function() { dismiss(opt.value); }, 200);
+        });
+        modal.appendChild(btn);
+    });
+
+    // Free-text input for feedback
+    var freeRow = document.createElement('div');
+    freeRow.style.cssText = 'display:flex;gap:6px;margin-top:8px;align-items:center;';
+    var freeInput = document.createElement('input');
+    freeInput.type = 'text';
+    freeInput.placeholder = 'Tell Claude what to change...';
+    freeInput.style.cssText = 'flex:1;background:var(--code-bg);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:13px;outline:none;';
+    freeInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && freeInput.value.trim()) dismiss('feedback:' + freeInput.value.trim());
+    });
+    freeRow.appendChild(freeInput);
+    modal.appendChild(freeRow);
+
+    // Esc hint
+    var hint = document.createElement('div');
+    hint.style.cssText = 'font-size:11px;color:var(--muted);margin-top:6px;opacity:0.6;';
+    hint.textContent = 'Esc to cancel';
+    modal.appendChild(hint);
+
+    // Esc handler
+    var escHandler = function(e) { if (e.key === 'Escape') dismiss('cancelled'); };
+    document.addEventListener('keydown', escHandler);
+
+    function dismiss(answer) {
+        modal.remove();
+        if (inputBox) inputBox.style.display = '';
+        if (handle) handle.style.display = '';
+        document.removeEventListener('keydown', escHandler);
+        setTimeout(function() { messagesEl.scrollTop = messagesEl.scrollHeight; }, 100);
+        onAnswer(answer);
+    }
+
+    inputArea.appendChild(modal);
+    freeInput.focus();
 }
 
 // --- Question modal ---
@@ -861,6 +1179,8 @@ let spinnerInterval = null;
 let _pendingQueue = [];       // FIFO queue of {msg, text} for messages sent while busy
 let _localSeqCounter = 0;     // monotonic counter for user message groups
 var _currentModel = 'default';
+var _thinkingEnabled = false;
+var _planPendingApproval = false;
 var _availableModels = [];
 var _btwPanel = document.getElementById('btw-panel');
 var _btwActive = false;
@@ -905,11 +1225,19 @@ function setBusy(b) {
             (grp || messagesEl).appendChild(spinnerEl);
         }
         let verbIdx = Math.floor(Math.random() * _verbs.length);
+        function _formatDuration(totalSec) {
+            if (totalSec < 60) return totalSec + 's';
+            const m = Math.floor(totalSec / 60);
+            const s = totalSec % 60;
+            if (m < 60) return m + 'm ' + (s > 0 ? s + 's' : '');
+            const h = Math.floor(m / 60);
+            return h + 'h ' + (m % 60) + 'm';
+        }
         const updateSpinner = () => {
             if (!spinnerEl) return;
             const s = Math.round((Date.now() - busyStartTime) / 1000);
             const verb = _verbs[verbIdx % _verbs.length];
-            spinnerEl.querySelector('.spinner-text').textContent = `${verb}... ${s}s`;
+            spinnerEl.querySelector('.spinner-text').textContent = `${verb}... ${_formatDuration(s)}`;
         };
         updateSpinner();
         spinnerInterval = setInterval(() => {
@@ -1080,6 +1408,19 @@ function sendPrompt() {
     if (!text && !pendingAttachments.length) return;
     if (text) { _inputHistory.push(text); _historyIdx = -1; _historyDraft = ''; }
     _userDismissedQuestion = true;
+    // Plan approval feedback — send as answer, not prompt
+    if (_planPendingApproval && text) {
+        _planPendingApproval = false;
+        promptEl.value = '';
+        promptEl.style.height = '38px';
+        promptEl.placeholder = 'Message Claude...';
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({type: 'answer', text: text}));
+        }
+        setBusy(true);
+        promptEl.focus();
+        return;
+    }
     // Handle slash commands
     if (text.startsWith('/') && !text.includes(' ') && !text.includes('\n')) {
         var matched = _slashFiltered.filter(function(c) { return !c.section; });
@@ -1265,7 +1606,13 @@ function refreshAttachmentPreview() {
         }
         const nameSpan = document.createElement('span');
         nameSpan.textContent = att.name;
+        nameSpan.style.cursor = 'pointer';
+        nameSpan.addEventListener('click', () => _showAttachmentPreview(att));
         item.appendChild(nameSpan);
+        if (att.preview) {
+            item.querySelector('img').style.cursor = 'pointer';
+            item.querySelector('img').addEventListener('click', () => _showAttachmentPreview(att));
+        }
         const removeBtn = document.createElement('button');
         removeBtn.className = 'remove-btn';
         removeBtn.innerHTML = '&times;';
@@ -1276,6 +1623,68 @@ function refreshAttachmentPreview() {
         item.appendChild(removeBtn);
         attachPreview.appendChild(item);
     });
+}
+
+function _showAttachmentPreview(att) {
+    // Remove existing preview overlay
+    var existing = document.getElementById('attach-overlay');
+    if (existing) existing.remove();
+
+    var overlay = document.createElement('div');
+    overlay.id = 'attach-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:1000;display:flex;align-items:center;justify-content:center;cursor:pointer;';
+    overlay.addEventListener('click', () => overlay.remove());
+    document.addEventListener('keydown', function handler(e) {
+        if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', handler); }
+    });
+
+    var container = document.createElement('div');
+    container.style.cssText = 'background:var(--bg-secondary);border:1px solid var(--border);border-radius:10px;max-width:80vw;max-height:80vh;overflow:auto;padding:16px;position:relative;cursor:default;';
+    container.addEventListener('click', (e) => e.stopPropagation());
+
+    // Close button
+    var closeBtn = document.createElement('button');
+    closeBtn.innerHTML = '&times;';
+    closeBtn.style.cssText = 'position:absolute;top:8px;right:12px;background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;z-index:1;';
+    closeBtn.addEventListener('click', () => overlay.remove());
+    container.appendChild(closeBtn);
+
+    // Title
+    var title = document.createElement('div');
+    title.style.cssText = 'font-size:13px;color:var(--fg);font-weight:500;margin-bottom:10px;padding-right:24px;';
+    title.textContent = att.name;
+    container.appendChild(title);
+
+    // Content
+    var isImage = att.type && att.type.startsWith('image/');
+    if (isImage && att.data) {
+        var img = document.createElement('img');
+        img.src = 'data:' + att.type + ';base64,' + att.data;
+        img.style.cssText = 'max-width:100%;max-height:70vh;border-radius:6px;';
+        container.appendChild(img);
+    } else if (isImage && att.preview) {
+        var img = document.createElement('img');
+        img.src = att.preview;
+        img.style.cssText = 'max-width:100%;max-height:70vh;border-radius:6px;';
+        container.appendChild(img);
+    } else if (att.data) {
+        // Text content — decode base64
+        try {
+            var text = atob(att.data);
+            var pre = document.createElement('pre');
+            pre.style.cssText = 'margin:0;font-size:12px;color:var(--fg);white-space:pre-wrap;line-height:1.5;max-height:70vh;overflow:auto;background:var(--code-bg);padding:12px;border-radius:6px;';
+            pre.textContent = text;
+            container.appendChild(pre);
+        } catch {
+            var p = document.createElement('div');
+            p.style.cssText = 'color:var(--muted);font-size:13px;';
+            p.textContent = 'Binary file — ' + (att.data.length * 0.75 / 1024).toFixed(1) + ' KB';
+            container.appendChild(p);
+        }
+    }
+
+    overlay.appendChild(container);
+    document.body.appendChild(overlay);
 }
 
 document.getElementById('slash-btn').addEventListener('click', function(e) {
@@ -1409,6 +1818,153 @@ EFFORTS.forEach((e, idx) => {
 effortRow.appendChild(effortToggle);
 modePopup.appendChild(effortRow);
 
+// --- Thinking toggle ---
+const thinkSep = document.createElement('div');
+thinkSep.style.cssText = 'height:1px;background:#30363d;margin:6px 0;';
+modePopup.appendChild(thinkSep);
+
+const thinkRow = document.createElement('div');
+thinkRow.style.cssText = 'padding:8px 14px;display:flex;align-items:center;gap:10px;cursor:pointer;';
+thinkRow.innerHTML = `
+    <div style="color:var(--muted);flex-shrink:0;">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="5" r="3"/><path d="M6 8.5C4.5 9.5 4 11 5 13h6c1-2 .5-3.5-1-4.5"/></svg>
+    </div>
+    <div style="flex:1;font-size:13px;color:#e0e0e0;">Thinking</div>`;
+const thinkToggle = document.createElement('span');
+function _updateThinkToggle() {
+    thinkToggle.innerHTML = '<span style="display:inline-block;width:32px;height:18px;border-radius:9px;background:' + (_thinkingEnabled ? '#4a6cf7' : '#333') + ';position:relative;vertical-align:middle;transition:background 0.2s;cursor:pointer;"><span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:#e0e0e0;position:absolute;top:2px;' + (_thinkingEnabled ? 'left:16px' : 'left:2px') + ';transition:left 0.2s;"></span></span>';
+}
+_updateThinkToggle();
+thinkRow.appendChild(thinkToggle);
+thinkRow.addEventListener('click', () => {
+    _thinkingEnabled = !_thinkingEnabled;
+    _updateThinkToggle();
+});
+modePopup.appendChild(thinkRow);
+
+// --- Bypass Permissions toggle ---
+var _bypassEnabled = false;
+const bypassRow = document.createElement('div');
+bypassRow.style.cssText = 'padding:8px 14px;display:flex;align-items:center;gap:10px;cursor:pointer;';
+bypassRow.innerHTML = `
+    <div style="color:var(--muted);flex-shrink:0;">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1v4M4.5 2.5l2 2M11.5 2.5l-2 2"/><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M6 10h4"/></svg>
+    </div>
+    <div style="flex:1;font-size:13px;color:#e0e0e0;">Bypass Permissions</div>`;
+const bypassToggle = document.createElement('span');
+function _updateBypassToggle() {
+    bypassToggle.innerHTML = '<span style="display:inline-block;width:32px;height:18px;border-radius:9px;background:' + (_bypassEnabled ? '#e67e22' : '#333') + ';position:relative;vertical-align:middle;transition:background 0.2s;cursor:pointer;"><span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:#e0e0e0;position:absolute;top:2px;' + (_bypassEnabled ? 'left:16px' : 'left:2px') + ';transition:left 0.2s;"></span></span>';
+}
+_updateBypassToggle();
+bypassRow.appendChild(bypassToggle);
+bypassRow.addEventListener('click', () => {
+    _bypassEnabled = !_bypassEnabled;
+    _updateBypassToggle();
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({type: 'set_mode', mode: _bypassEnabled ? 'bypassPermissions' : MODES[modeIdx].value}));
+    }
+});
+modePopup.appendChild(bypassRow);
+
+// --- Model selector (opens picker modal) ---
+const modelRow = document.createElement('div');
+modelRow.style.cssText = 'padding:8px 14px;display:flex;align-items:center;gap:10px;cursor:pointer;';
+modelRow.innerHTML = `
+    <div style="color:var(--muted);flex-shrink:0;">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="12" height="12" rx="2"/><path d="M5 6h6M5 8h4M5 10h5"/></svg>
+    </div>
+    <div style="flex:1;font-size:13px;color:#e0e0e0;">Switch model\u2026</div>
+    <div id="model-current-label" style="font-size:11px;color:var(--muted);"></div>`;
+function _getModelLabel(val) {
+    for (var i = 0; i < _availableModels.length; i++) {
+        if (_availableModels[i].value === val) return _availableModels[i].displayName;
+    }
+    return 'Default (Opus 4.6)';
+}
+function _updateModelSelect() {
+    var label = document.getElementById('model-current-label');
+    if (label) label.textContent = _getModelLabel(_currentModel);
+}
+_updateModelSelect();
+modelRow.addEventListener('click', () => { _openModelPicker(); });
+modePopup.appendChild(modelRow);
+
+// --- Model picker modal ---
+function _openModelPicker() {
+    // Close mode popup
+    modePopup.classList.remove('open');
+    // Create overlay
+    var overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:flex-start;justify-content:center;padding-top:20vh;';
+    var dialog = document.createElement('div');
+    dialog.style.cssText = 'background:#1c2128;border:1px solid var(--border);border-radius:10px;width:360px;max-width:90vw;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.5);';
+    var title = document.createElement('div');
+    title.style.cssText = 'padding:14px 16px 10px;font-size:13px;color:var(--muted);';
+    title.textContent = 'Select a model';
+    dialog.appendChild(title);
+    var models = _availableModels.length ? _availableModels : [
+        {value:'default', displayName:'Default (recommended)', description:'Most capable, 1M context'},
+    ];
+    models.forEach(function(m) {
+        var item = document.createElement('div');
+        var isActive = m.value === _currentModel;
+        item.style.cssText = 'padding:10px 16px;cursor:pointer;display:flex;align-items:center;gap:10px;' + (isActive ? 'background:#263040;' : '');
+        item.addEventListener('mouseenter', function() { if (!isActive) item.style.background = '#262c36'; });
+        item.addEventListener('mouseleave', function() { item.style.background = isActive ? '#263040' : ''; });
+        var info = document.createElement('div');
+        info.style.cssText = 'flex:1;';
+        var nameEl = document.createElement('div');
+        nameEl.style.cssText = 'font-size:13px;color:#e0e0e0;font-weight:500;';
+        nameEl.textContent = m.displayName;
+        info.appendChild(nameEl);
+        if (m.description) {
+            var descEl = document.createElement('div');
+            descEl.style.cssText = 'font-size:11px;color:var(--muted);margin-top:2px;';
+            descEl.textContent = m.description;
+            info.appendChild(descEl);
+        }
+        item.appendChild(info);
+        if (isActive) {
+            var check = document.createElement('div');
+            check.style.cssText = 'color:var(--accent);font-size:16px;';
+            check.innerHTML = '&#10003;';
+            item.appendChild(check);
+        }
+        item.addEventListener('click', function() {
+            if (m.value !== _currentModel) {
+                _currentModel = m.value;
+                _updateModelSelect();
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({type: 'set_model', model: _currentModel}));
+                }
+                _addModelSwitchBanner(_getModelLabel(_currentModel));
+            }
+            overlay.remove();
+        });
+        dialog.appendChild(item);
+    });
+    overlay.appendChild(dialog);
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+    document.body.appendChild(overlay);
+}
+
+// --- Model switch banner in timeline ---
+function _addModelSwitchBanner(label) {
+    var banner = document.createElement('div');
+    banner.style.cssText = 'display:flex;align-items:center;gap:12px;padding:8px 0;margin:4px 24px;';
+    var line1 = document.createElement('div');
+    line1.style.cssText = 'flex:1;height:1px;background:repeating-linear-gradient(90deg,var(--muted) 0,var(--muted) 4px,transparent 4px,transparent 8px);opacity:0.4;';
+    var text = document.createElement('div');
+    text.style.cssText = 'font-size:12px;color:var(--muted);white-space:nowrap;';
+    text.textContent = 'Switched to ' + label;
+    var line2 = line1.cloneNode(true);
+    banner.appendChild(line1);
+    banner.appendChild(text);
+    banner.appendChild(line2);
+    messagesEl.appendChild(banner);
+    autoScroll();
+}
+
 // --- Font size controls ---
 const fontSep = document.createElement('div');
 fontSep.style.cssText = 'height:1px;background:#30363d;margin:6px 0;';
@@ -1459,8 +2015,8 @@ function updateModeUI() {
         if (check) check.style.display = i === modeIdx ? 'block' : 'none';
     });
     const m = MODES[modeIdx];
-    const shortLabels = {default: 'ask', acceptEdits: 'edit', plan: 'plan'};
-    modeBtn.innerHTML = m.icon.replace('width="16"', 'width="14"').replace('height="16"', 'height="14"') + ' <span>' + (shortLabels[m.value] || m.label) + '</span>';
+    const labels = {default: 'Ask Mode', acceptEdits: 'Auto Edit', plan: 'Plan Mode'};
+    modeBtn.innerHTML = m.icon.replace('width="16"', 'width="14"').replace('height="16"', 'height="14"') + ' <span>' + (labels[m.value] || m.label) + '</span>';
 }
 
 function updateEffortUI() {
@@ -1481,35 +2037,16 @@ modePopup.addEventListener('click', (e) => e.stopPropagation());
 
 // --- Slash command popup (command palette) ---
 var _slashPopupEl = document.getElementById('slash-popup');
-var _thinkingEnabled = false;
 
 // All items: {section}, {cmd, label, action}, or {type:'widget', id, render}
 function _getSlashItems() {
     var shortLabels = {0: 'Ask', 1: 'Edit', 2: 'Plan'};
     return [
-        {section: 'Context'},
-        // /btw hidden — SDK doesn't support ephemeral side-queries yet (CLI-only)
+        {section: 'Commands'},
         {cmd: '/compact', label: 'Compact conversation', desc: 'Free up tokens', action: function() {
             if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type: 'prompt', text: '/compact'}));
         }},
         {cmd: '/clear', label: 'Clear conversation', action: function() { messagesEl.innerHTML = ''; }},
-        {section: 'Model'},
-        {type: 'model'},
-        {type: 'effort'},
-        {type: 'thinking'},
-        {section: 'Mode'},
-        {cmd: '/ask', label: 'Ask before edits', right: modeIdx === 0 ? '\u2713' : '', action: function() {
-            modeIdx = 0; updateModeUI();
-            if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type: 'set_mode', mode: 'default'}));
-        }},
-        {cmd: '/edit', label: 'Edit automatically', right: modeIdx === 1 ? '\u2713' : '', action: function() {
-            modeIdx = 1; updateModeUI();
-            if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type: 'set_mode', mode: 'acceptEdits'}));
-        }},
-        {cmd: '/plan', label: 'Plan mode', right: modeIdx === 2 ? '\u2713' : '', action: function() {
-            modeIdx = 2; updateModeUI();
-            if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type: 'set_mode', mode: 'plan'}));
-        }},
     ];
 }
 
@@ -1524,16 +2061,8 @@ function _renderEffortWidget() {
 }
 
 function _renderModelWidget() {
-    var currentLabel = 'Default';
-    for (var i = 0; i < _availableModels.length; i++) {
-        if (_availableModels[i].value === _currentModel) { currentLabel = _availableModels[i].displayName; break; }
-    }
-    var options = _availableModels.map(function(m) {
-        var sel = m.value === _currentModel ? ' selected' : '';
-        return '<option value="' + m.value + '"' + sel + '>' + m.displayName + ' \u2014 ' + (m.description || '') + '</option>';
-    }).join('');
-    if (!options) options = '<option value="default">Default (recommended)</option>';
-    return '<div class="slash-item" style="cursor:default;">Model<span style="margin-left:auto;"><select id="slash-model-select" style="background:#0d1117;color:var(--fg);border:1px solid var(--border);border-radius:4px;padding:3px 6px;font-size:12px;outline:none;cursor:pointer;">' + options + '</select></span></div>';
+    var currentLabel = _getModelLabel(_currentModel);
+    return '<div class="slash-item" id="slash-model-switch" style="cursor:pointer;">Switch model\u2026<span style="margin-left:auto;color:var(--muted);font-size:12px;">' + escHtml(currentLabel) + '</span></div>';
 }
 
 function _renderThinkingWidget() {
@@ -1606,16 +2135,14 @@ function _renderSlashPopup() {
             _renderSlashPopup();
         });
     }
-    // Bind model select
-    var modelSel = document.getElementById('slash-model-select');
-    if (modelSel) {
-        modelSel.addEventListener('change', function(e) {
+    // Bind model switch
+    var modelSwitch = document.getElementById('slash-model-switch');
+    if (modelSwitch) {
+        modelSwitch.addEventListener('click', function(e) {
             e.stopPropagation();
-            _currentModel = modelSel.value;
-            if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type: 'set_model', model: _currentModel}));
-            _renderSlashPopup();
+            closeSlashPopup();
+            _openModelPicker();
         });
-        modelSel.addEventListener('click', function(e) { e.stopPropagation(); });
     }
 }
 
@@ -1636,6 +2163,11 @@ function _slashSelect() {
     }
 }
 function closeSlashPopup() { _slashPopupEl.classList.remove('open'); _slashOpen = false; }
+document.addEventListener('click', (e) => {
+    if (_slashOpen && !_slashPopupEl.contains(e.target) && e.target !== promptEl && e.target.id !== 'slash-btn') {
+        closeSlashPopup();
+    }
+});
 
 // --- Drag handle (resize input area) ---
 dragHandle.addEventListener('mousedown', (e) => {

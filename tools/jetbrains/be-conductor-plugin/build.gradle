@@ -4,7 +4,17 @@ plugins {
 }
 
 group = 'com.somniacs.beconductor'
-version = pluginVersion
+
+// Read version from pyproject.toml (single source of truth)
+def pyprojectFile = file("${rootProject.projectDir}/../../../pyproject.toml")
+def serverVersion = pluginVersion  // fallback
+if (pyprojectFile.exists()) {
+    pyprojectFile.eachLine { line ->
+        def m = (line =~ /^version\s*=\s*"(.+?)"/)
+        if (m) serverVersion = m[0][1]
+    }
+}
+version = serverVersion
 
 repositories {
     mavenCentral()

@@ -160,7 +160,7 @@ public class ServerListPanel extends JPanel {
                     ApiModels.InfoResponse info = BeConductorClient.getInstance().getInfo(server.key);
                     probeCache.put(server.key, info);
                 } catch (Exception e) {
-                    probeCache.put(server.key, null);
+                    probeCache.remove(server.key);
                 }
                 SwingUtilities.invokeLater(() -> serverList.repaint());
             });
@@ -270,7 +270,7 @@ public class ServerListPanel extends JPanel {
                                 server.label + " — v" + info.version, NotificationType.INFORMATION));
                     });
                 } catch (Exception ex) {
-                    probeCache.put(server.key, null);
+                    probeCache.remove(server.key);
                     SwingUtilities.invokeLater(() -> {
                         serverList.repaint();
                         Notifications.Bus.notify(new Notification("be-conductor", "Server Offline",

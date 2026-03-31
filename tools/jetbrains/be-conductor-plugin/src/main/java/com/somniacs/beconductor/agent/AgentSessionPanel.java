@@ -31,8 +31,15 @@ public class AgentSessionPanel extends JPanel implements Disposable {
                 + "&ws=" + URLEncoder.encode(wsBase, StandardCharsets.UTF_8);
 
         if (JBCefApp.isSupported()) {
-            browser = new JBCefBrowser(url);
-            add(browser.getComponent(), BorderLayout.CENTER);
+            // Defer browser creation so the panel is already in a visible window
+            // hierarchy — avoids black screen when used inside tool windows.
+            SwingUtilities.invokeLater(() -> {
+                if (browser != null) return; // guard against double-init
+                browser = new JBCefBrowser(url);
+                add(browser.getComponent(), BorderLayout.CENTER);
+                revalidate();
+                repaint();
+            });
         } else {
             // Fallback: show a message with a link
             JLabel label = new JLabel(

@@ -576,6 +576,24 @@ class SessionRegistry:
         return self.sessions.get(session_id)
 
     def list_all(self) -> list[dict]:
+        # Detect dead agent sessions: _run_task finished but session still
+        # in self.sessions.  Move them to resumable so they show as "exited".
+        dead_agents = []
+        for sid, session in self.sessions.items():
+            if getattr(session, 'session_type', 'pty') == 'agent':
+                task = getattr(session, '_run_task', None)
+                if task and task.done():
+                    dead_agents.append(sid)
+        for sid in dead_agents:
+            session = self.sessions.pop(sid, None)
+            if session:
+                session.status = "exited"
+                meta = session.to_dict()
+                meta["status"] = "exited"
+                self.resumable[sid] = meta
+                self._save_metadata_dict(meta)
+                log.info("Cleaned up dead agent session: %s", sid)
+
         live = [s.to_dict() for s in self.sessions.values()]
         # Refresh worktree commits_ahead for resumable sessions
         resumable = []

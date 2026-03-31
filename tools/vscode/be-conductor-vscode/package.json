@@ -2,7 +2,7 @@
   "name": "be-conductor-launcher",
   "displayName": "be-conductor",
   "description": "Launch AI agent sessions from VS Code via be-conductor (https://github.com/somniacs/be-conductor)",
-  "version": "0.3.38",
+  "version": "0.3.39",
   "publisher": "somniacs",
   "license": "MIT",
   "repository": {
@@ -286,6 +286,11 @@
         }
       }
     }
+  },
+  "scripts": {
+    "sync-version": "node -e \"const fs=require('fs');const t=fs.readFileSync('../../../pyproject.toml','utf8');const m=t.match(/^version\\s*=\\s*\\\"(.+?)\\\"/m);if(m){const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version=m[1];fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\\n');console.log('Synced version to '+m[1])}\"",
+    "prepackage": "npm run sync-version",
+    "package": "vsce package --allow-missing-repository"
   },
   "devDependencies": {
     "@vscode/vsce": "^2.32.0"

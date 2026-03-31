@@ -443,9 +443,13 @@ public class SessionListPanel extends JPanel {
         if (alive) {
             if ("running".equals(session.status)) {
                 if (session.isAgent()) {
-                    JMenuItem openItem = new JMenuItem("Open Agent");
+                    JMenuItem openItem = new JMenuItem("Open in Editor");
                     openItem.addActionListener(e -> openAgentInBrowser(session.serverKey, session.id));
                     menu.add(openItem);
+
+                    JMenuItem panelItem = new JMenuItem("Open as Panel");
+                    panelItem.addActionListener(e -> openAgentAsToolWindow(session.serverKey, session.id));
+                    menu.add(panelItem);
                 } else {
                     JMenuItem attachItem = new JMenuItem("Attach");
                     attachItem.addActionListener(e -> attachSession(session.name, session.cwd));
@@ -576,9 +580,55 @@ public class SessionListPanel extends JPanel {
         openAgentSession(proj, "local", sessionId);
     }
 
-    /** Open an agent session in a native panel inside the IDE. */
+    /** Open an agent session as a dockable tool window (static entry point). */
+    public static void openAgentSessionAsPanel(com.intellij.openapi.project.Project proj, String serverKey, String sessionId) {
+        ApplicationManager.getApplication().invokeLater(() -> {
+            if (proj == null || proj.isDisposed()) return;
+            openAgentToolWindow(proj, serverKey, sessionId);
+        });
+    }
+
+    /** Open an agent session in the editor area (default). */
     private void openAgentInBrowser(String serverKey, String sessionId) {
         openAgentPanel(project, serverKey, sessionId);
+    }
+
+    /** Open an agent session as a dockable tool window (bottom/side/floating). */
+    private void openAgentAsToolWindow(String serverKey, String sessionId) {
+        openAgentToolWindow(project, serverKey, sessionId);
+    }
+
+    /**
+     * Open (or focus) an agent session as a tool window — can be docked to
+     * bottom, left, right, or floated as a separate window.
+     */
+    private static void openAgentToolWindow(com.intellij.openapi.project.Project proj, String serverKey, String sessionId) {
+        String twId = "Agent: " + sessionId;
+        com.intellij.openapi.wm.ToolWindow existing =
+                com.intellij.openapi.wm.ToolWindowManager.getInstance(proj).getToolWindow(twId);
+        if (existing != null) {
+            existing.show();
+            return;
+        }
+        com.intellij.openapi.wm.ToolWindowManager twm =
+                com.intellij.openapi.wm.ToolWindowManager.getInstance(proj);
+        com.intellij.openapi.wm.ToolWindow tw = twm.registerToolWindow(
+                twId,
+                true,
+                com.intellij.openapi.wm.ToolWindowAnchor.BOTTOM
+        );
+        tw.setTitle(sessionId);
+        tw.setStripeTitle(sessionId + " (Agent)");
+        tw.setIcon(com.intellij.openapi.util.IconLoader.getIcon("/icons/be-conductor.svg", SessionListPanel.class));
+
+        com.somniacs.beconductor.agent.AgentSessionPanel panel =
+                new com.somniacs.beconductor.agent.AgentSessionPanel(proj, serverKey, sessionId);
+        com.intellij.ui.content.Content content = tw.getContentManager()
+                .getFactory().createContent(panel, sessionId, false);
+        content.setCloseable(true);
+        content.setDisposer(panel);
+        tw.getContentManager().addContent(content);
+        tw.show();
     }
 
     /**
@@ -622,6 +672,7 @@ public class SessionListPanel extends JPanel {
         );
         tw.setTitle(sessionId);
         tw.setStripeTitle(sessionId + " (Agent)");
+        try { tw.setIcon(com.intellij.openapi.util.IconLoader.getIcon("/icons/be-conductor.svg", SessionListPanel.class)); } catch (Exception ignored) {}
 
         com.somniacs.beconductor.agent.AgentSessionPanel panel =
                 new com.somniacs.beconductor.agent.AgentSessionPanel(proj, serverKey, sessionId);

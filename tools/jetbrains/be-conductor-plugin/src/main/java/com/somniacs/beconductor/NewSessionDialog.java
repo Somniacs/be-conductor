@@ -74,10 +74,12 @@ public class NewSessionDialog extends DialogWrapper {
         c.insets = new Insets(4, 4, 4, 8);
         c.anchor = GridBagConstraints.WEST;
 
-        // Row 0: Server (only shown when multi-server)
+        int row = 0;
+
+        // Row: Server (only shown when multi-server)
         if (enabledServers.size() > 1) {
             c.gridx = 0;
-            c.gridy = 0;
+            c.gridy = row;
             c.fill = GridBagConstraints.NONE;
             c.weightx = 0;
             panel.add(new JBLabel("Server:"), c);
@@ -89,7 +91,6 @@ public class NewSessionDialog extends DialogWrapper {
                 int idx = serverCombo.getSelectedIndex();
                 if (idx >= 0 && idx < enabledServers.size()) {
                     selectedServerKey = enabledServers.get(idx).key;
-                    // Reload config for the selected server
                     serverCommands = null;
                     loadServerConfig();
                 }
@@ -98,11 +99,12 @@ public class NewSessionDialog extends DialogWrapper {
             c.fill = GridBagConstraints.HORIZONTAL;
             c.weightx = 1;
             panel.add(serverCombo, c);
+            row++;
         }
 
-        // Row 1: Command
+        // Row: Command
         c.gridx = 0;
-        c.gridy = enabledServers.size() > 1 ? 1 : 0;
+        c.gridy = row;
         c.fill = GridBagConstraints.NONE;
         c.weightx = 0;
         panel.add(new JBLabel("Command:"), c);
@@ -129,9 +131,10 @@ public class NewSessionDialog extends DialogWrapper {
         c.weightx = 1.0;
         panel.add(commandCombo, c);
 
-        // Row 1: Session name
+        // Row: Session name
+        row++;
         c.gridx = 0;
-        c.gridy = 1;
+        c.gridy = row;
         c.gridwidth = 1;
         c.fill = GridBagConstraints.NONE;
         c.weightx = 0;
@@ -145,9 +148,10 @@ public class NewSessionDialog extends DialogWrapper {
         c.weightx = 1.0;
         panel.add(nameField, c);
 
-        // Row 2: Working directory
+        // Row: Working directory
+        row++;
         c.gridx = 0;
-        c.gridy = 2;
+        c.gridy = row;
         c.gridwidth = 1;
         c.fill = GridBagConstraints.NONE;
         c.weightx = 0;
@@ -168,15 +172,16 @@ public class NewSessionDialog extends DialogWrapper {
         c.weightx = 1.0;
         panel.add(cwdField, c);
 
-        // Row 3: Session type
+        // Row: Session type
+        row++;
         c.gridx = 0;
-        c.gridy = 3;
+        c.gridy = row;
         c.gridwidth = 1;
         c.fill = GridBagConstraints.NONE;
         c.weightx = 0;
         panel.add(new JBLabel("Type:"), c);
 
-        sessionTypeCombo = new JComboBox<>(new String[]{"GUI", "Terminal"});
+        sessionTypeCombo = new JComboBox<>(new String[]{"GUI (Editor tab)", "GUI (Panel)", "Terminal"});
         sessionTypeCombo.setSelectedIndex(0);
         c.gridx = 1;
         c.gridwidth = 2;
@@ -184,9 +189,10 @@ public class NewSessionDialog extends DialogWrapper {
         c.weightx = 1.0;
         panel.add(sessionTypeCombo, c);
 
-        // Row 4: Worktree checkbox + git status
+        // Row: Worktree checkbox + git status
+        row++;
         c.gridx = 0;
-        c.gridy = 4;
+        c.gridy = row;
         c.gridwidth = 1;
         c.fill = GridBagConstraints.NONE;
         c.weightx = 0;
@@ -208,9 +214,10 @@ public class NewSessionDialog extends DialogWrapper {
         c.weightx = 0;
         panel.add(gitStatus, c);
 
-        // Row 5: Branch preview
+        // Row: Branch preview
+        row++;
         c.gridx = 1;
-        c.gridy = 5;
+        c.gridy = row;
         c.gridwidth = 2;
         c.fill = GridBagConstraints.HORIZONTAL;
         c.weightx = 1.0;
@@ -331,7 +338,13 @@ public class NewSessionDialog extends DialogWrapper {
 
     /** @return "pty" or "agent" */
     public String getSessionType() {
-        return sessionTypeCombo.getSelectedIndex() == 0 ? "agent" : "pty";
+        int idx = sessionTypeCombo.getSelectedIndex();
+        return idx <= 1 ? "agent" : "pty";  // 0=GUI editor, 1=GUI panel, 2=terminal
+    }
+
+    /** @return "editor" or "panel" (only meaningful for agent sessions). */
+    public String getOpenMode() {
+        return sessionTypeCombo.getSelectedIndex() == 1 ? "panel" : "editor";
     }
 
     /** @return server key for the selected server. */

@@ -1900,6 +1900,28 @@ async def stream_session(ws: WebSocket, session_id: str, typed: bool = False,
 
     session = registry.get(session_id)
     if not session:
+        # Check if it's a resumable (exited) session — serve history + session_end
+        if session_id in registry.resumable:
+            await ws.accept()
+            try:
+                history_path = cfg.SESSIONS_DIR / f"{session_id}.history.json"
+                if history_path.exists():
+                    import json as _json
+                    history = _json.loads(history_path.read_text(encoding="utf-8"))
+                    await ws.send_json({"type": "history", "messages": history})
+                meta = registry.resumable[session_id]
+                await ws.send_json({
+                    "type": "session_end",
+                    "exit_code": meta.get("exit_code", 0),
+                    "resumable": bool(meta.get("resume_id")),
+                })
+            except Exception:
+                pass
+            try:
+                await ws.close()
+            except Exception:
+                pass
+            return
         await ws.close(code=4004, reason="Session not found")
         return
 

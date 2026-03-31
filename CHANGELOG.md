@@ -2,6 +2,38 @@
 
 All notable changes to be-conductor are documented here.
 
+## v0.3.39
+
+### New
+
+- **Agent panel docking (JetBrains)** — agent sessions can now open as dockable tool windows (bottom, side, floating) in addition to editor tabs. Choose "GUI (Panel)" in the New Session dialog, or right-click → "Open as Panel" on a running session
+- **Unified version numbering** — plugin versions now auto-sync from `pyproject.toml` at build time. JetBrains reads it in `build.gradle`, VSCode via `npm run sync-version`
+- **Plan review approval UI** — when Claude exits plan mode, the full plan file is read from disk and rendered as formatted markdown in the timeline. An approval prompt appears in the input area (VSCode permission-prompt style) with Approve & Implement, Reject, and a free-text feedback field. The backend now detects ExitPlanMode in the message stream directly (the SDK's PreToolUse hook doesn't fire for this tool)
+- **Model picker modal** — "Switch model" opens a VSCode-style centered dialog with model name, description, and checkmark on the active selection. Model switches show a "Switched to ..." banner in the timeline
+- **Question navigation** — up/down arrows in the input toolbar to jump between your messages. Current message highlighted with blue outline. Hold 1s to jump to first/last. New messages become the current position automatically
+- **Attachment preview** — click any attached file or image to see a full preview overlay. Images show full-size, text files show formatted content. Click outside or Esc to close
+- **Context token display** — the context ring now shows a live token count label (e.g. "182K") next to it, including cache tokens. Color changes green → yellow → orange → red as context fills
+- **Spinner time format** — shows `1m 30s` and `1h 5m` instead of just seconds
+
+### GUI agent view cleanup
+
+- **Slash popup simplified** — removed Mode, Effort, Thinking, and Model sections (already in the mode popup). Only `/compact` and `/clear` remain. Closes on click outside
+- **Mode popup expanded** — now includes Thinking toggle, "Switch model..." (opens picker modal), Bypass Permissions toggle, and Font size controls alongside Mode and Effort
+- **be-conductor icon** — agent tool windows in JetBrains now show the ♭ icon instead of the generic console icon
+
+### Fixed
+
+- **ExitPlanMode never asked for approval** — the SDK handles ExitPlanMode internally before PreToolUse hooks fire, so the plan review event was never emitted. Now detected in `_stream_response()` which reads the plan file and emits `plan_review` directly
+- **Agent panel black screen (JetBrains)** — "Open as Panel" showed a black JCEF browser because it was created before the tool window was visible. Browser initialization is now deferred until the panel is in the window hierarchy
+- **Mode/effort changes now work** — `set_permission_mode()` and `set_model()` are async in the SDK but were called without await. Changes were silently dropped. Now properly awaited via `ensure_future`
+- **Turn ID collision after stop/resume** — turn IDs now include a unique prefix per agent loop (`turn-a1b2c3-1`). Replies no longer land in old history groups after resuming a session
+- **Zombie agent session detection** — dead agent sessions (where the SDK loop exited but the session wasn't cleaned up) are now detected on every session list refresh and automatically moved to "exited/resumable"
+- **Silent response stream failures** — `_stream_response()` now emits an error event to the UI instead of silently returning when `receive_response()` fails
+- **Resumable session history via WebSocket** — connecting to an exited session now replays its history and sends a `session_end` event instead of closing with "not found"
+- **Blank page crash** — stray `});` in the navigation code caused a JS syntax error that killed the entire page
+- **New Session dialog row overlap (JetBrains)** — grid rows now use a counter instead of hardcoded indices
+- **ServerListPanel NPE (JetBrains)** — `ConcurrentHashMap` null values replaced with `remove()`
+
 ## v0.3.38
 
 ### IDE Plugins — Multi-Server Support
