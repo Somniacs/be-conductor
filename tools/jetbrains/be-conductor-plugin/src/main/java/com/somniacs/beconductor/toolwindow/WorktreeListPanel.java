@@ -95,7 +95,7 @@ public class WorktreeListPanel extends JPanel {
         ApplicationManager.getApplication().executeOnPooledThread(() -> {
             try {
                 BeConductorClient client = BeConductorClient.getInstance();
-                List<ApiModels.WorktreeInfo> worktrees = client.listWorktrees();
+                List<ApiModels.WorktreeInfo> worktrees = client.listWorktrees("local");
                 SwingUtilities.invokeLater(() -> {
                     listModel.clear();
                     for (ApiModels.WorktreeInfo wt : worktrees) {
@@ -143,7 +143,7 @@ public class WorktreeListPanel extends JPanel {
     private void finalizeWorktree(String name) {
         ApplicationManager.getApplication().executeOnPooledThread(() -> {
             try {
-                ApiModels.WorktreeInfo result = BeConductorClient.getInstance().finalizeWorktree(name);
+                ApiModels.WorktreeInfo result = BeConductorClient.getInstance().finalizeWorktree("local", name);
                 SwingUtilities.invokeLater(() -> {
                     Notifications.Bus.notify(new Notification(
                             "be-conductor", "Worktree Finalized",
@@ -167,7 +167,7 @@ public class WorktreeListPanel extends JPanel {
         ApplicationManager.getApplication().executeOnPooledThread(() -> {
             try {
                 ApiModels.RichDiffResponse richDiff =
-                        BeConductorClient.getInstance().getWorktreeRichDiff(name);
+                        BeConductorClient.getInstance().getWorktreeRichDiff("local", name);
 
                 if (richDiff.files == null || richDiff.files.isEmpty()) {
                     SwingUtilities.invokeLater(() ->
@@ -192,7 +192,7 @@ public class WorktreeListPanel extends JPanel {
 
     private void viewDiffFallback(String name) {
         try {
-            ApiModels.DiffResponse diff = BeConductorClient.getInstance().getWorktreeDiff(name);
+            ApiModels.DiffResponse diff = BeConductorClient.getInstance().getWorktreeDiff("local", name);
             String content = diff.diff != null ? diff.diff : "(no changes)";
             SwingUtilities.invokeLater(() -> {
                 JTextArea textArea = new JTextArea(content);
@@ -222,7 +222,7 @@ public class WorktreeListPanel extends JPanel {
         // Fetch preview in background, then show merge dialog on EDT
         ApplicationManager.getApplication().executeOnPooledThread(() -> {
             try {
-                ApiModels.MergePreview preview = BeConductorClient.getInstance().previewMerge(wt.name);
+                ApiModels.MergePreview preview = BeConductorClient.getInstance().previewMerge("local", wt.name);
                 SwingUtilities.invokeLater(() -> {
                     if (!preview.can_merge) {
                         Notifications.Bus.notify(new Notification(
@@ -253,7 +253,7 @@ public class WorktreeListPanel extends JPanel {
         ApplicationManager.getApplication().executeOnPooledThread(() -> {
             try {
                 ApiModels.MergeResult result = BeConductorClient.getInstance()
-                        .executeMerge(name, strategy, message);
+                        .executeMerge("local", name, strategy, message);
                 SwingUtilities.invokeLater(() -> {
                     if (result.success) {
                         Notifications.Bus.notify(new Notification(
@@ -294,7 +294,7 @@ public class WorktreeListPanel extends JPanel {
 
         ApplicationManager.getApplication().executeOnPooledThread(() -> {
             try {
-                BeConductorClient.getInstance().deleteWorktree(wt.name, false);
+                BeConductorClient.getInstance().deleteWorktree("local", wt.name, false);
                 SwingUtilities.invokeLater(() -> {
                     Notifications.Bus.notify(new Notification(
                             "be-conductor", "Worktree Deleted",
@@ -319,7 +319,7 @@ public class WorktreeListPanel extends JPanel {
             try {
                 BeConductorClient client = BeConductorClient.getInstance();
                 // Dry run first
-                List<?> preview = client.worktreeGC(true, 7.0);
+                List<?> preview = client.worktreeGC("local",true, 7.0);
                 if (preview == null || preview.isEmpty()) {
                     SwingUtilities.invokeLater(() ->
                             Notifications.Bus.notify(new Notification(
@@ -341,7 +341,7 @@ public class WorktreeListPanel extends JPanel {
 
                     ApplicationManager.getApplication().executeOnPooledThread(() -> {
                         try {
-                            client.worktreeGC(false, 7.0);
+                            client.worktreeGC("local",false, 7.0);
                             SwingUtilities.invokeLater(() -> {
                                 Notifications.Bus.notify(new Notification(
                                         "be-conductor", "GC Complete",

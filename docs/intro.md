@@ -147,7 +147,9 @@ Run and manage sessions directly from your editor — no terminal needed.
 - **VSCode** — install "be-conductor" from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=somniacs.be-conductor-vscode)
 - **JetBrains** — install "be-conductor" from the [JetBrains Marketplace](https://plugins.jetbrains.com/plugin/26768-be-conductor)
 
-Both plugins auto-discover the running server and let you start, attach, resume, and observe sessions in an embedded terminal tab. Worktree isolation is available from the new-session dialog.
+Both plugins auto-discover the running server and let you start, attach, resume, and observe sessions. GUI sessions open as structured panels, terminal sessions open in the IDE's terminal. Worktree isolation is available from the new-session dialog.
+
+Both plugins support **multi-server** — connect to be-conductor on multiple machines and manage all sessions from one IDE. Add remote servers via the Servers view, or auto-discover them via Tailscale.
 
 ## 7. Get notified (optional)
 

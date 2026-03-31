@@ -35,6 +35,7 @@ public class RunSessionAction extends AnAction {
         String cwd = dialog.getWorkingDirectory();
         boolean worktree = dialog.isWorktreeEnabled();
         String sessionType = dialog.getSessionType();
+        String serverKey = dialog.getServerKey();
 
         String workingDir = cwd;
         if (workingDir == null || workingDir.isEmpty()) {
@@ -45,7 +46,7 @@ public class RunSessionAction extends AnAction {
 
         if ("agent".equals(sessionType)) {
             // Agent sessions: create via API and open in native panel
-            createAgentSession(project, command, name, finalWorkingDir, worktree);
+            createAgentSession(project, serverKey, command, name, finalWorkingDir, worktree);
         } else {
             // PTY sessions: run in terminal (handles server startup, creation, and attach)
             runInTerminal(project, command, name, finalWorkingDir, worktree);
@@ -58,16 +59,16 @@ public class RunSessionAction extends AnAction {
     /**
      * Create an agent session via the REST API and open it in a native panel.
      */
-    private void createAgentSession(Project project, String command, String name, String cwd, boolean worktree) {
+    private void createAgentSession(Project project, String serverKey, String command, String name, String cwd, boolean worktree) {
         ApplicationManager.getApplication().executeOnPooledThread(() -> {
             try {
                 BeConductorClient client = BeConductorClient.getInstance();
                 ApiModels.RunRequest request = new ApiModels.RunRequest(name, command, cwd, worktree, "agent");
-                ApiModels.SessionResponse session = client.createSession(request);
+                ApiModels.SessionResponse session = client.createSession(serverKey, request);
                 String sessionId = session != null ? session.id : name;
                 javax.swing.SwingUtilities.invokeLater(() -> {
                     BeConductorToolWindowFactory.refreshAll(project);
-                    SessionListPanel.openAgentSession(project, sessionId);
+                    SessionListPanel.openAgentSession(project, serverKey, sessionId);
                 });
             } catch (Exception ex) {
                 LOG.warn("be-conductor: failed to create agent session", ex);

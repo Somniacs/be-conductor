@@ -39,9 +39,10 @@ public class AppShutdownListener implements AppLifecycleListener {
 
         try {
             BeConductorClient client = BeConductorClient.getInstance();
-            if (!client.isServerRunning()) return;
+            if (!client.isServerRunning("local")) return;
 
-            List<ApiModels.SessionResponse> sessions = client.listSessions();
+            // Stop sessions on local server only (remote sessions survive IDE shutdown)
+            List<ApiModels.SessionResponse> sessions = client.listSessions("local");
             List<ApiModels.SessionResponse> running = new ArrayList<>();
             for (ApiModels.SessionResponse s : sessions) {
                 if (allTracked.contains(s.name) && "running".equals(s.status)) {
@@ -63,7 +64,7 @@ public class AppShutdownListener implements AppLifecycleListener {
             for (ApiModels.SessionResponse s : running) {
                 new Thread(() -> {
                     try {
-                        client.stopSession(s.id, "graceful");
+                        client.stopSession("local", s.id, "graceful");
                     } catch (Exception e) {
                         LOG.info("be-conductor: failed to stop session " + s.name + ": " + e.getMessage());
                     } finally {

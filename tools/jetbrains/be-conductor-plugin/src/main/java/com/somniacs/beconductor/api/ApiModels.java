@@ -122,9 +122,18 @@ public final class ApiModels {
         public Map<String, Object> worktree;
         public List<AttachedClient> attached_clients;
 
+        /** Set after fetching — not from the API. Identifies which server this session belongs to. */
+        public transient String serverKey;
+
         /** @return true if this is an agent (SDK) session rather than a PTY terminal session */
         public boolean isAgent() {
             return "agent".equals(session_type);
+        }
+
+        /** @return compound ID (serverKey::sessionId) for multi-server, or plain sessionId for single. */
+        public String compoundId() {
+            return ServerRegistry.getInstance().compoundId(
+                    serverKey != null ? serverKey : "local", id);
         }
     }
 
@@ -201,5 +210,21 @@ public final class ApiModels {
         public int commits_merged;
         public List<String> conflict_files;
         public String message;
+    }
+
+    public static class InfoResponse {
+        public String hostname;
+        public int port;
+        public String version;
+        public String tailscale_ip;
+        public String tailscale_name;
+        public boolean is_admin;
+    }
+
+    public static class TailscalePeer {
+        public String hostname;
+        public String dns_name;
+        public String ip;
+        public boolean online;
     }
 }

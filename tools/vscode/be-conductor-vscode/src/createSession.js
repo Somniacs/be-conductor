@@ -65,9 +65,9 @@ function clearTrackedSessions() {
  * Fetch the agent list from the server, falling back to the hardcoded list.
  * @returns {Promise<Array<{label: string, description: string, command: string}>>}
  */
-async function fetchAgents() {
+async function fetchAgents(serverKey) {
     try {
-        const cfg = await api.getConfig();
+        const cfg = await api.getConfig(serverKey);
         if (cfg.allowed_commands && cfg.allowed_commands.length > 0) {
             return cfg.allowed_commands.map((c) => ({
                 label: c.label || c.command,
@@ -84,8 +84,26 @@ async function fetchAgents() {
  * @param {object} [callbacks] - { onSessionCreated: () => void }
  */
 async function createSessionFlow(callbacks) {
+    const registry = require('./serverRegistry');
+
+    // Step 0: Server picker (only when multi-server)
+    let selectedServerKey = 'local';
+    if (registry.isMultiServer()) {
+        const serverItems = registry.getEnabledServers().map(s => ({
+            label: s.label,
+            description: s.url || 'localhost:7777',
+            _key: s.key,
+        }));
+        const serverPick = await vscode.window.showQuickPick(serverItems, {
+            placeHolder: 'Select server',
+            title: 'be-conductor: Server',
+        });
+        if (!serverPick) return;
+        selectedServerKey = serverPick._key;
+    }
+
     // Step 1: Agent picker
-    const agents = await fetchAgents();
+    const agents = await fetchAgents(selectedServerKey);
     const dashboardItem = {
         label: '$(globe)  Open Dashboard',
         description: 'Open be-conductor dashboard in browser',
@@ -103,8 +121,7 @@ async function createSessionFlow(callbacks) {
     });
     if (!agent) return;
     if (agent._dashboard) {
-        const { getServerUrl } = require('./config');
-        vscode.env.openExternal(vscode.Uri.parse(getServerUrl()));
+        vscode.env.openExternal(vscode.Uri.parse(registry.getBaseUrl('local')));
         return;
     }
 
@@ -163,7 +180,7 @@ async function createSessionFlow(callbacks) {
     // Step 4: Worktree toggle (only if git repo)
     let useWorktree = false;
     try {
-        const gitInfo = await api.checkGit(selectedCwd);
+        const gitInfo = await api.checkGit(selectedServerKey, selectedCwd);
         if (gitInfo.is_git) {
             const safeName = trimmed.replace(/[^a-zA-Z0-9-]/g, '-');
             const branchPreview = `be-conductor/${safeName}`;
@@ -224,10 +241,10 @@ async function createSessionFlow(callbacks) {
                 session_type: 'agent',
             };
             if (useWorktree) body.worktree = true;
-            const session = await api.createSession(body);
+            const session = await api.createSession(selectedServerKey, body);
             const sessionId = session.id || session.session_id || trimmed;
             trackSession(trimmed);
-            openAgentWebview(sessionId, trimmed);
+            openAgentWebview(selectedServerKey, sessionId, trimmed);
         } catch (err) {
             vscode.window.showErrorMessage(`Failed to create agent session: ${err.message}`);
         }
@@ -324,15 +341,17 @@ function focusTerminal(name) {
  * @param {string} sessionId - session ID (compound or plain)
  * @param {string} name - session display name
  */
-function openAgentWebview(sessionId, name) {
-    // If already open, just reveal the panel
+function openAgentWebview(serverKey, sessionId, name) {
+    // Support old 2-arg call: openAgentWebview(sessionId, name)
+    if (arguments.length === 2) { name = sessionId; sessionId = serverKey; serverKey = 'local'; }
+
     if (webviewPanels.has(name)) {
         webviewPanels.get(name).reveal();
         return;
     }
 
-    const { getServerUrl } = require('./config');
-    const baseUrl = getServerUrl();
+    const registry = require('./serverRegistry');
+    const baseUrl = registry.getBaseUrl(serverKey);
     const wsBase = baseUrl.replace(/^http/, 'ws');
     const agentUrl = `${baseUrl}/agent/${encodeURIComponent(sessionId)}?session=${encodeURIComponent(sessionId)}&ws=${encodeURIComponent(wsBase)}`;
 

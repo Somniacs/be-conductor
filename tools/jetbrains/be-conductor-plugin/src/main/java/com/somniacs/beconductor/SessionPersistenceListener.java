@@ -38,9 +38,9 @@ public class SessionPersistenceListener implements ProjectManagerListener {
 
         try {
             BeConductorClient client = BeConductorClient.getInstance();
-            if (!client.isServerRunning()) return;
+            if (!client.isServerRunning("local")) return;
 
-            List<ApiModels.SessionResponse> sessions = client.listSessions();
+            List<ApiModels.SessionResponse> sessions = client.listSessions("local");
             List<ApiModels.SessionResponse> running = new ArrayList<>();
             for (ApiModels.SessionResponse s : sessions) {
                 if (tracked.contains(s.name) && "running".equals(s.status)) {
@@ -59,7 +59,7 @@ public class SessionPersistenceListener implements ProjectManagerListener {
             for (ApiModels.SessionResponse s : running) {
                 new Thread(() -> {
                     try {
-                        client.stopSession(s.id, "graceful");
+                        client.stopSession("local", s.id, "graceful");
                     } catch (Exception e) {
                         LOG.info("be-conductor: failed to stop session " + s.name + ": " + e.getMessage());
                     } finally {

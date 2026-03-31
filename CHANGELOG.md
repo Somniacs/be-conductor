@@ -2,6 +2,34 @@
 
 All notable changes to be-conductor are documented here.
 
+## v0.3.38
+
+### IDE Plugins — Multi-Server Support
+
+Both the JetBrains and VSCode plugins can now connect to multiple be-conductor servers simultaneously, showing sessions from all machines in one unified view.
+
+**Shared across both IDEs:**
+
+- **Server registry** — persistent list of servers (local + remote). Add by URL or discover via Tailscale. Probed for online/offline status and version
+- **Sessions grouped by machine** — when multiple servers are enabled, sessions are grouped under collapsible server headers. Single-server mode keeps the flat list unchanged
+- **Server picker in New Session** — choose which server to run on (only shown when multi-server is active)
+- **Dynamic agent panel URLs** — agent webview/JCEF panels connect to the correct remote server
+- **Tailscale peer discovery** — discover and add machines from your Tailscale network with one click
+
+**JetBrains plugin:**
+
+- New **Servers tab** in the tool window alongside Sessions and Worktrees
+- Add/remove servers, enable/disable toggle, rename, test connection
+- Tailscale scan panel with peer list and "Add Selected" button
+- Cell renderer shows `@server` label and online/version badge
+
+**VSCode plugin:**
+
+- New **Servers view** in the activity bar panel
+- `+` button auto-scans Tailscale and shows machines in a Quick Pick list, with manual URL entry as fallback
+- Right-click context menu: Test Connection, Rename, Enable/Disable, Remove
+- Scan Tailscale button in view title bar
+
 ## v0.3.37
 
 ### New

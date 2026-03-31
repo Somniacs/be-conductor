@@ -132,7 +132,7 @@ public class MergeDialog extends DialogWrapper {
         ApplicationManager.getApplication().executeOnPooledThread(() -> {
             try {
                 ApiModels.RichDiffResponse richDiff =
-                        BeConductorClient.getInstance().getWorktreeRichDiff(worktree.name);
+                        BeConductorClient.getInstance().getWorktreeRichDiff("local", worktree.name);
                 if (richDiff.files == null || richDiff.files.isEmpty()) {
                     return;
                 }

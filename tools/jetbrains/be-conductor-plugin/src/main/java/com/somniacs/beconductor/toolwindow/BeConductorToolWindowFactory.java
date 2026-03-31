@@ -10,7 +10,7 @@ import org.jetbrains.annotations.NotNull;
 
 /**
  * Factory for the be-conductor tool window (sidebar).
- * Creates two tabs: Sessions and Worktrees.
+ * Creates three tabs: Sessions, Worktrees, and Servers.
  */
 public class BeConductorToolWindowFactory implements ToolWindowFactory {
 
@@ -20,6 +20,7 @@ public class BeConductorToolWindowFactory implements ToolWindowFactory {
     public void createToolWindowContent(@NotNull Project project, @NotNull ToolWindow toolWindow) {
         SessionListPanel sessionPanel = new SessionListPanel(project);
         WorktreeListPanel worktreePanel = new WorktreeListPanel(project);
+        ServerListPanel serverPanel = new ServerListPanel(project);
 
         ContentFactory contentFactory = ContentFactory.getInstance();
 
@@ -28,6 +29,9 @@ public class BeConductorToolWindowFactory implements ToolWindowFactory {
 
         Content worktreesContent = contentFactory.createContent(worktreePanel, "Worktrees", false);
         toolWindow.getContentManager().addContent(worktreesContent);
+
+        Content serversContent = contentFactory.createContent(serverPanel, "Servers", false);
+        toolWindow.getContentManager().addContent(serversContent);
     }
 
     /**
@@ -41,6 +45,8 @@ public class BeConductorToolWindowFactory implements ToolWindowFactory {
                 panel.refresh();
             } else if (content.getComponent() instanceof WorktreeListPanel panel) {
                 panel.refresh();
+            } else if (content.getComponent() instanceof ServerListPanel panel) {
+                panel.refreshList();
             }
         }
     }

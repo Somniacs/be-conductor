@@ -1,18 +1,22 @@
 'use strict';
 const vscode = require('vscode');
 const api = require('./src/api');
-const { getServerUrl, getPollInterval } = require('./src/config');
+const registry = require('./src/serverRegistry');
+const { getPollInterval } = require('./src/config');
 const { createSessionFlow, attachSession, setWorkspaceState, getTrackedSessions, trackSession, untrackSession, clearTrackedSessions, focusTerminal, openAgentWebview, terminalMap, webviewPanels, getRunningAtClose, setRunningAtClose } = require('./src/createSession');
 const { SessionTreeProvider, registerSessionCommands } = require('./src/sessionTree');
 const { WorktreeTreeProvider, DiffContentProvider, registerWorktreeCommands } = require('./src/worktreeTree');
+const { ServerTreeProvider, registerServerCommands } = require('./src/serverTree');
 
 function activate(context) {
-    // ── Session persistence ──────────────────────────────────────────────
+    // ── Server registry + session persistence ────────────────────────────
+    registry.init(context.workspaceState);
     setWorkspaceState(context.workspaceState);
 
     // ── Tree data providers ──────────────────────────────────────────────
     const sessionProvider = new SessionTreeProvider();
     const worktreeProvider = new WorktreeTreeProvider();
+    const serverProvider = new ServerTreeProvider();
     const diffProvider = new DiffContentProvider();
 
     const sessionView = vscode.window.createTreeView('be-conductor.sessions', {
@@ -20,6 +24,9 @@ function activate(context) {
     });
     const worktreeView = vscode.window.createTreeView('be-conductor.worktrees', {
         treeDataProvider: worktreeProvider,
+    });
+    const serverView = vscode.window.createTreeView('be-conductor.servers', {
+        treeDataProvider: serverProvider,
     });
 
     // ── Diff content provider ────────────────────────────────────────────
@@ -44,7 +51,6 @@ function activate(context) {
         if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     }
 
-    // Start polling when either view becomes visible, stop when both hidden
     sessionView.onDidChangeVisibility(() => {
         if (sessionView.visible || worktreeView.visible) startPolling();
         else stopPolling();
@@ -54,7 +60,6 @@ function activate(context) {
         else stopPolling();
     });
 
-    // Initial refresh if views are visible on activation
     if (sessionView.visible || worktreeView.visible) startPolling();
 
     // ── Commands ─────────────────────────────────────────────────────────
@@ -63,13 +68,14 @@ function activate(context) {
             createSessionFlow({ onSessionCreated: refreshAll })
         ),
         vscode.commands.registerCommand('be-conductor.openDashboard', () =>
-            vscode.env.openExternal(vscode.Uri.parse(getServerUrl()))
+            vscode.env.openExternal(vscode.Uri.parse(registry.getBaseUrl('local')))
         ),
         vscode.commands.registerCommand('be-conductor.refresh', refreshAll),
     );
 
     registerSessionCommands(context, sessionProvider);
     registerWorktreeCommands(context, worktreeProvider, diffProvider, refreshAll);
+    registerServerCommands(context, serverProvider, refreshAll);
 
     // ── Status bar ───────────────────────────────────────────────────────
     const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
@@ -79,7 +85,7 @@ function activate(context) {
 
     async function updateStatusBar() {
         try {
-            const info = await api.getHealth();
+            const info = await api.getHealth('local');
             statusBar.text = '$(terminal) be-conductor';
             statusBar.tooltip = `be-conductor v${info.version} — Click to create session`;
             statusBar.backgroundColor = undefined;
@@ -96,41 +102,33 @@ function activate(context) {
     context.subscriptions.push(
         sessionView,
         worktreeView,
+        serverView,
         { dispose: () => { stopPolling(); clearInterval(healthTimer); } },
     );
 
-    // ── Auto-resume tracked sessions from previous IDE session ──────────
-    // Only sessions that were *running* when the IDE closed (saved in
-    // runningAtClose) should be auto-resumed.  Other resumable sessions
-    // are left alone — they weren't ours to begin with.
+    // ── Auto-resume tracked sessions ─────────────────────────────────────
     setTimeout(async () => {
         const tracked = getTrackedSessions();
         const wasRunning = new Set(getRunningAtClose());
-        setRunningAtClose([]);  // clear the list once consumed
+        setRunningAtClose([]);
         if (tracked.length === 0) return;
         try {
-            const sessions = await api.listSessions();
+            const sessions = await api.listSessions('local');
             const byName = new Map(sessions.map(s => [s.name, s]));
             const resumed = [];
             const reattached = [];
 
             for (const name of tracked) {
                 const s = byName.get(name);
-                if (!s) {
-                    untrackSession(name);
-                    continue;
-                }
+                if (!s) { untrackSession(name); continue; }
                 if (s.status === 'running') {
-                    // Still running — just re-attach (webview for agent, terminal for pty)
                     if (s.session_type === 'agent') {
-                        openAgentWebview(s.id, s.name);
+                        openAgentWebview('local', s.id, s.name);
                     } else {
                         attachSession(s.name);
                     }
                     reattached.push(name);
                 } else if (s.status === 'exited' && (s.resume_id || s.worktree) && wasRunning.has(name)) {
-                    // Resume via CLI in a terminal — CLI reads correct
-                    // dimensions from the established terminal PTY.
                     const workDir = s.cwd ||
                         (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0]
                             ? vscode.workspace.workspaceFolders[0].uri.fsPath
@@ -142,14 +140,13 @@ function activate(context) {
                         env: { VIRTUAL_ENV: '', CONDA_PREFIX: '' },
                     });
                     terminal.show();
-                    // Small delay so terminal PTY is established before CLI reads size
                     await new Promise(resolve => setTimeout(resolve, 500));
                     terminal.sendText(`be-conductor resume "${name}" ; exit`);
                     terminalMap.set(name, terminal);
                     trackSession(name);
                     resumed.push(name);
                 } else if (s.status === 'exited' && (s.resume_id || s.worktree)) {
-                    // Resumable but wasn't running at close — leave tracked, don't resume
+                    // Resumable but wasn't running at close — leave tracked
                 } else {
                     untrackSession(name);
                 }
@@ -163,7 +160,7 @@ function activate(context) {
                 refreshAll();
             }
         } catch {
-            // Server not reachable — skip silently
+            // Server not reachable
         }
     }, 3000);
 }
@@ -172,25 +169,17 @@ async function deactivate() {
     const tracked = getTrackedSessions();
     if (tracked.length === 0) return;
 
-    // Gracefully stop running sessions so they can print resume tokens.
     try {
-        const sessions = await api.listSessions();
+        const sessions = await api.listSessions('local');
         const running = sessions.filter(s => tracked.includes(s.name) && s.status === 'running');
         if (running.length === 0) return;
 
-        // Save which sessions were running so auto-resume on next
-        // startup only resumes these (not pre-existing resumable ones).
         await setRunningAtClose(running.map(s => s.name));
-
         await Promise.all(running.map(s =>
-            api.stopSession(s.id, 'graceful').catch(() => {})
+            api.stopSession('local', s.id, 'graceful').catch(() => {})
         ));
-
-        // Wait briefly for resume tokens to be captured.
         await new Promise(resolve => setTimeout(resolve, 2000));
-    } catch {
-        // Server unreachable — nothing to do
-    }
+    } catch {}
 }
 
 module.exports = { activate, deactivate };

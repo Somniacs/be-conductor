@@ -52,7 +52,7 @@ class WorktreeTreeProvider {
     }
 
     refresh() {
-        api.listWorktrees()
+        api.listWorktrees('local')
             .then((worktrees) => {
                 this._worktrees = worktrees;
                 this._offline = false;
@@ -93,7 +93,7 @@ class WorktreeTreeProvider {
  */
 async function showRichDiff(name, diffProvider) {
     try {
-        const richDiff = await api.getWorktreeRichDiff(name);
+        const richDiff = await api.getWorktreeRichDiff('local', name);
         if (!richDiff.files || richDiff.files.length === 0) {
             vscode.window.showInformationMessage(`Worktree "${name}" has no changes.`);
             return;
@@ -181,7 +181,7 @@ class DiffContentProvider {
         if (uriPath.endsWith('.diff')) {
             const name = decodeURIComponent(uriPath.replace(/\.diff$/, ''));
             try {
-                const data = await api.getWorktreeDiff(name, false);
+                const data = await api.getWorktreeDiff('local', name, false);
                 const content = data.diff || '(no changes)';
                 this._cache.set(key, content);
                 return content;
@@ -207,7 +207,7 @@ function registerWorktreeCommands(context, provider, diffProvider, refreshAll) {
         vscode.commands.registerCommand('be-conductor.finalizeWorktree', async (item) => {
             if (!(item instanceof WorktreeItem)) return;
             try {
-                const result = await api.finalizeWorktree(item.worktree.name);
+                const result = await api.finalizeWorktree('local', item.worktree.name);
                 vscode.window.showInformationMessage(
                     `Worktree "${item.worktree.name}" finalized. ${result.commits_ahead || 0} commit(s) ahead.`
                 );
@@ -228,7 +228,7 @@ function registerWorktreeCommands(context, provider, diffProvider, refreshAll) {
             // Fetch merge preview
             let preview;
             try {
-                preview = await api.previewMerge(item.worktree.name);
+                preview = await api.previewMerge('local', item.worktree.name);
             } catch (e) {
                 vscode.window.showErrorMessage(`Failed to preview merge: ${e.message}`);
                 return;
@@ -261,7 +261,7 @@ function registerWorktreeCommands(context, provider, diffProvider, refreshAll) {
             if (!picked) return;
 
             try {
-                const result = await api.executeMerge(item.worktree.name, picked._strategy);
+                const result = await api.executeMerge('local', item.worktree.name, picked._strategy);
                 if (result.success) {
                     vscode.window.showInformationMessage(
                         `Merged "${item.worktree.name}" into ${result.target_branch} (${result.strategy}): ${result.commits_merged} commit(s)`
@@ -287,7 +287,7 @@ function registerWorktreeCommands(context, provider, diffProvider, refreshAll) {
             if (!answer) return;
 
             try {
-                await api.deleteWorktree(item.worktree.name, answer === 'Force Delete');
+                await api.deleteWorktree('local', item.worktree.name, answer === 'Force Delete');
                 vscode.window.showInformationMessage(`Worktree "${item.worktree.name}" deleted.`);
                 refreshAll();
             } catch (e) {
@@ -298,7 +298,7 @@ function registerWorktreeCommands(context, provider, diffProvider, refreshAll) {
         vscode.commands.registerCommand('be-conductor.gcWorktrees', async () => {
             try {
                 // Dry run first
-                const preview = await api.worktreeGC(true);
+                const preview = await api.worktreeGC('local', true);
                 if (!preview || preview.length === 0) {
                     vscode.window.showInformationMessage('No stale worktrees to clean up.');
                     return;
@@ -312,7 +312,7 @@ function registerWorktreeCommands(context, provider, diffProvider, refreshAll) {
                 );
                 if (answer !== 'Clean Up') return;
 
-                const result = await api.worktreeGC(false);
+                const result = await api.worktreeGC('local', false);
                 vscode.window.showInformationMessage(`Cleaned up ${result.length} worktree(s).`);
                 refreshAll();
             } catch (e) {

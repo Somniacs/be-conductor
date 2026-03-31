@@ -10,6 +10,7 @@ import com.intellij.ui.components.JBLabel;
 import com.intellij.ui.components.JBTextField;
 import com.somniacs.beconductor.api.ApiModels;
 import com.somniacs.beconductor.api.BeConductorClient;
+import com.somniacs.beconductor.api.ServerRegistry;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
@@ -27,6 +28,7 @@ public class NewSessionDialog extends DialogWrapper {
 
     private static final String DEFAULT_AGENT = "claude";
 
+    private JComboBox<String> serverCombo;
     private JBTextField nameField;
     private JComboBox<String> commandCombo;
     private TextFieldWithBrowseButton cwdField;
@@ -38,12 +40,15 @@ public class NewSessionDialog extends DialogWrapper {
     private List<ApiModels.CommandConfig> serverCommands;
     private boolean isGitRepo = false;
     private String currentBranch = "";
+    private String selectedServerKey = "local";
+    private List<ServerRegistry.Server> enabledServers;
 
     private final Project project;
 
     public NewSessionDialog(@Nullable Project project) {
         super(project);
         this.project = project;
+        this.enabledServers = ServerRegistry.getInstance().getEnabledServers();
         setTitle("New be-conductor Session");
         loadServerConfig();
         init();
@@ -52,7 +57,7 @@ public class NewSessionDialog extends DialogWrapper {
     private void loadServerConfig() {
         try {
             BeConductorClient client = BeConductorClient.getInstance();
-            ApiModels.ConfigResponse config = client.getConfig();
+            ApiModels.ConfigResponse config = client.getConfig(selectedServerKey);
             if (config.allowed_commands != null && !config.allowed_commands.isEmpty()) {
                 serverCommands = config.allowed_commands;
             }
@@ -69,9 +74,35 @@ public class NewSessionDialog extends DialogWrapper {
         c.insets = new Insets(4, 4, 4, 8);
         c.anchor = GridBagConstraints.WEST;
 
-        // Row 0: Command
+        // Row 0: Server (only shown when multi-server)
+        if (enabledServers.size() > 1) {
+            c.gridx = 0;
+            c.gridy = 0;
+            c.fill = GridBagConstraints.NONE;
+            c.weightx = 0;
+            panel.add(new JBLabel("Server:"), c);
+
+            String[] serverLabels = enabledServers.stream()
+                    .map(s -> s.label).toArray(String[]::new);
+            serverCombo = new JComboBox<>(serverLabels);
+            serverCombo.addActionListener(e -> {
+                int idx = serverCombo.getSelectedIndex();
+                if (idx >= 0 && idx < enabledServers.size()) {
+                    selectedServerKey = enabledServers.get(idx).key;
+                    // Reload config for the selected server
+                    serverCommands = null;
+                    loadServerConfig();
+                }
+            });
+            c.gridx = 1;
+            c.fill = GridBagConstraints.HORIZONTAL;
+            c.weightx = 1;
+            panel.add(serverCombo, c);
+        }
+
+        // Row 1: Command
         c.gridx = 0;
-        c.gridy = 0;
+        c.gridy = enabledServers.size() > 1 ? 1 : 0;
         c.fill = GridBagConstraints.NONE;
         c.weightx = 0;
         panel.add(new JBLabel("Command:"), c);
@@ -214,7 +245,7 @@ public class NewSessionDialog extends DialogWrapper {
         new Thread(() -> {
             try {
                 BeConductorClient client = BeConductorClient.getInstance();
-                ApiModels.GitCheckResponse resp = client.checkGit(path);
+                ApiModels.GitCheckResponse resp = client.checkGit(selectedServerKey, path);
                 SwingUtilities.invokeLater(() -> {
                     isGitRepo = resp.is_git;
                     currentBranch = resp.current_branch != null ? resp.current_branch : "";
@@ -301,6 +332,11 @@ public class NewSessionDialog extends DialogWrapper {
     /** @return "pty" or "agent" */
     public String getSessionType() {
         return sessionTypeCombo.getSelectedIndex() == 0 ? "agent" : "pty";
+    }
+
+    /** @return server key for the selected server. */
+    public String getServerKey() {
+        return selectedServerKey;
     }
 
     /** Simple listener that fires a callback on any document change. */

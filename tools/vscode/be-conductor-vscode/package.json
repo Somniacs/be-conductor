@@ -2,7 +2,7 @@
   "name": "be-conductor-launcher",
   "displayName": "be-conductor",
   "description": "Launch AI agent sessions from VS Code via be-conductor (https://github.com/somniacs/be-conductor)",
-  "version": "0.3.1",
+  "version": "0.3.38",
   "publisher": "somniacs",
   "license": "MIT",
   "repository": {
@@ -98,6 +98,33 @@
         "command": "be-conductor.gcWorktrees",
         "title": "Garbage Collect Stale Worktrees",
         "icon": "$(clear-all)"
+      },
+      {
+        "command": "be-conductor.addServer",
+        "title": "be-conductor: Add Server",
+        "icon": "$(add)"
+      },
+      {
+        "command": "be-conductor.removeServer",
+        "title": "Remove Server",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "be-conductor.toggleServer",
+        "title": "Enable/Disable Server"
+      },
+      {
+        "command": "be-conductor.renameServer",
+        "title": "Rename Server"
+      },
+      {
+        "command": "be-conductor.probeServer",
+        "title": "Test Connection"
+      },
+      {
+        "command": "be-conductor.scanTailscale",
+        "title": "be-conductor: Scan Tailscale",
+        "icon": "$(search)"
       }
     ],
     "viewsContainers": {
@@ -118,6 +145,10 @@
         {
           "id": "be-conductor.worktrees",
           "name": "Worktrees"
+        },
+        {
+          "id": "be-conductor.servers",
+          "name": "Servers"
         }
       ]
     },
@@ -148,6 +179,16 @@
           "command": "be-conductor.gcWorktrees",
           "when": "view == be-conductor.worktrees",
           "group": "navigation@4"
+        },
+        {
+          "command": "be-conductor.addServer",
+          "when": "view == be-conductor.servers",
+          "group": "navigation@1"
+        },
+        {
+          "command": "be-conductor.scanTailscale",
+          "when": "view == be-conductor.servers",
+          "group": "navigation@2"
         }
       ],
       "view/item/context": [
@@ -205,6 +246,26 @@
           "command": "be-conductor.deleteWorktree",
           "when": "viewItem =~ /^worktree-/",
           "group": "worktree@3"
+        },
+        {
+          "command": "be-conductor.probeServer",
+          "when": "viewItem =~ /^server-/",
+          "group": "server@1"
+        },
+        {
+          "command": "be-conductor.renameServer",
+          "when": "viewItem =~ /^server-(remote|disabled)$/",
+          "group": "server@2"
+        },
+        {
+          "command": "be-conductor.toggleServer",
+          "when": "viewItem =~ /^server-(remote|disabled)$/",
+          "group": "server@3"
+        },
+        {
+          "command": "be-conductor.removeServer",
+          "when": "viewItem =~ /^server-(remote|disabled)$/",
+          "group": "inline@1"
         }
       ]
     },

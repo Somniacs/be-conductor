@@ -1,17 +1,18 @@
 'use strict';
 const http = require('http');
 const { URL } = require('url');
-const { getServerUrl } = require('./config');
+const registry = require('./serverRegistry');
 
 /**
- * Make an HTTP request to the be-conductor API.
+ * Make an HTTP request to a be-conductor server.
+ * @param {string} serverKey - Server key (e.g. 'local' or '192.168.1.50:7777')
  * @param {string} method
  * @param {string} path
  * @param {object} [body]
  * @returns {Promise<any>}
  */
-function request(method, path, body) {
-    const base = getServerUrl();
+function request(serverKey, method, path, body) {
+    const base = registry.getBaseUrl(serverKey);
     const url = new URL(path, base);
     const token = process.env.BE_CONDUCTOR_TOKEN || process.env.CONDUCTOR_TOKEN || null;
 
@@ -53,64 +54,69 @@ function request(method, path, body) {
 }
 
 // Health / connectivity
-async function getHealth() { return request('GET', '/health'); }
+async function getHealth(sk) { return request(sk || 'local', 'GET', '/health'); }
+async function getInfo(sk) { return request(sk || 'local', 'GET', '/info'); }
 
-// Config (allowed commands, default directories)
-async function getConfig() { return request('GET', '/config'); }
+// Config
+async function getConfig(sk) { return request(sk || 'local', 'GET', '/config'); }
 
 // Sessions
-async function listSessions() { return request('GET', '/sessions'); }
-async function getSession(id) { return request('GET', `/sessions/${encodeURIComponent(id)}`); }
-async function createSession(body) { return request('POST', '/sessions/run', body); }
-async function stopSession(id, mode) {
-    return request('POST', `/sessions/${encodeURIComponent(id)}/stop`, { mode: mode || 'kill' });
+async function listSessions(sk) { return request(sk || 'local', 'GET', '/sessions'); }
+async function getSession(sk, id) { return request(sk, 'GET', `/sessions/${encodeURIComponent(id)}`); }
+async function createSession(sk, body) { return request(sk, 'POST', '/sessions/run', body); }
+async function stopSession(sk, id, mode) {
+    return request(sk, 'POST', `/sessions/${encodeURIComponent(id)}/stop`, { mode: mode || 'kill' });
 }
-async function deleteSession(id) { return request('DELETE', `/sessions/${encodeURIComponent(id)}`); }
-async function resumeSession(id, body) { return request('POST', `/sessions/${encodeURIComponent(id)}/resume`, body); }
-async function resizeSession(id, rows, cols) {
-    return request('POST', `/sessions/${encodeURIComponent(id)}/resize`, { rows, cols, source: 'vscode' });
+async function deleteSession(sk, id) { return request(sk, 'DELETE', `/sessions/${encodeURIComponent(id)}`); }
+async function resumeSession(sk, id, body) { return request(sk, 'POST', `/sessions/${encodeURIComponent(id)}/resume`, body); }
+async function resizeSession(sk, id, rows, cols) {
+    return request(sk, 'POST', `/sessions/${encodeURIComponent(id)}/resize`, { rows, cols, source: 'vscode' });
 }
-async function cloneSession(id, body) {
-    return request('POST', `/sessions/${encodeURIComponent(id)}/clone`, body);
+async function cloneSession(sk, id, body) {
+    return request(sk, 'POST', `/sessions/${encodeURIComponent(id)}/clone`, body);
 }
 
 // Git
-async function checkGit(path) { return request('GET', `/git/check?path=${encodeURIComponent(path)}`); }
+async function checkGit(sk, path) { return request(sk, 'GET', `/git/check?path=${encodeURIComponent(path)}`); }
 
 // Worktrees
-async function listWorktrees(repo) {
+async function listWorktrees(sk, repo) {
     const qs = repo ? `?repo=${encodeURIComponent(repo)}` : '';
-    return request('GET', `/worktrees${qs}`);
+    return request(sk || 'local', 'GET', `/worktrees${qs}`);
 }
-async function getWorktree(name) { return request('GET', `/worktrees/${encodeURIComponent(name)}`); }
-async function getWorktreeDiff(name, files) {
+async function getWorktree(sk, name) { return request(sk, 'GET', `/worktrees/${encodeURIComponent(name)}`); }
+async function getWorktreeDiff(sk, name, files) {
     const qs = files ? '?files=true' : '';
-    return request('GET', `/worktrees/${encodeURIComponent(name)}/diff${qs}`);
+    return request(sk, 'GET', `/worktrees/${encodeURIComponent(name)}/diff${qs}`);
 }
-async function getWorktreeRichDiff(name) {
-    return request('GET', `/worktrees/${encodeURIComponent(name)}/diff?format=rich`);
+async function getWorktreeRichDiff(sk, name) {
+    return request(sk, 'GET', `/worktrees/${encodeURIComponent(name)}/diff?format=rich`);
 }
-async function finalizeWorktree(name) {
-    return request('POST', `/worktrees/${encodeURIComponent(name)}/finalize`);
+async function finalizeWorktree(sk, name) {
+    return request(sk, 'POST', `/worktrees/${encodeURIComponent(name)}/finalize`);
 }
-async function previewMerge(name) {
-    return request('POST', `/worktrees/${encodeURIComponent(name)}/merge/preview`);
+async function previewMerge(sk, name) {
+    return request(sk, 'POST', `/worktrees/${encodeURIComponent(name)}/merge/preview`);
 }
-async function executeMerge(name, strategy, message) {
-    return request('POST', `/worktrees/${encodeURIComponent(name)}/merge`, { strategy, message });
+async function executeMerge(sk, name, strategy, message) {
+    return request(sk, 'POST', `/worktrees/${encodeURIComponent(name)}/merge`, { strategy, message });
 }
-async function deleteWorktree(name, force) {
-    return request('DELETE', `/worktrees/${encodeURIComponent(name)}?force=${!!force}`);
+async function deleteWorktree(sk, name, force) {
+    return request(sk, 'DELETE', `/worktrees/${encodeURIComponent(name)}?force=${!!force}`);
 }
-async function worktreeGC(dryRun, maxAgeDays) {
-    return request('POST', '/worktrees/gc', { dry_run: !!dryRun, max_age_days: maxAgeDays || 7.0 });
+async function worktreeGC(sk, dryRun, maxAgeDays) {
+    return request(sk || 'local', 'POST', '/worktrees/gc', { dry_run: !!dryRun, max_age_days: maxAgeDays || 7.0 });
 }
 
+// Tailscale
+async function getTailscalePeers(sk) { return request(sk || 'local', 'GET', '/tailscale/peers'); }
+
 module.exports = {
-    getHealth, getConfig,
+    getHealth, getInfo, getConfig,
     listSessions, getSession, createSession, stopSession, deleteSession,
     resumeSession, resizeSession, cloneSession,
     checkGit,
     listWorktrees, getWorktree, getWorktreeDiff, getWorktreeRichDiff,
     finalizeWorktree, previewMerge, executeMerge, deleteWorktree, worktreeGC,
+    getTailscalePeers,
 };

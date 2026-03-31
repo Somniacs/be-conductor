@@ -20,6 +20,7 @@ import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.diagnostic.Logger;
 import com.somniacs.beconductor.api.ApiModels;
 import com.somniacs.beconductor.api.BeConductorClient;
+import com.somniacs.beconductor.api.ServerRegistry;
 import com.somniacs.beconductor.dialogs.MergeDialog;
 import org.jetbrains.plugins.terminal.ShellTerminalWidget;
 import org.jetbrains.plugins.terminal.TerminalToolWindowManager;
@@ -99,8 +100,11 @@ public class SessionListPanel extends JPanel {
     }
 
     private final Project project;
-    private final DefaultListModel<ApiModels.SessionResponse> listModel;
-    private final JBList<ApiModels.SessionResponse> sessionList;
+    /** Header item for server group separators in the list. */
+    record ServerHeader(String serverKey, String label, int sessionCount, boolean online) {}
+
+    private final DefaultListModel<Object> listModel;  // ServerHeader | SessionResponse
+    private final JBList<Object> sessionList;
     private final Alarm refreshAlarm;
     private final JLabel statusLabel;
 
@@ -115,6 +119,12 @@ public class SessionListPanel extends JPanel {
     private final JButton mergeBtn;
     private final JButton finalizeBtn;
 
+    /** Get the selected session, or null if a header or nothing is selected. */
+    private ApiModels.SessionResponse getSelectedSession() {
+        Object val = sessionList.getSelectedValue();
+        return val instanceof ApiModels.SessionResponse s ? s : null;
+    }
+
     public SessionListPanel(Project project) {
         super(new BorderLayout());
         this.project = project;
@@ -122,7 +132,7 @@ public class SessionListPanel extends JPanel {
         // === List (initialize early so toolbar lambdas can reference it) ===
         listModel = new DefaultListModel<>();
         sessionList = new JBList<>(listModel);
-        sessionList.setCellRenderer(new SessionCellRenderer());
+        sessionList.setCellRenderer(new MixedCellRenderer());
         sessionList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
 
         // === Toolbar with action buttons ===
@@ -163,10 +173,10 @@ public class SessionListPanel extends JPanel {
         attachBtn = createToolbarButton("Attach", AllIcons.Debugger.Console,
                 "Open terminal attached to this session (or dashboard for SDK sessions)");
         attachBtn.addActionListener(e -> {
-            ApiModels.SessionResponse s = sessionList.getSelectedValue();
+            ApiModels.SessionResponse s = getSelectedSession();
             if (s == null) return;
             if (s.isAgent()) {
-                openAgentInBrowser(s.id);
+                openAgentInBrowser(s.serverKey, s.id);
             } else {
                 attachSession(s.name, s.cwd);
             }
@@ -176,34 +186,34 @@ public class SessionListPanel extends JPanel {
         resumeBtn = createToolbarButton("Resume", AllIcons.Actions.Execute,
                 "Resume this session (double-click also works)");
         resumeBtn.addActionListener(e -> {
-            ApiModels.SessionResponse s = sessionList.getSelectedValue();
-            if (s != null) resumeSession(s.id, s.name, s.cwd, s.isAgent());
+            ApiModels.SessionResponse s = getSelectedSession();
+            if (s != null) resumeSession(s.serverKey, s.id, s.name, s.cwd, s.isAgent());
         });
         sessionActions.add(resumeBtn);
 
         stopBtn = createToolbarButton("Stop", AllIcons.Actions.Suspend,
                 "Gracefully stop (session stays resumable)");
         stopBtn.addActionListener(e -> {
-            ApiModels.SessionResponse s = sessionList.getSelectedValue();
+            ApiModels.SessionResponse s = getSelectedSession();
             if (s == null) return;
             String mode = "stopping".equals(s.status) ? "kill" : "graceful";
-            stopSession(s.id, mode);
+            stopSession(s.serverKey, s.id, mode);
         });
         sessionActions.add(stopBtn);
 
         killBtn = createToolbarButton("Kill", AllIcons.Actions.Cancel,
                 "Force stop and remove session");
         killBtn.addActionListener(e -> {
-            ApiModels.SessionResponse s = sessionList.getSelectedValue();
-            if (s != null) stopSession(s.id, "kill");
+            ApiModels.SessionResponse s = getSelectedSession();
+            if (s != null) stopSession(s.serverKey, s.id, "kill");
         });
         sessionActions.add(killBtn);
 
         dismissBtn = createToolbarButton("Dismiss", AllIcons.Actions.GC,
                 "Remove this exited session");
         dismissBtn.addActionListener(e -> {
-            ApiModels.SessionResponse s = sessionList.getSelectedValue();
-            if (s != null) dismissSession(s.id);
+            ApiModels.SessionResponse s = getSelectedSession();
+            if (s != null) dismissSession(s.serverKey, s.id);
         });
         sessionActions.add(dismissBtn);
 
@@ -215,15 +225,15 @@ public class SessionListPanel extends JPanel {
         diffBtn = createToolbarButton("Diff", AllIcons.Actions.Diff,
                 "View worktree diff");
         diffBtn.addActionListener(e -> {
-            ApiModels.SessionResponse s = sessionList.getSelectedValue();
-            if (s != null && s.worktree != null) viewDiff(s.name);
+            ApiModels.SessionResponse s = getSelectedSession();
+            if (s != null && s.worktree != null) viewDiff(s.serverKey, s.name);
         });
         worktreeActions.add(diffBtn);
 
         mergeBtn = createToolbarButton("Merge", AllIcons.Vcs.Merge,
                 "Merge worktree into base branch");
         mergeBtn.addActionListener(e -> {
-            ApiModels.SessionResponse s = sessionList.getSelectedValue();
+            ApiModels.SessionResponse s = getSelectedSession();
             if (s != null && s.worktree != null) mergeWorktree(s);
         });
         worktreeActions.add(mergeBtn);
@@ -231,8 +241,8 @@ public class SessionListPanel extends JPanel {
         finalizeBtn = createToolbarButton("Finalize", AllIcons.Actions.Commit,
                 "Finalize worktree (auto-commit and mark done)");
         finalizeBtn.addActionListener(e -> {
-            ApiModels.SessionResponse s = sessionList.getSelectedValue();
-            if (s != null && s.worktree != null) finalizeWorktree(s.name);
+            ApiModels.SessionResponse s = getSelectedSession();
+            if (s != null && s.worktree != null) finalizeWorktree(s.serverKey, s.name);
         });
         worktreeActions.add(finalizeBtn);
 
@@ -255,16 +265,16 @@ public class SessionListPanel extends JPanel {
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (e.getClickCount() == 2) {
-                    ApiModels.SessionResponse s = sessionList.getSelectedValue();
+                    ApiModels.SessionResponse s = getSelectedSession();
                     if (s == null) return;
                     if ("running".equals(s.status)) {
                         if (s.isAgent()) {
-                            openAgentInBrowser(s.id);
+                            openAgentInBrowser(s.serverKey, s.id);
                         } else {
                             attachSession(s.name, s.cwd);
                         }
                     } else if (isResumable(s)) {
-                        resumeSession(s.id, s.name, s.cwd, s.isAgent());
+                        resumeSession(s.serverKey, s.id, s.name, s.cwd, s.isAgent());
                     }
                 }
             }
@@ -279,7 +289,8 @@ public class SessionListPanel extends JPanel {
                 int index = sessionList.locationToIndex(e.getPoint());
                 if (index < 0) return;
                 sessionList.setSelectedIndex(index);
-                ApiModels.SessionResponse session = listModel.get(index);
+                Object item = listModel.get(index);
+                if (!(item instanceof ApiModels.SessionResponse session)) return;
                 createContextMenu(session).show(sessionList, e.getX(), e.getY());
             }
         });
@@ -307,7 +318,7 @@ public class SessionListPanel extends JPanel {
 
     private void onSelectionChanged(ListSelectionEvent e) {
         if (e.getValueIsAdjusting()) return;
-        updateButtonStates(sessionList.getSelectedValue());
+        updateButtonStates(getSelectedSession());
     }
 
     private void updateButtonStates(ApiModels.SessionResponse s) {
@@ -350,25 +361,68 @@ public class SessionListPanel extends JPanel {
         ApplicationManager.getApplication().executeOnPooledThread(() -> {
             try {
                 BeConductorClient client = BeConductorClient.getInstance();
-                List<ApiModels.SessionResponse> sessions = client.listSessions();
+                var registry = com.somniacs.beconductor.api.ServerRegistry.getInstance();
+                var enabledServers = registry.getEnabledServers();
+                // Fetch sessions from all enabled servers in parallel
+                java.util.List<ApiModels.SessionResponse> allSessions = java.util.Collections.synchronizedList(new java.util.ArrayList<>());
+                java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(enabledServers.size());
+                for (var server : enabledServers) {
+                    ApplicationManager.getApplication().executeOnPooledThread(() -> {
+                        try {
+                            List<ApiModels.SessionResponse> sessions = client.listSessions(server.key);
+                            for (var s : sessions) s.serverKey = server.key;
+                            allSessions.addAll(sessions);
+                        } catch (Exception ignored) {
+                            // Server offline — skip
+                        } finally {
+                            latch.countDown();
+                        }
+                    });
+                }
+                latch.await(8, java.util.concurrent.TimeUnit.SECONDS);
+                final boolean multiServer = registry.isMultiServer();
                 SwingUtilities.invokeLater(() -> {
-                    ApiModels.SessionResponse prev = sessionList.getSelectedValue();
+                    ApiModels.SessionResponse prev = getSelectedSession();
+                    String prevCompound = prev != null ? prev.compoundId() : null;
                     listModel.clear();
                     int selectIndex = -1;
-                    for (int i = 0; i < sessions.size(); i++) {
-                        ApiModels.SessionResponse s = sessions.get(i);
-                        listModel.addElement(s);
-                        if (prev != null && s.id.equals(prev.id)) selectIndex = i;
+
+                    if (multiServer) {
+                        // Group by server: local first, then others sorted by label
+                        java.util.Map<String, java.util.List<ApiModels.SessionResponse>> byServer = new java.util.LinkedHashMap<>();
+                        // Ensure local is first
+                        for (var srv : enabledServers) byServer.put(srv.key, new java.util.ArrayList<>());
+                        for (var s : allSessions) {
+                            byServer.computeIfAbsent(s.serverKey != null ? s.serverKey : "local", k -> new java.util.ArrayList<>()).add(s);
+                        }
+                        for (var entry : byServer.entrySet()) {
+                            String serverKey = entry.getKey();
+                            var sessions = entry.getValue();
+                            ServerRegistry.Server srv = registry.getServer(serverKey);
+                            String label = srv != null ? srv.label : serverKey;
+                            listModel.addElement(new ServerHeader(serverKey, label, sessions.size(), !sessions.isEmpty()));
+                            for (var s : sessions) {
+                                listModel.addElement(s);
+                                if (prevCompound != null && s.compoundId().equals(prevCompound)) {
+                                    selectIndex = listModel.size() - 1;
+                                }
+                            }
+                        }
+                    } else {
+                        for (int i = 0; i < allSessions.size(); i++) {
+                            ApiModels.SessionResponse s = allSessions.get(i);
+                            listModel.addElement(s);
+                            if (prevCompound != null && s.compoundId().equals(prevCompound)) selectIndex = i;
+                        }
                     }
                     if (selectIndex >= 0) sessionList.setSelectedIndex(selectIndex);
-                    statusLabel.setText(sessions.size() + " session(s)");
-                    // Clean up attached-session tracking for sessions that are no longer running
+                    statusLabel.setText(allSessions.size() + " session(s)");
                     Set<String> running = new HashSet<>();
-                    for (ApiModels.SessionResponse s : sessions) {
+                    for (ApiModels.SessionResponse s : allSessions) {
                         if ("running".equals(s.status)) running.add(s.name);
                     }
                     attachedSessions.retainAll(running);
-                    updateButtonStates(sessionList.getSelectedValue());
+                    updateButtonStates(getSelectedSession());
                 });
             } catch (Exception e) {
                 SwingUtilities.invokeLater(() -> {
@@ -390,7 +444,7 @@ public class SessionListPanel extends JPanel {
             if ("running".equals(session.status)) {
                 if (session.isAgent()) {
                     JMenuItem openItem = new JMenuItem("Open Agent");
-                    openItem.addActionListener(e -> openAgentInBrowser(session.id));
+                    openItem.addActionListener(e -> openAgentInBrowser(session.serverKey, session.id));
                     menu.add(openItem);
                 } else {
                     JMenuItem attachItem = new JMenuItem("Attach");
@@ -404,23 +458,23 @@ public class SessionListPanel extends JPanel {
                 menu.addSeparator();
 
                 JMenuItem stopItem = new JMenuItem("Stop (resume)");
-                stopItem.addActionListener(e -> stopSession(session.id, "graceful"));
+                stopItem.addActionListener(e -> stopSession(session.serverKey, session.id, "graceful"));
                 menu.add(stopItem);
             }
 
             JMenuItem killItem = new JMenuItem("Kill");
-            killItem.addActionListener(e -> stopSession(session.id, "kill"));
+            killItem.addActionListener(e -> stopSession(session.serverKey, session.id, "kill"));
             menu.add(killItem);
         } else {
             if (isResumable(session)) {
                 JMenuItem resumeItem = new JMenuItem("Resume");
-                resumeItem.addActionListener(e -> resumeSession(session.id, session.name, session.cwd, session.isAgent()));
+                resumeItem.addActionListener(e -> resumeSession(session.serverKey, session.id, session.name, session.cwd, session.isAgent()));
                 menu.add(resumeItem);
                 menu.addSeparator();
             }
 
             JMenuItem dismissItem = new JMenuItem("Dismiss");
-            dismissItem.addActionListener(e -> dismissSession(session.id));
+            dismissItem.addActionListener(e -> dismissSession(session.serverKey, session.id));
             menu.add(dismissItem);
         }
 
@@ -429,7 +483,7 @@ public class SessionListPanel extends JPanel {
             menu.addSeparator();
 
             JMenuItem diffItem = new JMenuItem("View Diff");
-            diffItem.addActionListener(e -> viewDiff(session.name));
+            diffItem.addActionListener(e -> viewDiff(session.serverKey, session.name));
             menu.add(diffItem);
 
             if (!alive) {
@@ -440,7 +494,7 @@ public class SessionListPanel extends JPanel {
 
             if ("running".equals(session.status)) {
                 JMenuItem finalizeItem = new JMenuItem("Finalize");
-                finalizeItem.addActionListener(e -> finalizeWorktree(session.name));
+                finalizeItem.addActionListener(e -> finalizeWorktree(session.serverKey, session.name));
                 menu.add(finalizeItem);
             }
         }
@@ -459,7 +513,7 @@ public class SessionListPanel extends JPanel {
 
         // Warn if already attached elsewhere
         try {
-            List<ApiModels.SessionResponse> allSessions = BeConductorClient.getInstance().listSessions();
+            List<ApiModels.SessionResponse> allSessions = BeConductorClient.getInstance().listSessions("local");
             for (ApiModels.SessionResponse s : allSessions) {
                 if (s.name.equals(name) && s.attached_clients != null && !s.attached_clients.isEmpty()) {
                     Set<String> sources = new java.util.LinkedHashSet<>();
@@ -501,7 +555,7 @@ public class SessionListPanel extends JPanel {
         } catch (java.io.IOException ex) {
             LOG.warn("be-conductor: failed to attach in terminal", ex);
         }
-        updateButtonStates(sessionList.getSelectedValue());
+        updateButtonStates(getSelectedSession());
     }
 
     /** Called externally (e.g. from RunSessionAction) to mark a session as attached. */
@@ -510,31 +564,36 @@ public class SessionListPanel extends JPanel {
     }
 
     /** Open an agent session in a native panel inside the IDE (static entry point). */
-    public static void openAgentSession(com.intellij.openapi.project.Project proj, String sessionId) {
+    public static void openAgentSession(com.intellij.openapi.project.Project proj, String serverKey, String sessionId) {
         ApplicationManager.getApplication().invokeLater(() -> {
             if (proj == null || proj.isDisposed()) return;
-            openAgentPanel(proj, sessionId);
+            openAgentPanel(proj, serverKey, sessionId);
         });
     }
 
+    /** Convenience overload for local server. */
+    public static void openAgentSession(com.intellij.openapi.project.Project proj, String sessionId) {
+        openAgentSession(proj, "local", sessionId);
+    }
+
     /** Open an agent session in a native panel inside the IDE. */
-    private void openAgentInBrowser(String sessionId) {
-        openAgentPanel(project, sessionId);
+    private void openAgentInBrowser(String serverKey, String sessionId) {
+        openAgentPanel(project, serverKey, sessionId);
     }
 
     /**
      * Open (or focus) an agent session in the editor area — can be docked,
      * split, and placed alongside code files like a normal editor tab.
      */
-    private static void openAgentPanel(com.intellij.openapi.project.Project proj, String sessionId) {
-        String baseUrl = "http://127.0.0.1:7777";
-        String wsBase = "ws://127.0.0.1:7777";
+    private static void openAgentPanel(com.intellij.openapi.project.Project proj, String serverKey, String sessionId) {
+        ServerRegistry registry = ServerRegistry.getInstance();
+        String baseUrl = registry.getBaseUrl(serverKey);
+        String wsBase = baseUrl.replaceFirst("^http", "ws");
         String url = baseUrl + "/agent/" + java.net.URLEncoder.encode(sessionId, java.nio.charset.StandardCharsets.UTF_8)
                 + "?session=" + java.net.URLEncoder.encode(sessionId, java.nio.charset.StandardCharsets.UTF_8)
                 + "&ws=" + java.net.URLEncoder.encode(wsBase, java.nio.charset.StandardCharsets.UTF_8);
 
         // Open as editor tab via LightVirtualFile + custom FileEditorProvider
-        // This survives tab moves, splits, and docking (unlike HTMLEditorProvider)
         try {
             com.intellij.testFramework.LightVirtualFile vf =
                     new com.intellij.testFramework.LightVirtualFile(sessionId + " (Agent)");
@@ -565,7 +624,7 @@ public class SessionListPanel extends JPanel {
         tw.setStripeTitle(sessionId + " (Agent)");
 
         com.somniacs.beconductor.agent.AgentSessionPanel panel =
-                new com.somniacs.beconductor.agent.AgentSessionPanel(proj, sessionId);
+                new com.somniacs.beconductor.agent.AgentSessionPanel(proj, serverKey, sessionId);
         com.intellij.ui.content.Content content = tw.getContentManager()
                 .getFactory().createContent(panel, sessionId, false);
         content.setCloseable(true);
@@ -574,19 +633,16 @@ public class SessionListPanel extends JPanel {
         tw.show();
     }
 
-    private void stopSession(String id, String mode) {
+    private void stopSession(String serverKey, String id, String mode) {
         ApplicationManager.getApplication().executeOnPooledThread(() -> {
             try {
-                BeConductorClient.getInstance().stopSession(id, mode);
+                BeConductorClient.getInstance().stopSession(serverKey, id, mode);
                 // Poll until session transitions out of "stopping" (up to 15s)
-                // The graceful stop sequence takes a few seconds for agents
-                // to print their resume token.
                 for (int i = 0; i < 15; i++) {
                     Thread.sleep(1000);
                     refresh();
-                    // Check if session has transitioned
                     List<ApiModels.SessionResponse> sessions =
-                            BeConductorClient.getInstance().listSessions();
+                            BeConductorClient.getInstance().listSessions(serverKey);
                     boolean stillStopping = false;
                     for (ApiModels.SessionResponse s : sessions) {
                         if (s.id.equals(id) && "stopping".equals(s.status)) {
@@ -621,18 +677,14 @@ public class SessionListPanel extends JPanel {
         return new int[]{rows, cols};
     }
 
-    private void resumeSession(String id, String name, String cwd) {
-        resumeSession(id, name, cwd, false);
-    }
-
-    private void resumeSession(String id, String name, String cwd, boolean isAgent) {
+    private void resumeSession(String serverKey, String id, String name, String cwd, boolean isAgent) {
         int[] dims = estimateTerminalDimensions();
         ApplicationManager.getApplication().executeOnPooledThread(() -> {
             try {
-                BeConductorClient.getInstance().resumeSession(id, dims[0], dims[1]);
+                BeConductorClient.getInstance().resumeSession(serverKey, id, dims[0], dims[1]);
                 SwingUtilities.invokeLater(() -> {
                     if (isAgent) {
-                        openAgentInBrowser(id);
+                        openAgentInBrowser(serverKey, id);
                     } else {
                         attachSession(name, cwd);
                     }
@@ -649,18 +701,18 @@ public class SessionListPanel extends JPanel {
         });
     }
 
-    private void dismissSession(String id) {
+    private void dismissSession(String serverKey, String id) {
         ApplicationManager.getApplication().executeOnPooledThread(() -> {
             try {
                 // Find session name for untracking before deleting
-                List<ApiModels.SessionResponse> sessions = BeConductorClient.getInstance().listSessions();
+                List<ApiModels.SessionResponse> sessions = BeConductorClient.getInstance().listSessions(serverKey);
                 for (ApiModels.SessionResponse s : sessions) {
                     if (s.id.equals(id)) {
                         untrackSession(project, s.name);
                         break;
                     }
                 }
-                BeConductorClient.getInstance().deleteSession(id);
+                BeConductorClient.getInstance().deleteSession(serverKey, id);
                 refresh();
             } catch (Exception e) {
                 SwingUtilities.invokeLater(() ->
@@ -689,7 +741,7 @@ public class SessionListPanel extends JPanel {
             ApplicationManager.getApplication().executeOnPooledThread(() -> {
                 try {
                     BeConductorClient.getInstance().cloneSession(
-                            session.id, new ApiModels.CloneRequest(cloneName));
+                            session.serverKey, session.id, new ApiModels.CloneRequest(cloneName));
                     SwingUtilities.invokeLater(() -> {
                         Notifications.Bus.notify(new Notification(
                                 "be-conductor", "Clone Started",
@@ -701,7 +753,7 @@ public class SessionListPanel extends JPanel {
                     for (int i = 0; i < 90; i++) {
                         Thread.sleep(1000);
                         List<ApiModels.SessionResponse> sessions =
-                                BeConductorClient.getInstance().listSessions();
+                                BeConductorClient.getInstance().listSessions(session.serverKey);
                         for (ApiModels.SessionResponse s : sessions) {
                             if (s.name.equals(cloneName) && "running".equals(s.status)) {
                                 refresh();
@@ -724,11 +776,11 @@ public class SessionListPanel extends JPanel {
 
     // === Worktree actions (accessible from session view) ===
 
-    private void viewDiff(String name) {
+    private void viewDiff(String serverKey, String name) {
         ApplicationManager.getApplication().executeOnPooledThread(() -> {
             try {
                 ApiModels.RichDiffResponse richDiff =
-                        BeConductorClient.getInstance().getWorktreeRichDiff(name);
+                        BeConductorClient.getInstance().getWorktreeRichDiff(serverKey, name);
                 if (richDiff.files == null || richDiff.files.isEmpty()) {
                     SwingUtilities.invokeLater(() ->
                             Notifications.Bus.notify(new Notification(
@@ -743,14 +795,14 @@ public class SessionListPanel extends JPanel {
                         DiffViewerUtil.showDiff(project, "Diff: " + name, richDiff.files)
                 );
             } catch (Exception e) {
-                viewDiffFallback(name);
+                viewDiffFallback(serverKey, name);
             }
         });
     }
 
-    private void viewDiffFallback(String name) {
+    private void viewDiffFallback(String serverKey, String name) {
         try {
-            ApiModels.DiffResponse diff = BeConductorClient.getInstance().getWorktreeDiff(name);
+            ApiModels.DiffResponse diff = BeConductorClient.getInstance().getWorktreeDiff(serverKey, name);
             String content = diff.diff != null ? diff.diff : "(no changes)";
             SwingUtilities.invokeLater(() -> {
                 JTextArea textArea = new JTextArea(content);
@@ -779,8 +831,8 @@ public class SessionListPanel extends JPanel {
         String name = session.name;
         ApplicationManager.getApplication().executeOnPooledThread(() -> {
             try {
-                ApiModels.WorktreeInfo wt = BeConductorClient.getInstance().getWorktree(name);
-                ApiModels.MergePreview preview = BeConductorClient.getInstance().previewMerge(name);
+                ApiModels.WorktreeInfo wt = BeConductorClient.getInstance().getWorktree(session.serverKey, name);
+                ApiModels.MergePreview preview = BeConductorClient.getInstance().previewMerge(session.serverKey, name);
                 SwingUtilities.invokeLater(() -> {
                     if (!preview.can_merge) {
                         Notifications.Bus.notify(new Notification(
@@ -792,7 +844,7 @@ public class SessionListPanel extends JPanel {
                     }
                     MergeDialog dialog = new MergeDialog(project, wt, preview);
                     if (dialog.showAndGet()) {
-                        executeMerge(name, dialog.getStrategy(), dialog.getCommitMessage());
+                        executeMerge(session.serverKey, name, dialog.getStrategy(), dialog.getCommitMessage());
                     }
                 });
             } catch (Exception e) {
@@ -806,11 +858,11 @@ public class SessionListPanel extends JPanel {
         });
     }
 
-    private void executeMerge(String name, String strategy, String message) {
+    private void executeMerge(String serverKey, String name, String strategy, String message) {
         ApplicationManager.getApplication().executeOnPooledThread(() -> {
             try {
                 ApiModels.MergeResult result = BeConductorClient.getInstance()
-                        .executeMerge(name, strategy, message);
+                        .executeMerge(serverKey, name, strategy, message);
                 SwingUtilities.invokeLater(() -> {
                     if (result.success) {
                         Notifications.Bus.notify(new Notification(
@@ -839,10 +891,10 @@ public class SessionListPanel extends JPanel {
         });
     }
 
-    private void finalizeWorktree(String name) {
+    private void finalizeWorktree(String serverKey, String name) {
         ApplicationManager.getApplication().executeOnPooledThread(() -> {
             try {
-                ApiModels.WorktreeInfo result = BeConductorClient.getInstance().finalizeWorktree(name);
+                ApiModels.WorktreeInfo result = BeConductorClient.getInstance().finalizeWorktree(serverKey, name);
                 SwingUtilities.invokeLater(() -> {
                     Notifications.Bus.notify(new Notification(
                             "be-conductor", "Worktree Finalized",
@@ -884,11 +936,11 @@ public class SessionListPanel extends JPanel {
 
         try {
             BeConductorClient client = BeConductorClient.getInstance();
-            if (!client.isServerRunning()) return;
+            if (!client.isServerRunning("local")) return;
 
-            List<ApiModels.SessionResponse> sessions = client.listSessions();
+            List<ApiModels.SessionResponse> sessions = client.listSessions("local");
             java.util.Map<String, ApiModels.SessionResponse> byName = new java.util.HashMap<>();
-            for (ApiModels.SessionResponse s : sessions) byName.put(s.name, s);
+            for (ApiModels.SessionResponse s : sessions) { s.serverKey = "local"; byName.put(s.name, s); }
 
             List<String> resumed = new java.util.ArrayList<>();
             List<String> reattached = new java.util.ArrayList<>();
@@ -900,21 +952,19 @@ public class SessionListPanel extends JPanel {
                     continue;
                 }
                 if ("running".equals(s.status)) {
-                    // Still running — just re-attach (browser for agent, terminal for pty)
                     if (s.isAgent()) {
-                        SwingUtilities.invokeLater(() -> openAgentInBrowser(s.id));
+                        SwingUtilities.invokeLater(() -> openAgentInBrowser(s.serverKey, s.id));
                     } else {
                         SwingUtilities.invokeLater(() -> attachSession(s.name, s.cwd));
                     }
                     reattached.add(name);
                 } else if ("exited".equals(s.status) && (s.resume_id != null || s.worktree != null)
                         && wasRunning.contains(name)) {
-                    // Was running at IDE close, now resumable — resume and attach
                     try {
-                        ApiModels.SessionResponse resumed_s = client.resumeSession(s.id, dims[0], dims[1]);
+                        ApiModels.SessionResponse resumed_s = client.resumeSession("local", s.id, dims[0], dims[1]);
                         String resumedCwd = resumed_s != null ? resumed_s.cwd : s.cwd;
                         if (s.isAgent()) {
-                            SwingUtilities.invokeLater(() -> openAgentInBrowser(s.id));
+                            SwingUtilities.invokeLater(() -> openAgentInBrowser(s.serverKey, s.id));
                         } else {
                             SwingUtilities.invokeLater(() -> attachSession(s.name, resumedCwd));
                         }
@@ -951,17 +1001,30 @@ public class SessionListPanel extends JPanel {
 
     // === Cell renderer ===
 
-    private static class SessionCellRenderer extends DefaultListCellRenderer {
+    private static class MixedCellRenderer extends DefaultListCellRenderer {
         @Override
         public Component getListCellRendererComponent(JList<?> list, Object value, int index,
                                                        boolean isSelected, boolean cellHasFocus) {
+            // Server group header
+            if (value instanceof ServerHeader header) {
+                SimpleColoredComponent component = new SimpleColoredComponent();
+                component.setOpaque(true);
+                component.setBackground(isSelected ? list.getSelectionBackground() : list.getBackground());
+                component.setForeground(isSelected ? list.getSelectionForeground() : list.getForeground());
+                component.setIcon(AllIcons.Nodes.HomeFolder);
+                component.append(header.label(), new SimpleTextAttributes(
+                        SimpleTextAttributes.STYLE_BOLD, new Color(0x88, 0x99, 0xcc)));
+                component.append("  (" + header.sessionCount() + ")", SimpleTextAttributes.GRAYED_ATTRIBUTES);
+                return component;
+            }
+
+            // Session item
             if (!(value instanceof ApiModels.SessionResponse session)) {
                 return super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
             }
 
             SimpleColoredComponent component = new SimpleColoredComponent();
             component.setOpaque(true);
-
             if (isSelected) {
                 component.setBackground(list.getSelectionBackground());
                 component.setForeground(list.getSelectionForeground());
@@ -980,6 +1043,11 @@ public class SessionListPanel extends JPanel {
                 component.setIcon(AllIcons.Actions.Restart);
             } else {
                 component.setIcon(AllIcons.RunConfigurations.TestIgnored);
+            }
+
+            // Indent when grouped under a server header
+            if (ServerRegistry.getInstance().isMultiServer()) {
+                component.setIpad(new Insets(0, 12, 0, 0));
             }
 
             // Name + session type badge + command

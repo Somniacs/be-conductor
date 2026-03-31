@@ -640,11 +640,21 @@ Manage be-conductor sessions without leaving your editor. Both plugins provide s
 
 ### What the plugins do
 
-- **New Session dialog** — pick an agent from the server's command list (fetched live), enter a session name, choose a working directory, and optionally enable git worktree isolation. Runs `be-conductor run <agent> <name>` in a new terminal tab
+- **New Session dialog** — pick an agent from the server's command list (fetched live), enter a session name, choose a working directory, and optionally enable git worktree isolation. GUI sessions open as structured panels, terminal sessions open in the IDE's terminal
 - **Session list** — live-updating sidebar panel showing all sessions with status (running, stopping, resumable, exited). Attach, stop, resume, or dismiss sessions with toolbar buttons or right-click context menu
 - **Worktree management** — view diffs in the IDE's native diff viewer, merge worktrees (squash/merge/rebase), and finalize running worktree sessions — all from the sidebar
-- **Session persistence** — sessions created in the IDE are tracked per workspace/project. When you close the IDE, tracked sessions are gracefully stopped (preserving resume tokens). When you reopen, they're automatically resumed and re-attached to terminal tabs
-- **Terminal integration** — sessions open in the IDE's built-in terminal. The tab stays open on errors so you can see what went wrong
+- **Session persistence** — sessions created in the IDE are tracked per workspace/project. When you close the IDE, tracked sessions are gracefully stopped (preserving resume tokens). When you reopen, they're automatically resumed and re-attached
+- **Terminal integration** — PTY sessions open in the IDE's built-in terminal. The tab stays open on errors so you can see what went wrong
+
+### Multi-server support
+
+Both plugins can connect to multiple be-conductor servers simultaneously — manage sessions across all your machines from one IDE.
+
+- **Servers view** — a dedicated panel for adding, removing, and monitoring remote servers. Shows online/offline status and server version
+- **Tailscale discovery** — click "Add Server" and be-conductor auto-scans your Tailscale network. Pick a machine from the list instead of typing URLs
+- **Sessions grouped by machine** — when multiple servers are enabled, the session list groups sessions under collapsible server headers. Single-server mode keeps the flat list unchanged
+- **Server picker** — creating a new session lets you choose which server to run on (only shown when multi-server is active)
+- **Remote agent panels** — GUI agent sessions connect to the correct remote server. Open an agent panel on your desktop that runs on your workstation
 
 ### Build from source
 

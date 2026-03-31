@@ -5,6 +5,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.ui.jcef.JBCefApp;
 import com.intellij.ui.jcef.JBCefBrowser;
 import com.intellij.util.ui.JBUI;
+import com.somniacs.beconductor.api.ServerRegistry;
 
 import javax.swing.*;
 import java.awt.*;
@@ -19,11 +20,12 @@ public class AgentSessionPanel extends JPanel implements Disposable {
 
     private JBCefBrowser browser;
 
-    public AgentSessionPanel(Project project, String sessionId) {
+    public AgentSessionPanel(Project project, String serverKey, String sessionId) {
         super(new BorderLayout());
 
-        String baseUrl = "http://127.0.0.1:7777";
-        String wsBase = "ws://127.0.0.1:7777";
+        ServerRegistry registry = ServerRegistry.getInstance();
+        String baseUrl = registry.getBaseUrl(serverKey);
+        String wsBase = baseUrl.replaceFirst("^http", "ws");
         String url = baseUrl + "/agent/" + URLEncoder.encode(sessionId, StandardCharsets.UTF_8)
                 + "?session=" + URLEncoder.encode(sessionId, StandardCharsets.UTF_8)
                 + "&ws=" + URLEncoder.encode(wsBase, StandardCharsets.UTF_8);
@@ -47,6 +49,11 @@ public class AgentSessionPanel extends JPanel implements Disposable {
             btnPanel.add(openBtn);
             add(btnPanel, BorderLayout.SOUTH);
         }
+    }
+
+    /** Convenience constructor for local server. */
+    public AgentSessionPanel(Project project, String sessionId) {
+        this(project, "local", sessionId);
     }
 
     @Override
