@@ -561,7 +561,11 @@ function renderEvent(event) {
     if (ph) ph.remove();
     const etype = event.type;
     // Skip internal events
-    if (etype === 'system' || etype === 'rate_limit') return;
+    if (etype === 'system') {
+        if (event.subtype === 'debug') console.log('[DEBUG]', JSON.stringify(event.data));
+        return;
+    }
+    if (etype === 'rate_limit') return;
     // Apply settings from server
     if (etype === 'settings') {
         var modeMap = {default: 0, acceptEdits: 1, plan: 2};
@@ -844,7 +848,7 @@ function renderEvent(event) {
 
     } else if (etype === 'session_end') {
         setBusy(false);
-        // Don't render — the session list already shows status
+        _showSessionEnded(event.resumable, event.message);
     }
 
     autoScroll();
@@ -963,6 +967,86 @@ navUpBtn.addEventListener('mouseleave', _cancelHold);
 navDownBtn.addEventListener('mousedown', () => _startHold(navDownBtn, () => _navTo(_getUserMessages().length - 1)));
 navDownBtn.addEventListener('mouseup', _cancelHold);
 navDownBtn.addEventListener('mouseleave', _cancelHold);
+
+// --- Session ended state ---
+var _sessionEnded = false;
+function _showSessionEnded(resumable, message) {
+    if (_sessionEnded) return;
+    _sessionEnded = true;
+
+    // Banner in timeline
+    var banner = document.createElement('div');
+    banner.style.cssText = 'display:flex;align-items:center;gap:12px;padding:12px 0;margin:8px 0;';
+    var line1 = document.createElement('div');
+    line1.style.cssText = 'flex:1;height:1px;background:#30363d;';
+    var text = document.createElement('div');
+    text.style.cssText = 'font-size:12px;color:var(--muted);white-space:nowrap;display:flex;align-items:center;gap:8px;';
+    text.innerHTML = '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#f85149;"></span>' +
+        escHtml(message || 'Session ended');
+    var line2 = line1.cloneNode(true);
+    banner.appendChild(line1);
+    banner.appendChild(text);
+    banner.appendChild(line2);
+    messagesEl.appendChild(banner);
+
+    // Replace input area with ended state
+    var inputArea = document.getElementById('input-area');
+    var inputBox = document.getElementById('input-box');
+    var handle = document.getElementById('drag-handle');
+    if (inputBox) inputBox.style.display = 'none';
+    if (handle) handle.style.display = 'none';
+
+    var endPanel = document.createElement('div');
+    endPanel.id = 'session-ended-panel';
+    endPanel.style.cssText = 'padding:14px 16px;border-top:1px solid #30363d;display:flex;align-items:center;gap:12px;';
+
+    var dot = document.createElement('span');
+    dot.style.cssText = 'width:8px;height:8px;border-radius:50%;background:#f85149;flex-shrink:0;';
+    endPanel.appendChild(dot);
+
+    var label = document.createElement('div');
+    label.style.cssText = 'flex:1;font-size:13px;color:var(--muted);';
+    label.textContent = resumable ? 'Session exited. Resume to continue.' : 'Session ended.';
+    endPanel.appendChild(label);
+
+    if (resumable) {
+        var resumeBtn = document.createElement('button');
+        resumeBtn.textContent = 'Resume';
+        resumeBtn.style.cssText = 'background:#4a6cf7;color:white;border:none;border-radius:6px;padding:8px 18px;cursor:pointer;font-size:13px;font-weight:500;';
+        resumeBtn.addEventListener('click', function() {
+            resumeBtn.disabled = true;
+            resumeBtn.textContent = 'Resuming...';
+            resumeBtn.style.opacity = '0.6';
+            // Call resume API
+            var sid = new URLSearchParams(window.location.search).get('session');
+            var wsParam = new URLSearchParams(window.location.search).get('ws');
+            var baseUrl = wsParam ? wsParam.replace(/^ws/, 'http') : '';
+            fetch(baseUrl + '/sessions/' + encodeURIComponent(sid) + '/resume', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'})
+                .then(function(r) {
+                    if (r.ok) {
+                        // Reload to reconnect
+                        endPanel.remove();
+                        if (inputBox) inputBox.style.display = '';
+                        if (handle) handle.style.display = '';
+                        _sessionEnded = false;
+                        retryCount = 0;
+                        connect();
+                    } else {
+                        resumeBtn.textContent = 'Resume failed';
+                        resumeBtn.style.background = '#f85149';
+                    }
+                })
+                .catch(function() {
+                    resumeBtn.textContent = 'Resume failed';
+                    resumeBtn.style.background = '#f85149';
+                });
+        });
+        endPanel.appendChild(resumeBtn);
+    }
+
+    inputArea.appendChild(endPanel);
+    autoScroll();
+}
 
 // --- Plan modal (overlay over messages) ---
 function showPlanModal(planText, onAnswer) {
@@ -1133,26 +1217,19 @@ function showQuestionModal(q, onAnswer) {
         });
     }
 
-    // Free-text input — only show when there are no options
+    // Free-text input — always shown (below options or standalone)
     let freeInput = null;
-    if (!opts.length) {
+    {
         const freeRow = document.createElement('div');
         freeRow.style.cssText = 'display:flex;gap:6px;margin-top:8px;align-items:center;';
         freeInput = document.createElement('input');
         freeInput.type = 'text';
-        freeInput.placeholder = 'Type your answer...';
+        freeInput.placeholder = opts.length ? 'Tell Claude what to do instead...' : 'Type your answer...';
         freeInput.style.cssText = 'flex:1;background:var(--code-bg);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:13px;outline:none;';
         freeInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && freeInput.value.trim()) dismiss(freeInput.value.trim());
         });
-        const submitBtn = document.createElement('button');
-        submitBtn.textContent = 'Submit';
-        submitBtn.style.cssText = 'background:var(--accent);color:white;border:none;border-radius:6px;padding:8px 14px;cursor:pointer;font-size:13px;';
-        submitBtn.addEventListener('click', () => {
-            if (freeInput.value.trim()) dismiss(freeInput.value.trim());
-        });
         freeRow.appendChild(freeInput);
-        freeRow.appendChild(submitBtn);
         modal.appendChild(freeRow);
     }
 
@@ -1376,11 +1453,14 @@ function connect() {
         } catch (err) { console.error('[agent-view] renderEvent error:', err, e.data); }
     };
 
-    ws.onclose = () => {
+    ws.onclose = (ev) => {
         ws = null;
+        if (_sessionEnded) return; // Already showing ended state
         if (retryCount < MAX_RETRIES) {
             retryCount++;
             setTimeout(connect, 3000);
+        } else {
+            _showSessionEnded(true, 'Connection lost');
         }
     };
 

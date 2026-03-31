@@ -13,7 +13,10 @@ All notable changes to be-conductor are documented here.
 - **Question navigation** — up/down arrows in the input toolbar to jump between your messages. Current message highlighted with blue outline. Hold 1s to jump to first/last. New messages become the current position automatically
 - **Attachment preview** — click any attached file or image to see a full preview overlay. Images show full-size, text files show formatted content. Click outside or Esc to close
 - **Context token display** — the context ring now shows a live token count label (e.g. "182K") next to it, including cache tokens. Color changes green → yellow → orange → red as context fills
+- **Tool permission prompts** — the SDK's `can_use_tool` callback routes permission requests to the GUI. When a tool needs approval (Bash in Auto Edit, everything in Ask Mode), a question modal appears with Yes / Yes allow all / No options and a free-text field for instructions. The SDK controls when to ask based on the selected permission mode; be-conductor controls how to display it
+- **Session ended state** — when a session exits or the WebSocket connection is lost, the agent view shows a "Session ended" banner in the timeline and a Resume button in the input area. Clicking Resume calls the API and reconnects automatically
 - **Spinner time format** — shows `1m 30s` and `1h 5m` instead of just seconds
+- **Free-text input on all question modals** — permission prompts and AskUserQuestion modals now always show a text field below the options, so users can type custom instructions instead of picking a preset option
 
 ### GUI agent view cleanup
 

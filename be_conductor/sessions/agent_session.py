@@ -244,6 +244,52 @@ class AgentSession:
             else:
                 return {"content": [{"type": "text", "text": answer}]}
 
+        # SDK permission callback — the SDK decides WHEN to ask (based on
+        # permission_mode), this callback decides HOW to show the prompt.
+        from claude_agent_sdk import (
+            PermissionResultAllow, PermissionResultDeny,
+        )
+
+        async def _can_use_tool(tool_name, tool_input, context):
+            # Build a readable summary
+            if tool_name == "Bash":
+                prompt = tool_input.get("command", "") or tool_input.get("description", "")
+            elif tool_name in ("Edit", "Write", "NotebookEdit"):
+                prompt = tool_input.get("file_path", "")
+            else:
+                prompt = str(tool_input)[:200]
+
+            self._emit_event({
+                "type": "question",
+                "question": f"Allow **{tool_name}**: `{prompt}`?",
+                "options": [
+                    {"label": "Yes", "value": "yes"},
+                    {"label": "Yes, allow all this session", "value": "yes_all"},
+                    {"label": "No", "value": "no"},
+                ],
+            })
+
+            try:
+                answer = await asyncio.wait_for(
+                    self._question_answer_queue.get(), timeout=300
+                )
+            except asyncio.TimeoutError:
+                return PermissionResultDeny(message="No answer (timeout)")
+
+            self._emit_event({
+                "type": "system",
+                "subtype": "debug",
+                "data": {"permission_answer": answer},
+            })
+
+            if answer.lower() in ("yes", "yes_all", "approve", "approved", "ok"):
+                return PermissionResultAllow()
+            if answer.lower() in ("no", "deny", "denied", "cancel", "cancelled"):
+                return PermissionResultDeny(message="User denied this action.")
+            # Free text — deny with the user's instructions so the agent
+            # can see what they want changed and act on it.
+            return PermissionResultDeny(message=answer)
+
         try:
             hooks_config = {
                 "PreToolUse": [
@@ -260,6 +306,7 @@ class AgentSession:
             permission_mode=self._agent_options.get(
                 "permission_mode", "default"
             ),
+            can_use_tool=_can_use_tool,
             system_prompt=self._agent_options.get("system_prompt"),
             max_turns=self._agent_options.get("max_turns"),
             model=self._agent_options.get("model"),
@@ -680,24 +727,21 @@ class AgentSession:
     def set_mode(self, mode: str) -> None:
         """Change the agent permission mode at runtime.
 
-        Valid modes: "default", "plan", "acceptEdits".
+        Valid modes: "default", "plan", "acceptEdits", "bypassPermissions".
         """
         import asyncio
         self._current_mode = mode
-        if self._client is None:
-            self._broadcast_settings()
-            return
-
-        async def _do_set_mode():
+        self._agent_options["permission_mode"] = mode
+        if self._client is not None:
+            async def _do_set_mode():
+                try:
+                    await self._client.set_permission_mode(mode)
+                except Exception:
+                    pass
             try:
-                await self._client.set_permission_mode(mode)
+                asyncio.ensure_future(_do_set_mode())
             except Exception:
                 pass
-
-        try:
-            asyncio.ensure_future(_do_set_mode())
-        except Exception:
-            pass
         self._broadcast_settings()
 
     def set_effort(self, effort: str) -> None:
