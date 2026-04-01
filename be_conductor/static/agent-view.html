@@ -765,6 +765,8 @@ function renderEvent(event) {
             div.innerHTML = `<div style="padding:10px 14px;background:var(--user-bg);border-radius:8px;border-left:3px solid var(--accent);white-space:pre-wrap;line-height:1.5;">${escHtml(content)}</div>`;
         }
         messagesEl.appendChild(div);
+        // Scroll once to show the new user message, then stay put
+        if (!isQueued && !_replayingHistory) div.scrollIntoView({block: 'start', behavior: 'smooth'});
         // Update the sticky overlay bar with this message
         if (!isQueued && !_replayingHistory) _updateLastMsgBar(div, content);
         // Set this new message as the current nav position
@@ -991,7 +993,6 @@ function renderEvent(event) {
         }
 
     } else if (etype === 'result') {
-        _userSentMessage = false;  // turn done — reset for next turn
         _importantEvent = true;
         if (event.usage) updateContextRing(event.usage);
         _stats.turns += (event.num_turns || 1);
@@ -1037,7 +1038,6 @@ function _updateGroupLines() {
 // Recalculate lines when any <details> toggles (expand/collapse changes dot positions)
 messagesEl.addEventListener('toggle', function() { _updateGroupLines(); }, true);
 
-var _userSentMessage = false;  // true when THIS client sent the last message
 var _blinkingNav = false;
 var _importantEvent = false;   // set by question, result, session_end — triggers scroll even when not at bottom
 
@@ -1068,7 +1068,11 @@ function autoScroll() {
     }
     _updateGroupLines();
     var nearBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 100;
-    if (_userSentMessage || _importantEvent || nearBottom) {
+    if (nearBottom) {
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+        _stopNavBlink();
+    } else if (_importantEvent) {
+        // Scroll once for important events, then clear
         messagesEl.scrollTop = messagesEl.scrollHeight;
         _stopNavBlink();
         _importantEvent = false;
@@ -1466,6 +1470,7 @@ var _currentModel = 'default';
 var _thinkingEnabled = false;
 var _planPendingApproval = false;
 var _pendingQuestion = null;  // last unanswered question event
+var _pendingQuestionCount = 0; // how many questions without answers
 var _availableModels = [];
 var _btwPanel = document.getElementById('btw-panel');
 var _btwActive = false;
@@ -1758,7 +1763,6 @@ function sendPrompt() {
     const text = promptEl.value.trim();
     if (!text && !pendingAttachments.length) return;
     if (text) { _inputHistory.push(text); _historyIdx = -1; _historyDraft = ''; }
-    _userSentMessage = true;
     _stopNavBlink();
     _userDismissedQuestion = true;
     // Plan approval feedback — send as answer, not prompt
