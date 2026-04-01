@@ -124,6 +124,8 @@ class AgentSession:
         self._client: Any = None
         self._run_task: asyncio.Task | None = None
         self._input_queue: asyncio.Queue[dict | str] = asyncio.Queue()
+        self._processing = False  # True while agent is processing a turn
+        self._pending_prompts: list[dict] = []  # server-side message queue
 
         # Client tracking
         self._attached_sources: dict[str, str] = {}
@@ -360,8 +362,14 @@ class AgentSession:
                         "type": "user_message",
                         "content": initial,
                     })
+                    self._processing = True
                     await client.query(initial)
                     await self._stream_response(client)
+                    self._processing = False
+
+                # Process any messages that were queued during initial prompt
+                while self._pending_prompts and self.status == "running":
+                    await self._process_pending(client)
 
                 # Wait for follow-up prompts
                 while self.status == "running":
@@ -388,14 +396,14 @@ class AgentSession:
                         self._current_turn_btw = is_btw
                         if is_btw:
                             self._broadcast_event({"type": "btw_start", "text": text})
-                        # Save to history (skip for btw — ephemeral)
+                        # Emit to all clients + save to history (skip for btw)
                         if not is_btw:
-                            self._save_to_history({
+                            self._emit_event({
                                 "type": "user_message",
                                 "content": text,
                                 "turn_id": turn_id,
-                                "timestamp": time.time(),
                             })
+                        self._processing = True
                         if attachments:
                             prompt_with_files = self._build_prompt_with_attachments(
                                 text, attachments
@@ -404,8 +412,13 @@ class AgentSession:
                         else:
                             await client.query(text)
                         await self._stream_response(client)
+                        self._processing = False
                         if is_btw:
                             self._broadcast_event({"type": "btw_end"})
+
+                        # Process any messages queued during this turn
+                        while self._pending_prompts and self.status == "running":
+                            await self._process_pending(client)
                     except asyncio.CancelledError:
                         # Interrupt — stay in the loop, wait for next prompt
                         continue
@@ -696,6 +709,40 @@ class AgentSession:
                 excess = len(self._console_buffer) - BUFFER_MAX_BYTES
                 del self._console_buffer[:excess]
 
+    async def _process_pending(self, client: Any) -> None:
+        """Pop the next queued message and process it as a normal turn."""
+        if not self._pending_prompts:
+            return
+        entry = self._pending_prompts.pop(0)
+        text = entry.get("text", "")
+        attachments = entry.get("attachments")
+
+        if not hasattr(self, '_turn_prefix'):
+            import uuid as _uuid
+            self._turn_prefix = _uuid.uuid4().hex[:6]
+        self._turn_counter = getattr(self, '_turn_counter', 0) + 1
+        turn_id = f"turn-{self._turn_prefix}-{self._turn_counter}"
+        self._current_turn_id = turn_id
+        self._current_turn_btw = False
+
+        # Emit promoted event so clients update the queued message visual
+        self._emit_event({
+            "type": "queued_promoted",
+            "content": text,
+            "turn_id": turn_id,
+        })
+
+        self._processing = True
+        if attachments:
+            prompt_with_files = self._build_prompt_with_attachments(
+                text, attachments
+            )
+            await client.query(prompt_with_files)
+        else:
+            await client.query(text)
+        await self._stream_response(client)
+        self._processing = False
+
     def _broadcast_close(self) -> None:
         for queue in list(self.subscribers):
             try:
@@ -713,7 +760,14 @@ class AgentSession:
         attachments: list[dict] | None = None,
         btw: bool = False,
     ) -> None:
-        """Enqueue a follow-up prompt, optionally with file attachments."""
+        """Enqueue a follow-up prompt, optionally with file attachments.
+
+        If the agent is currently processing a turn, the message is
+        queued server-side and a ``queued_message`` event is emitted so
+        all connected clients can display it.  When the current turn
+        finishes, the queued message is automatically promoted and sent
+        to the agent.
+        """
         msg: dict | str
         if attachments or btw:
             msg = {"text": text}
@@ -721,9 +775,26 @@ class AgentSession:
                 msg["attachments"] = attachments
             if btw:
                 msg["_btw"] = True
+            # BTW messages bypass the queue — send immediately
             self._input_queue.put_nowait(msg)
+            return
         else:
-            self._input_queue.put_nowait(text)
+            msg = text
+
+        # If agent is busy, queue server-side instead of sending to _input_queue
+        if self._processing:
+            entry = {"text": text}
+            if attachments:
+                entry["attachments"] = attachments
+            self._pending_prompts.append(entry)
+            self._emit_event({
+                "type": "queued_message",
+                "content": text,
+                "queue_index": len(self._pending_prompts) - 1,
+            })
+            return
+
+        self._input_queue.put_nowait(msg)
 
     async def _send_btw(self, text: str) -> None:
         """Send a /btw query directly to Claude Code CLI, bypassing the queue.

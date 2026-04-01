@@ -701,6 +701,44 @@ function renderEvent(event) {
         }
         return;
     }
+    // Server-side queued message — render dimmed like a pending user message
+    if (etype === 'queued_message') {
+        var content = event.content || '';
+        var div = document.createElement('div');
+        div.className = 'msg msg-user';
+        div.setAttribute('data-queued', '1');
+        div.innerHTML = '<div style="padding:10px 14px;background:var(--user-bg);border-radius:8px;border-left:3px solid var(--accent);white-space:pre-wrap;line-height:1.5;opacity:0.6;"><span style="float:right;font-size:10px;color:var(--accent);">queued</span>' + escHtml(content) + '</div>';
+        messagesEl.appendChild(div);
+        var group = document.createElement('div');
+        group.className = 'msg-group';
+        group.setAttribute('data-queued-group', '1');
+        messagesEl.appendChild(group);
+        autoScroll();
+        return;
+    }
+    // Server promoted a queued message — update the visual
+    if (etype === 'queued_promoted') {
+        var queuedEl = messagesEl.querySelector('[data-queued]');
+        if (queuedEl) {
+            queuedEl.removeAttribute('data-queued');
+            var inner = queuedEl.querySelector('div');
+            if (inner) {
+                inner.style.opacity = '1';
+                var badge = inner.querySelector('span');
+                if (badge && badge.textContent.trim() === 'queued') badge.remove();
+            }
+        }
+        var queuedGroup = messagesEl.querySelector('[data-queued-group]');
+        if (queuedGroup) {
+            var oldCurrent = document.getElementById('current-group');
+            if (oldCurrent) oldCurrent.removeAttribute('id');
+            queuedGroup.removeAttribute('data-queued-group');
+            queuedGroup.id = 'current-group';
+            if (event.turn_id) queuedGroup.setAttribute('data-turn', event.turn_id);
+        }
+        if (!_replayingHistory) setBusy(true);
+        return;
+    }
     // Apply settings from server
     if (etype === 'settings') {
         var modeMap = {default: 0, acceptEdits: 1, plan: 2};
@@ -1464,7 +1502,6 @@ function showQuestionModal(q, onAnswer) {
 let spinnerEl = null;
 let busyStartTime = 0;
 let spinnerInterval = null;
-let _pendingQueue = [];       // FIFO queue of {msg, text} for messages sent while busy
 let _localSeqCounter = 0;     // monotonic counter for user message groups
 var _currentModel = 'default';
 var _thinkingEnabled = false;
@@ -1548,33 +1585,6 @@ function setBusy(b) {
     } else {
         if (spinnerEl) { spinnerEl.remove(); spinnerEl = null; }
         if (spinnerInterval) { clearInterval(spinnerInterval); spinnerInterval = null; }
-        if (_pendingQueue.length > 0) {
-            const pending = _pendingQueue.shift();
-            // Promote the oldest queued message in-place (don't remove + re-render)
-            var queuedEl = messagesEl.querySelector('[data-queued]');
-            if (queuedEl) {
-                queuedEl.removeAttribute('data-queued');
-                var inner = queuedEl.querySelector('div');
-                if (inner) {
-                    inner.style.opacity = '1';
-                    var badge = inner.querySelector('span');
-                    if (badge && badge.textContent.trim() === 'queued') badge.remove();
-                }
-            }
-            // Promote the corresponding group: make it current-group
-            var queuedGroup = messagesEl.querySelector('[data-queued-group]');
-            if (queuedGroup) {
-                var oldCurrent = document.getElementById('current-group');
-                if (oldCurrent) oldCurrent.removeAttribute('id');
-                queuedGroup.removeAttribute('data-queued-group');
-                queuedGroup.id = 'current-group';
-            }
-            // Send the message
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify(pending.msg));
-                setBusy(true);
-            }
-        }
     }
 }
 
@@ -1816,19 +1826,11 @@ function sendPrompt() {
         promptEl.focus();
         return;
     }
-    // Queue if busy — show the message immediately with queued indicator
-    if (busy) {
-        var seq = ++_localSeqCounter;
-        _pendingQueue.push({msg: msg, text: text || '(attachment)', localSeq: seq});
-        renderEvent({type: 'user_message', content: text || '(attachment)', _queued: true, _localSeq: seq});
-        updateSendBtn();
-        promptEl.focus();
-        return;
-    }
-    var seq = ++_localSeqCounter;
-    renderEvent({type: 'user_message', content: text || '(attachment)', _localSeq: seq});
+    // Always send to backend — it decides whether to queue or process immediately.
+    // Don't render the user_message here — the backend will emit either
+    // user_message (immediate) or queued_message (busy) to all clients.
     ws.send(JSON.stringify(msg));
-    setBusy(true);
+    if (!busy) setBusy(true);
     promptEl.focus();
 }
 
