@@ -59,8 +59,9 @@ jobs:
       - name: Build JetBrains plugin
         working-directory: tools/jetbrains/be-conductor-plugin
         run: |
+          rm -f build/distributions/*.zip
           ./gradlew buildPlugin
-          cp build/distributions/*.zip ../../../be-conductor-jetbrains.zip
+          cp build/distributions/be-conductor-plugin-*.zip ../../../be-conductor-jetbrains.zip
 
       - name: Upload to release
         run: |
