@@ -305,6 +305,13 @@ const contextRing = document.getElementById('context-ring');
 const contextIndicator = document.getElementById('context-indicator');
 const MAX_CONTEXT = 1000000; // 1M tokens (Opus)
 let totalTokens = 0;
+const _chevron = '<span class="chevron" style="display:inline-block;transition:transform 0.15s;font-size:10px;">\u25B6</span>';
+function _addChevron(details) {
+    details.addEventListener('toggle', () => {
+        var c = details.querySelector('.chevron');
+        if (c) c.style.transform = details.open ? 'rotate(90deg)' : '';
+    });
+}
 
 // Cumulative session stats
 var _stats = {
@@ -643,17 +650,20 @@ function renderEvent(event) {
         return;
     }
     if (etype === 'rate_limit') return;
-    // Another client answered a question — dismiss our modal
+    // Question was answered (by us or another client) — clear pending + dismiss modal
     if (etype === 'question_answered') {
-        var modal = document.getElementById('question-modal');
-        if (modal) {
-            modal.remove();
-            var inputBox = document.getElementById('input-box');
-            var handle = document.getElementById('drag-handle');
-            if (inputBox) inputBox.style.display = '';
-            if (handle) handle.style.display = '';
+        _pendingQuestion = null;
+        if (!_replayingHistory) {
+            var modal = document.getElementById('question-modal');
+            if (modal) {
+                modal.remove();
+                var inputBox = document.getElementById('input-box');
+                var handle = document.getElementById('drag-handle');
+                if (inputBox) inputBox.style.display = '';
+                if (handle) handle.style.display = '';
+            }
+            setBusy(true);
         }
-        setBusy(true);
         return;
     }
     // Apply settings from server
@@ -748,6 +758,7 @@ function renderEvent(event) {
         messagesEl.appendChild(group);
 
     } else if (etype === 'assistant_message') {
+        _pendingQuestion = null;  // agent continued → question was answered
         if (!busy) setBusy(true);
         if (event.usage) updateContextRing(event.usage);
         const blocks = event.content || [];
@@ -774,13 +785,6 @@ function renderEvent(event) {
         }
 
         // Render each block as its own element in the turn group — all get dots
-        const _chevron = '<span class="chevron" style="display:inline-block;transition:transform 0.15s;font-size:10px;">\u25B6</span>';
-        function _addChevron(details) {
-            details.addEventListener('toggle', () => {
-                var c = details.querySelector('.chevron');
-                if (c) c.style.transform = details.open ? 'rotate(90deg)' : '';
-            });
-        }
 
         for (const block of blocks) {
             if (block.type === 'text') {
@@ -892,6 +896,9 @@ function renderEvent(event) {
         }
         var qGroup = document.getElementById('current-group') || messagesEl;
         qGroup.appendChild(qBlock);
+
+        // Track as pending (cleared by question_answered)
+        _pendingQuestion = event;
 
         if (_replayingHistory) return;
         setBusy(false);
@@ -1388,6 +1395,7 @@ let _localSeqCounter = 0;     // monotonic counter for user message groups
 var _currentModel = 'default';
 var _thinkingEnabled = false;
 var _planPendingApproval = false;
+var _pendingQuestion = null;  // last unanswered question event
 var _availableModels = [];
 var _btwPanel = document.getElementById('btw-panel');
 var _btwActive = false;
@@ -1553,7 +1561,13 @@ function connect() {
                 _replayingHistory = true;
                 try {
                     for (const m of msgs) {
-                        try { renderEvent(m); } catch (renderErr) { console.warn('[history] skip bad event:', renderErr, m.type); }
+                        try { renderEvent(m); } catch (renderErr) {
+                            console.warn('[history] skip bad event:', renderErr, m.type);
+                            var errDiv = document.createElement('div');
+                            errDiv.style.cssText = 'padding:4px 8px;font-size:10px;color:#f85149;opacity:0.6;';
+                            errDiv.textContent = '[render error: ' + m.type + ' - ' + renderErr.message + ']';
+                            messagesEl.appendChild(errDiv);
+                        }
                         if (m.type === 'user_message' && m.content) _inputHistory.push(m.content);
                     }
                 } finally {
@@ -1569,22 +1583,15 @@ function connect() {
                 if (lastUserEl && lastUserText) _updateLastMsgBar(lastUserEl, lastUserText);
                 // Scroll to end after replay
                 messagesEl.scrollTop = messagesEl.scrollHeight;
-                // If the last event was an unanswered question, show the modal now
-                const last = msgs[msgs.length - 1];
-                if (last && last.type === 'question') {
-                    renderEvent(last);
-                } else if (last && last.type === 'assistant_message') {
-                    const blocks = last.content || [];
-                    const lastBlock = blocks[blocks.length - 1];
-                    if (lastBlock && lastBlock.type === 'tool_use' && lastBlock.tool === 'AskUserQuestion') {
-                        const questions = lastBlock.input.questions || [lastBlock.input];
-                        questions.forEach(q => {
-                            showQuestionModal(q, (answer) => {
-                                promptEl.value = answer;
-                                sendPrompt();
-                            });
-                        });
-                    }
+                // If there's an unanswered question after replay, show the modal
+                if (_pendingQuestion) {
+                    setBusy(false);
+                    showQuestionModal(_pendingQuestion, (answer) => {
+                        if (ws && ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({type: 'answer', text: answer}));
+                        }
+                        setBusy(true);
+                    });
                 }
             } else if (msg.type === 'ping') {
                 return;

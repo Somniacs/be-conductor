@@ -767,8 +767,9 @@ class AgentSession:
         self._question_pending = False
         if hasattr(self, '_question_answer_queue'):
             self._question_answer_queue.put_nowait(answer)
-        # Broadcast to all clients so they dismiss their modals
-        self._broadcast_event({
+        # Save to history + broadcast so all clients dismiss their modals.
+        # Saving to history lets replay know which questions were answered.
+        self._emit_event({
             "type": "question_answered",
             "answer": answer,
         })

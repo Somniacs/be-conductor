@@ -17,7 +17,8 @@ All notable changes to be-conductor are documented here.
 
 ### Fixed
 
-- **Questions not appearing** — in some sessions, question and plan review modals silently stopped showing. This was caused by a rendering error during history replay that permanently blocked live modals
+- **Permission prompts not showing** — permission questions (Allow Bash, Edit, Write) were crashing during rendering due to a scoping bug, silently breaking the entire question flow. Now fixed and errors during history replay are shown visually instead of swallowed
+- **Questions surviving reconnect** — answered questions are now saved to session history, so after a page reload the GUI knows which questions were already answered and only shows the pending one
 - **Deleting a session left it in the list** — agent sessions reappeared as "exited" after deletion because they were saved as resumable. Now fully removed
 - **Context token count was wrong** — the token display was either too high or too low depending on cache state. Now shows the actual context window usage
 - **"Yes, allow all" didn't persist** — you had to approve every single command even after clicking "allow all". Now it properly switches to bypass mode for the rest of the session
