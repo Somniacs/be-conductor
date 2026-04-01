@@ -6,30 +6,27 @@ All notable changes to be-conductor are documented here.
 
 ### New
 
-- **`/stats` command** — type `/stats` in the agent view to open a session statistics popup. Fetches live session info from the API and shows: session name, status (with dot), working directory, message count, context window bar with percentage, last-turn token breakdown (input/output/cache read/cache new in a 4-column grid), session totals (duration, turns, cost), cumulative input/output, and resume ID
-- **Last message overlay** — a thin bar sticks to the top of the messages area showing your last message, so you always know what the agent is working on. Appears when the message scrolls out of view, hides when visible. Click to scroll back, X to dismiss temporarily (reappears on next scroll). Long messages clamped to 2 lines with a "more/less" expand button
-- **Nav arrow tooltips** — hovering the up/down arrows shows a preview of the target message text (truncated at 60 chars). Down arrow on last message shows "Scroll to bottom"
-- **Nav down scrolls to end** — the down arrow stays enabled when on the last message; clicking it once more scrolls to the very bottom of the conversation and clears the highlight
-- **Collapsible permission prompts** — "Allow Bash: ..." questions in the timeline are now compact `<details>` blocks (one-line summary with chevron to expand the full command), matching tool block styling
-- **Scrollable question/permission modals** — modals in the input area now cap at `50vh` height and scroll, fixing unreadable long permission prompts
-- **Multi-client question sync** — when one client answers a question or permission prompt, all other connected clients dismiss their modals automatically via a `question_answered` broadcast event. First-answer-wins: late duplicate answers from other clients are dropped
-- **Touch-friendly modals** — all question/plan/permission modals now have a clickable "Cancel" link instead of just "Esc to cancel", so they can be dismissed on touch devices and in JCEF panels without a keyboard
-- **Unified diff view for Edit tool** — Edit blocks now show a proper unified diff with `−` red removed lines, `+` green added lines, and dimmed context lines (unchanged). Uses LCS alignment to match lines, with fallback for large diffs
+- **Session statistics** — type `/stats` to see a dashboard of your session: context window usage bar, token breakdown per turn, total cost, duration, and turn count
+- **Sticky last message** — your last message stays visible at the top of the view as a thin overlay bar, so you always know what the agent is working on. Click it to scroll back, or expand long messages with the "more" button
+- **Unified diff view** — file edits now display as a proper diff with red (removed) and green (added) lines, with unchanged context lines shown dimmed. Much easier to review what changed
+- **Permission prompts** — when the agent needs approval (in Ask Mode), you see the command with Yes / Yes allow all / No options and a free-text field to give instructions instead
+- **Multi-client sync** — if you have the same session open in multiple windows (browser, JetBrains, etc.), answering a question in one window dismisses it in all others. Only the first answer counts
+- **Collapsible permission history** — past permission prompts in the timeline are shown as compact one-liners you can expand, instead of large blocks
+- **Message navigation tooltips** — hovering the up/down arrows shows a preview of the target message. The down arrow always works — press it past the last message to jump to the bottom
+- **Touch support** — all modals (questions, plan review, permissions) have a visible Cancel button for devices without a keyboard
 
 ### Fixed
 
-- **`_replayingHistory` stuck true** — if any event threw during history replay, the flag stayed true forever, suppressing all live question modals and plan reviews. Now wrapped in `try/finally` with per-event error handling
-- **Delete session didn't fully remove** — `DELETE /sessions/{id}` killed the session but `registry.remove()` saved it as resumable (because agent sessions have a resume_id). Now calls `dismiss_resumable()` after remove to fully clean up
-- **Nav arrows not at bottom** — moved from inside `#messages` (sticky, failed when content was short) to `#messages-wrap` as `position:absolute;bottom:8px;right:12px`, always visible at bottom-right
-- **History save silently failing** — `json.dumps` crashed on non-serializable SDK objects. Added `default=str` fallback and stderr logging instead of silent `pass`
-
-- **Context token count corrected** — now shows `input + cache_read + cache_creation` (what the model sees). Previously double-counted or omitted cache creation tokens
-- **"Yes, allow all" now persists** — clicking "Yes, allow all this session" in a permission prompt now calls `set_permission_mode("bypassPermissions")` on the SDK so it stops asking for the rest of the session. Previously it only approved the single tool call
-- **Free-text permission feedback forwarded** — when typing custom text in a permission prompt (instead of clicking Yes/No), the text is now passed as the deny message so the agent can see and act on the user's instructions
-- **No horizontal scrollbar in agent view** — `overflow-x: hidden` and `overflow-wrap: break-word` on the messages container prevents horizontal scroll from long content
-- **Mode switch debug logging** — `set_permission_mode()` now emits debug events to help diagnose whether mode changes reach the SDK
-- **Permission bypass safety net** — `can_use_tool` callback now checks our internal mode directly, auto-approving in bypass mode even if the SDK's runtime mode change hasn't propagated yet
-- **Mode sync from SDK** — `system` messages with `permissionMode` (sent by the SDK on init/status) now update our internal mode and broadcast to all clients, so the GUI reflects mode changes made by the agent (e.g. after ExitPlanMode)
+- **Questions not appearing** — in some sessions, question and plan review modals silently stopped showing. This was caused by a rendering error during history replay that permanently blocked live modals
+- **Deleting a session left it in the list** — agent sessions reappeared as "exited" after deletion because they were saved as resumable. Now fully removed
+- **Context token count was wrong** — the token display was either too high or too low depending on cache state. Now shows the actual context window usage
+- **"Yes, allow all" didn't persist** — you had to approve every single command even after clicking "allow all". Now it properly switches to bypass mode for the rest of the session
+- **Permission mode out of sync** — switching between Ask Mode, Auto Edit, and Plan Mode in the GUI now stays in sync with the agent. The mode button updates automatically when the agent changes modes (e.g. after exiting Plan Mode)
+- **Connector line extending past content** — the vertical dot connector line now recalculates when you expand or collapse tool blocks
+- **Nav arrows floating in wrong position** — the up/down arrows are now always anchored to the bottom-right corner
+- **Long permission prompts unreadable** — modals now scroll when content is taller than half the screen
+- **No horizontal scrollbar** — the message area no longer shows a horizontal scrollbar for wide content
+- **Session history not saving** — some sessions lost their history on restart due to a serialization error. Now handled gracefully
 
 ## v0.3.39
 
