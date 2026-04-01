@@ -1456,6 +1456,8 @@ async def kill_session(session_id: str):
     session = registry.get(session_id)
     if session:
         await registry.remove(session_id)
+        # remove() may save as resumable (if resume_id exists) — clean that up too
+        registry.dismiss_resumable(session_id)
         notes_store.delete_by_session(session_id)
         return {"status": "killed"}
 

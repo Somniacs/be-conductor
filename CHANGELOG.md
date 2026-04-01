@@ -12,9 +12,16 @@ All notable changes to be-conductor are documented here.
 - **Nav down scrolls to end** — the down arrow stays enabled when on the last message; clicking it once more scrolls to the very bottom of the conversation and clears the highlight
 - **Collapsible permission prompts** — "Allow Bash: ..." questions in the timeline are now compact `<details>` blocks (one-line summary with chevron to expand the full command), matching tool block styling
 - **Scrollable question/permission modals** — modals in the input area now cap at `50vh` height and scroll, fixing unreadable long permission prompts
-- **Multi-client question sync** — when one client answers a question or permission prompt, all other connected clients dismiss their modals automatically via a `question_answered` broadcast event
+- **Multi-client question sync** — when one client answers a question or permission prompt, all other connected clients dismiss their modals automatically via a `question_answered` broadcast event. First-answer-wins: late duplicate answers from other clients are dropped
+- **Touch-friendly modals** — all question/plan/permission modals now have a clickable "Cancel" link instead of just "Esc to cancel", so they can be dismissed on touch devices and in JCEF panels without a keyboard
+- **Unified diff view for Edit tool** — Edit blocks now show a proper unified diff with `−` red removed lines, `+` green added lines, and dimmed context lines (unchanged). Uses LCS alignment to match lines, with fallback for large diffs
 
 ### Fixed
+
+- **`_replayingHistory` stuck true** — if any event threw during history replay, the flag stayed true forever, suppressing all live question modals and plan reviews. Now wrapped in `try/finally` with per-event error handling
+- **Delete session didn't fully remove** — `DELETE /sessions/{id}` killed the session but `registry.remove()` saved it as resumable (because agent sessions have a resume_id). Now calls `dismiss_resumable()` after remove to fully clean up
+- **Nav arrows not at bottom** — moved from inside `#messages` (sticky, failed when content was short) to `#messages-wrap` as `position:absolute;bottom:8px;right:12px`, always visible at bottom-right
+- **History save silently failing** — `json.dumps` crashed on non-serializable SDK objects. Added `default=str` fallback and stderr logging instead of silent `pass`
 
 - **Context token count corrected** — now shows `input + cache_read + cache_creation` (what the model sees). Previously double-counted or omitted cache creation tokens
 - **"Yes, allow all" now persists** — clicking "Yes, allow all this session" in a permission prompt now calls `set_permission_mode("bypassPermissions")` on the SDK so it stops asking for the rest of the session. Previously it only approved the single tool call

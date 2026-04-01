@@ -181,7 +181,12 @@ class AgentSession:
             question = tool_input.get("question", tool_input.get("text", ""))
             options_list = tool_input.get("options", tool_input.get("choices", []))
 
-            # Emit question event to all subscribers
+            # Drain stale answers and mark question as pending
+            while not self._question_answer_queue.empty():
+                try: self._question_answer_queue.get_nowait()
+                except: break
+            self._question_pending = True
+
             self._emit_event({
                 "type": "question",
                 "question": question,
@@ -266,6 +271,12 @@ class AgentSession:
                 prompt = tool_input.get("file_path", "")
             else:
                 prompt = str(tool_input)[:200]
+
+            # Drain stale answers and mark question as pending
+            while not self._question_answer_queue.empty():
+                try: self._question_answer_queue.get_nowait()
+                except: break
+            self._question_pending = True
 
             self._emit_event({
                 "type": "question",
@@ -611,11 +622,14 @@ class AgentSession:
         try:
             path = self._history_path()
             path.write_text(
-                _json.dumps(self._message_history, ensure_ascii=False),
+                _json.dumps(self._message_history, ensure_ascii=False,
+                            default=str),
                 encoding="utf-8",
             )
-        except Exception:
-            pass
+        except Exception as e:
+            import sys
+            print(f"[be-conductor] _save_history failed for {self.id}: {e}",
+                  file=sys.stderr)
 
     def delete_history(self) -> None:
         """Remove persisted history file."""
@@ -742,7 +756,15 @@ class AgentSession:
         self.send_input(data.decode("utf-8", errors="replace"))
 
     def answer_question(self, answer: str) -> None:
-        """Provide an answer to a pending AskUserQuestion."""
+        """Provide an answer to a pending question.
+
+        Only the first answer is accepted — late answers from other
+        clients are dropped. The question_answered broadcast dismisses
+        modals on all clients.
+        """
+        if not getattr(self, '_question_pending', False):
+            return  # Already answered, drop late duplicates
+        self._question_pending = False
         if hasattr(self, '_question_answer_queue'):
             self._question_answer_queue.put_nowait(answer)
         # Broadcast to all clients so they dismiss their modals

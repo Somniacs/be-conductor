@@ -27,7 +27,7 @@
 body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 14px; height: 100vh; height: 100dvh; overflow: hidden; display: flex; flex-direction: column; }
 #messages { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 12px 16px 12px 16px; min-height: 0; position: relative; scroll-behavior: smooth; word-wrap: break-word; overflow-wrap: break-word; }
 #last-msg-bar:hover { background: var(--border) !important; }
-#msg-nav { position: sticky; bottom: 0; float: right; display: flex; gap: 2px; padding: 4px; z-index: 10; }
+#msg-nav { display: flex; gap: 2px; padding: 4px; }
 #msg-nav button { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 5px; width: 22px; height: 22px; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--muted); transition: opacity 0.15s, background 0.15s; }
 #msg-nav button:hover:not(:disabled) { background: var(--border); opacity: 1 !important; }
 #msg-nav button:disabled { cursor: default; }
@@ -121,15 +121,15 @@ summary[style*="list-style:none"]::-webkit-details-marker { display: none; }
         <button id="last-msg-close" style="background:none;border:none;color:var(--muted);font-size:14px;cursor:pointer;padding:0 2px;line-height:1;flex-shrink:0;">&times;</button>
     </div>
 </div>
-<div id="messages" style="flex:1;">
-    <div id="msg-nav">
-        <button id="nav-up" title="Previous question" disabled style="opacity:0.25;">
-            <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M2 7l4-4 4 4"/></svg>
-        </button>
-        <button id="nav-down" title="Next question" disabled style="opacity:0.25;">
+<div id="msg-nav" style="position:absolute;bottom:8px;right:12px;z-index:50;">
+    <button id="nav-up" title="Previous question" disabled style="opacity:0.25;">
+        <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M2 7l4-4 4 4"/></svg>
+    </button>
+    <button id="nav-down" title="Next question" disabled style="opacity:0.25;">
             <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M2 5l4 4 4-4"/></svg>
         </button>
-    </div>
+</div>
+<div id="messages" style="flex:1;">
 </div>
 </div>
 <div class="btw-panel" id="btw-panel"></div>
@@ -408,7 +408,6 @@ if (contextIndicator) {
         }));
         _ctxPopup.appendChild(_ctxMenuItem('/clear', 'Clear the display', () => {
             messagesEl.innerHTML = '';
-            if (navEl) messagesEl.appendChild(navEl);
         }));
     }
 
@@ -529,6 +528,42 @@ function _toolIcon(name) {
     return icons[name] || `<svg ${s}><circle cx="8" cy="8" r="5"/><path d="M8 5v3l2 1"/></svg>`;
 }
 
+function _computeUnifiedDiff(oldLines, newLines) {
+    // Myers-like diff: find longest common subsequence, then output unified
+    var m = oldLines.length, n = newLines.length;
+    // For large diffs, use a simpler approach
+    if (m + n > 2000) {
+        var result = [];
+        oldLines.forEach(function(l) { result.push({type:'-', text:l}); });
+        newLines.forEach(function(l) { result.push({type:'+', text:l}); });
+        return result;
+    }
+    // Build LCS table
+    var dp = Array(m + 1);
+    for (var i = 0; i <= m; i++) { dp[i] = Array(n + 1).fill(0); }
+    for (var i = 1; i <= m; i++) {
+        for (var j = 1; j <= n; j++) {
+            dp[i][j] = oldLines[i-1] === newLines[j-1] ? dp[i-1][j-1] + 1 : Math.max(dp[i-1][j], dp[i][j-1]);
+        }
+    }
+    // Backtrack to produce diff
+    var result = [];
+    var i = m, j = n;
+    while (i > 0 || j > 0) {
+        if (i > 0 && j > 0 && oldLines[i-1] === newLines[j-1]) {
+            result.unshift({type:' ', text:oldLines[i-1]});
+            i--; j--;
+        } else if (j > 0 && (i === 0 || dp[i][j-1] >= dp[i-1][j])) {
+            result.unshift({type:'+', text:newLines[j-1]});
+            j--;
+        } else {
+            result.unshift({type:'-', text:oldLines[i-1]});
+            i--;
+        }
+    }
+    return result;
+}
+
 function _basename(p) { return p ? p.split('/').pop() : ''; }
 function _toolInputSummary(name, input) {
     if (!input) return '';
@@ -552,8 +587,26 @@ function _formatToolInput(name, input) {
     }
     if (name === 'Edit') {
         var h = '<div style="font-size:11px;color:var(--muted);margin-bottom:4px;">' + makeFileLinksClickable(escHtml(input.file_path || '')) + '</div>';
-        if (input.old_string != null) h += '<div style="' + codeWrap + 'border-left:3px solid var(--error);margin-bottom:4px;"><pre style="' + codeStyle + 'color:#f87171;">' + escHtml(input.old_string) + '</pre></div>';
-        if (input.new_string != null) h += '<div style="' + codeWrap + 'border-left:3px solid var(--success);"><pre style="' + codeStyle + 'color:#86efac;">' + escHtml(input.new_string) + '</pre></div>';
+        var oldStr = input.old_string != null ? input.old_string : '';
+        var newStr = input.new_string != null ? input.new_string : '';
+        // Compute unified diff
+        var oldLines = oldStr.split('\n');
+        var newLines = newStr.split('\n');
+        // Simple LCS-based diff
+        var diffLines = _computeUnifiedDiff(oldLines, newLines);
+        h += '<div style="' + codeWrap + 'padding:0;border-radius:4px;overflow:hidden;">';
+        h += '<pre style="margin:0;font-size:12px;line-height:1.5;overflow-x:auto;">';
+        diffLines.forEach(function(d) {
+            var lineText = escHtml(d.text);
+            if (d.type === '-') {
+                h += '<div style="background:rgba(248,113,113,0.1);color:#f87171;padding:0 8px;"><span style="user-select:none;color:#f87171;opacity:0.6;width:16px;display:inline-block;">−</span>' + lineText + '</div>';
+            } else if (d.type === '+') {
+                h += '<div style="background:rgba(134,239,172,0.1);color:#86efac;padding:0 8px;"><span style="user-select:none;color:#86efac;opacity:0.6;width:16px;display:inline-block;">+</span>' + lineText + '</div>';
+            } else {
+                h += '<div style="color:var(--muted);padding:0 8px;opacity:0.5;"><span style="user-select:none;width:16px;display:inline-block;"> </span>' + lineText + '</div>';
+            }
+        });
+        h += '</pre></div>';
         return h;
     }
     if (name === 'Bash' && input.command) {
@@ -917,16 +970,7 @@ function renderEvent(event) {
 }
 
 
-function autoScroll() {
-    // Keep nav buttons at the very end of messages
-    if (navEl && navEl.parentNode === messagesEl) {
-        messagesEl.appendChild(navEl);
-    }
-    // Keep spinner at the bottom of its group
-    if (spinnerEl && spinnerEl.parentNode) {
-        spinnerEl.parentNode.appendChild(spinnerEl);
-    }
-    // Update line for each group — connect first dot to last dot only
+function _updateGroupLines() {
     messagesEl.querySelectorAll('.msg-group').forEach(g => {
         const dots = g.querySelectorAll('.msg-claude-dot');
         g.classList.toggle('single-dot', dots.length <= 1);
@@ -940,10 +984,19 @@ function autoScroll() {
             g.style.setProperty('--line-top', top + 'px');
             g.style.setProperty('--line-height', Math.max(0, bottom - top) + 'px');
         } else {
-            // No line when 0 or 1 dot
             g.style.setProperty('--line-height', '0');
         }
     });
+}
+// Recalculate lines when any <details> toggles (expand/collapse changes dot positions)
+messagesEl.addEventListener('toggle', function() { _updateGroupLines(); }, true);
+
+function autoScroll() {
+    // Keep spinner at the bottom of its group
+    if (spinnerEl && spinnerEl.parentNode) {
+        spinnerEl.parentNode.appendChild(spinnerEl);
+    }
+    _updateGroupLines();
     if (messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 100) {
         messagesEl.scrollTop = messagesEl.scrollHeight;
     }
@@ -1193,13 +1246,13 @@ function showPlanModal(planText, onAnswer) {
     freeRow.appendChild(freeInput);
     modal.appendChild(freeRow);
 
-    // Esc hint
-    var hint = document.createElement('div');
-    hint.style.cssText = 'font-size:11px;color:var(--muted);margin-top:6px;opacity:0.6;';
-    hint.textContent = 'Esc to cancel';
-    modal.appendChild(hint);
+    // Cancel link (works on touch + keyboard)
+    var cancelLink = document.createElement('div');
+    cancelLink.style.cssText = 'font-size:11px;color:var(--muted);margin-top:6px;opacity:0.6;cursor:pointer;';
+    cancelLink.textContent = 'Cancel';
+    cancelLink.addEventListener('click', function() { dismiss('cancelled'); });
+    modal.appendChild(cancelLink);
 
-    // Esc handler
     var escHandler = function(e) { if (e.key === 'Escape') dismiss('cancelled'); };
     document.addEventListener('keydown', escHandler);
 
@@ -1309,11 +1362,12 @@ function showQuestionModal(q, onAnswer) {
         modal.appendChild(freeRow);
     }
 
-    // Esc hint
-    const escHint = document.createElement('div');
-    escHint.style.cssText = 'font-size:11px;color:var(--muted);margin-top:6px;opacity:0.6;';
-    escHint.textContent = 'Esc to cancel';
-    modal.appendChild(escHint);
+    // Cancel link (works on touch + keyboard)
+    const cancelRow = document.createElement('div');
+    cancelRow.style.cssText = 'font-size:11px;color:var(--muted);margin-top:6px;opacity:0.6;cursor:pointer;';
+    cancelRow.textContent = 'Cancel';
+    cancelRow.addEventListener('click', () => dismiss('cancelled'));
+    modal.appendChild(cancelRow);
 
     const escHandler = (e) => {
         if (e.key === 'Escape') dismiss('cancelled');
@@ -1497,11 +1551,14 @@ function connect() {
             if (msg.type === 'history') {
                 const msgs = msg.messages || [];
                 _replayingHistory = true;
-                for (const m of msgs) {
-                    renderEvent(m);
-                    if (m.type === 'user_message' && m.content) _inputHistory.push(m.content);
+                try {
+                    for (const m of msgs) {
+                        try { renderEvent(m); } catch (renderErr) { console.warn('[history] skip bad event:', renderErr, m.type); }
+                        if (m.type === 'user_message' && m.content) _inputHistory.push(m.content);
+                    }
+                } finally {
+                    _replayingHistory = false;
                 }
-                _replayingHistory = false;
                 // Set overlay bar to last user message from history
                 var lastUserEl = null, lastUserText = '';
                 messagesEl.querySelectorAll('.msg-user').forEach(function(el) {
