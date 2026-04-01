@@ -9852,7 +9852,18 @@
                 const ext = lastSegment.split('.').pop().toLowerCase();
                 const type = ['png','jpg','jpeg','gif','webp','svg'].includes(ext) ? 'image'
                            : ['pdf'].includes(ext) ? 'pdf' : 'text';
-                openFileViewerAtFile(path, type, server, rootPath);
+                // Check existence first — search subdirectories if not found
+                const existsUrl = serverUrl(server,
+                    `/files/exists?path=${encodeURIComponent(path)}`);
+                fetch(existsUrl).then(r => r.ok ? r.json() : {exists:false}).then(info => {
+                    if (info.exists) {
+                        openFileViewerAtFile(path, type, server, rootPath);
+                    } else {
+                        _fileFindOpen(lastSegment, rootPath || path.replace(/\/[^/]+$/, ''), server, rootPath, type);
+                    }
+                }).catch(() => {
+                    openFileViewerAtFile(path, type, server, rootPath);
+                });
             }
         });
 

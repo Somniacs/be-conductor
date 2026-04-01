@@ -14,6 +14,8 @@ All notable changes to be-conductor are documented here.
 - **Collapsible permission history** — past permission prompts in the timeline are shown as compact one-liners you can expand, instead of large blocks
 - **Message navigation tooltips** — hovering the up/down arrows shows a preview of the target message. The down arrow always works — press it past the last message to jump to the bottom
 - **Touch support** — all modals (questions, plan review, permissions) have a visible Cancel button for devices without a keyboard
+- **File search fallback** — clicking a file link that doesn't exist at the expected path now searches the session's working directory. Works in the dashboard, JetBrains, and standalone browser with a spinner and cancel button
+- **Softer timeline dots and lines** — the vertical connector line and dots are now less bright, reducing visual noise
 
 ### Fixed
 
