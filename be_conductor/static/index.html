@@ -677,6 +677,27 @@
         .file-content .file-text .line-content {
             white-space: pre; flex: 1; color: #c0c0e0;
         }
+        /* Override highlight.js theme to match our file viewer background */
+        .file-content .hljs { background: transparent !important; color: inherit !important; padding: 0 !important; }
+        .file-content .line-content .hljs-keyword { color: #ff7b72; }
+        .file-content .line-content .hljs-built_in { color: #d2a8ff; }
+        .file-content .line-content .hljs-type { color: #79c0ff; }
+        .file-content .line-content .hljs-literal { color: #79c0ff; }
+        .file-content .line-content .hljs-number { color: #a5d6ff; }
+        .file-content .line-content .hljs-string { color: #a5d6ff; }
+        .file-content .line-content .hljs-comment { color: #8b949e; font-style: italic; }
+        .file-content .line-content .hljs-function { color: #d2a8ff; }
+        .file-content .line-content .hljs-title { color: #d2a8ff; }
+        .file-content .line-content .hljs-params { color: #c0c0e0; }
+        .file-content .line-content .hljs-meta { color: #f0883e; }
+        .file-content .line-content .hljs-attr { color: #79c0ff; }
+        .file-content .line-content .hljs-selector-class { color: #7ee787; }
+        .file-content .line-content .hljs-selector-tag { color: #7ee787; }
+        .file-content .line-content .hljs-variable { color: #ffa657; }
+        .file-content .line-content .hljs-symbol { color: #79c0ff; }
+        .file-content .line-content .hljs-tag { color: #7ee787; }
+        .file-content .line-content .hljs-name { color: #7ee787; }
+        .file-content .line-content .hljs-attribute { color: #79c0ff; }
         .file-content .file-truncated {
             padding: 12px 16px; font-size: 12px; color: #ff9944; background: #1a1500;
             border-bottom: 1px solid #332b11;
@@ -10381,11 +10402,29 @@
                     }
                 } catch (_) {}
             }
-            const lines = highlighted ? highlighted.split('\n') : null;
+            // Split highlighted HTML into lines, preserving open span tags across breaks.
+            let hLines = null;
+            if (highlighted) {
+                hLines = [];
+                let openTags = [];  // stack of open <span ...> tags
+                for (const rawLine of highlighted.split('\n')) {
+                    // Prepend unclosed tags from previous line
+                    let line = openTags.join('') + rawLine;
+                    // Track open/close spans
+                    const opens = (rawLine.match(/<span[^>]*>/g) || []);
+                    const closes = (rawLine.match(/<\/span>/g) || []);
+                    // Update stack: each close pops one, each open pushes
+                    for (let ci = 0; ci < closes.length; ci++) openTags.pop();
+                    for (const tag of opens) openTags.push(tag);
+                    // Close any still-open tags at end of this line
+                    for (let ti = 0; ti < openTags.length; ti++) line += '</span>';
+                    hLines.push(line);
+                }
+            }
             const rawLines = text.split('\n');
             html += `<div class="file-text" style="font-size:${_fileFontSize}px">`;
             for (let i = 0; i < rawLines.length; i++) {
-                const content = lines ? lines[i] || '' : escHtml(rawLines[i]);
+                const content = hLines ? hLines[i] || '' : escHtml(rawLines[i]);
                 html += `<div class="file-line"><span class="line-no">${i + 1}</span><span class="line-content">${content}</span></div>`;
             }
             html += '</div>';
