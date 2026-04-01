@@ -747,6 +747,17 @@ function renderEvent(event) {
         if (event.effort in effortMap) { effortIdx = effortMap[event.effort]; updateEffortUI(); }
         if (event.model) _currentModel = event.model;
         if (event.models && event.models.length) { _availableModels = event.models; if (typeof _updateModelSelect === 'function') _updateModelSelect(); }
+        // Show pending question modal if backend reports one (late-joining client)
+        if (event.pending_question && !_replayingHistory) {
+            _pendingQuestion = event.pending_question;
+            setBusy(false);
+            showQuestionModal(event.pending_question, (answer) => {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({type: 'answer', text: answer}));
+                }
+                setBusy(true);
+            });
+        }
         return;
     }
     if (etype === 'models') {
@@ -1556,6 +1567,7 @@ function setBusy(b) {
     ];
     if (b) {
         busyStartTime = Date.now();
+        var _nextVerbChange = Date.now() + 4000 + Math.random() * 5000;
         if (!spinnerEl) {
             spinnerEl = document.createElement('div');
             spinnerEl.style.cssText = 'padding:8px 0;color:var(--muted);font-size:13px;display:flex;align-items:center;gap:8px;';
@@ -1582,9 +1594,12 @@ function setBusy(b) {
         };
         updateSpinner();
         spinnerInterval = setInterval(() => {
-            // Change verb every 10 seconds
-            const s = Math.round((Date.now() - busyStartTime) / 1000);
-            if (s > 0 && s % 10 === 0) verbIdx++;
+            // Change verb at natural intervals (4-9s)
+            if (!_nextVerbChange) _nextVerbChange = Date.now() + 4000 + Math.random() * 5000;
+            if (Date.now() >= _nextVerbChange) {
+                verbIdx++;
+                _nextVerbChange = Date.now() + 4000 + Math.random() * 5000;
+            }
             updateSpinner();
         }, 1000);
         autoScroll();

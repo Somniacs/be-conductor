@@ -943,11 +943,20 @@ class AgentSession:
 
     def get_settings(self) -> dict:
         """Return current mode/effort/model for new subscribers."""
-        return {
+        settings: dict = {
             "mode": getattr(self, '_current_mode', 'default'),
             "effort": getattr(self, '_current_effort', 'high'),
             "model": getattr(self, '_current_model', 'default'),
         }
+        # If there's a pending question, include it so late-joining clients
+        # can show the modal immediately without relying on history replay.
+        if getattr(self, '_question_pending', False):
+            # Find the last question event in history
+            for ev in reversed(self._message_history):
+                if ev.get("type") == "question":
+                    settings["pending_question"] = ev
+                    break
+        return settings
 
     def _build_prompt_with_attachments(
         self,
