@@ -372,6 +372,17 @@ class SessionRegistry:
         if not meta:
             raise ValueError(f"No resumable session '{session_id}'")
 
+        # Guard: prevent two sessions from resuming the same Claude session.
+        # If another running session already uses this resume_id, refuse.
+        rid = meta.get("resume_id")
+        if rid:
+            for sid, s in self.sessions.items():
+                if sid != session_id and getattr(s, 'resume_id', None) == rid and s.status == "running":
+                    raise ValueError(
+                        f"Cannot resume: Claude session {rid[:12]}… is already "
+                        f"in use by '{sid}'"
+                    )
+
         # Strip stale quotes from resume_id
         if meta.get("resume_id"):
             meta["resume_id"] = meta["resume_id"].strip('"').strip("'")
