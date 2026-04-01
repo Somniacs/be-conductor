@@ -23,6 +23,8 @@
     <title>be-conductor</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='80' font-size='80'>♭</text></svg>">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark-dimmed.min.css">
+    <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
     <style>
         @font-face {
             font-family: 'JetBrains Mono';
@@ -10338,10 +10340,40 @@
             if (truncated) {
                 html += `<div class="file-truncated">File truncated — showing first 1 MB of ${_fileFormatSize(totalSize)}</div>`;
             }
-            const lines = text.split('\n');
+            // Try syntax highlighting via highlight.js
+            let highlighted = null;
+            if (typeof hljs !== 'undefined' && _fileActivePath) {
+                const ext = (_fileActivePath.split('.').pop() || '').toLowerCase();
+                const langMap = {
+                    py:'python', js:'javascript', ts:'typescript', jsx:'javascript', tsx:'typescript',
+                    cpp:'cpp', cc:'cpp', cxx:'cpp', c:'c', h:'cpp', hpp:'cpp', cu:'cuda',
+                    rs:'rust', go:'go', java:'java', kt:'kotlin', cs:'csharp',
+                    rb:'ruby', php:'php', swift:'swift', m:'objectivec', mm:'objectivec',
+                    sh:'bash', bash:'bash', zsh:'bash', fish:'bash',
+                    json:'json', yaml:'yaml', yml:'yaml', toml:'ini', ini:'ini',
+                    xml:'xml', html:'xml', svg:'xml', css:'css', scss:'scss',
+                    sql:'sql', graphql:'graphql', proto:'protobuf',
+                    md:'markdown', tex:'latex',
+                    dockerfile:'dockerfile', makefile:'makefile',
+                    cmake:'cmake', gradle:'groovy', groovy:'groovy',
+                    glsl:'glsl', vert:'glsl', frag:'glsl', hlsl:'hlsl',
+                    lua:'lua', perl:'perl', r:'r',
+                };
+                const lang = langMap[ext];
+                try {
+                    if (lang && hljs.getLanguage(lang)) {
+                        highlighted = hljs.highlight(text, {language: lang}).value;
+                    } else if (text.length < 500000) {
+                        highlighted = hljs.highlightAuto(text).value;
+                    }
+                } catch (_) {}
+            }
+            const lines = highlighted ? highlighted.split('\n') : null;
+            const rawLines = text.split('\n');
             html += `<div class="file-text" style="font-size:${_fileFontSize}px">`;
-            for (let i = 0; i < lines.length; i++) {
-                html += `<div class="file-line"><span class="line-no">${i + 1}</span><span class="line-content">${escHtml(lines[i])}</span></div>`;
+            for (let i = 0; i < rawLines.length; i++) {
+                const content = lines ? lines[i] || '' : escHtml(rawLines[i]);
+                html += `<div class="file-line"><span class="line-no">${i + 1}</span><span class="line-content">${content}</span></div>`;
             }
             html += '</div>';
             return html;

@@ -659,7 +659,8 @@ function _formatToolInput(name, input) {
 function makeFileLinksClickable(html) {
     // Match absolute paths (/foo/bar.txt), relative paths (foo/bar.txt), and filenames with extensions
     // Skip if already inside an HTML tag or link
-    return html.replace(/(?<![="\/\w])(((?:\.\.?\/|\/|[\w-]+\/)[\w./-]+\.[\w]+|[\w.-]+\.(?:txt|py|js|ts|json|md|yml|yaml|toml|sh|css|html|xml|csv|log|cfg|conf|rs|go|java|cpp|c|h|hpp|cu|glsl|vert|frag|png|jpg|jpeg|gif|svg|pdf))(?::(\d+))?)/g, (match, full, path, ext, line) => {
+    // Extensions sorted longest-first to avoid partial matches (json before js, etc.)
+    return html.replace(/(?<![="\/\w])(((?:\.\.?\/|\/|[\w-]+\/)[\w./-]+\.[\w]+|[\w.-]+\.(?:jpeg|json|yaml|html|glsl|vert|frag|toml|conf|java|cpp|hpp|txt|csv|log|cfg|png|jpg|gif|svg|pdf|css|xml|py|js|ts|md|yml|sh|rs|go|cu|c|h))(?::(\d+))?)/g, (match, full, path, ext, line) => {
         const cleanPath = full.split(':')[0];
         return `<a class="file-link" href="#" onclick="ideBridge.openFile('${cleanPath}', ${line || 0}); return false;">${match}</a>`;
     });
