@@ -13,6 +13,7 @@ All notable changes to be-conductor are documented here.
 - **Smart auto-scroll** — scrolling up to read while the agent works no longer pulls you back down. The view stays put and the down arrow blinks to signal new content. Only important events (questions, results, session end) jump to the bottom. Sending a message always scrolls to follow your conversation
 - **Down arrow always enabled** — even with one message, clicking down scrolls to the bottom of long agent output
 - **30 orchestra verbs** — the thinking spinner now cycles through 30 musical terms (Crescendoing, Arpeggiating, Pizzicatoing, Fermataing...) changing every 10 seconds instead of 5
+- **Server-side message queue** — messages sent while the agent is busy are now queued on the server instead of in browser memory. All connected clients see queued messages (dimmed with a "queued" badge). The queue survives tab close, page reload, and server restart. Messages are processed in order after each turn completes
 
 ## v0.3.40
 
