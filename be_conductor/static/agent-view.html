@@ -1461,7 +1461,7 @@ function setBusy(b) {
         if (!spinnerEl) {
             spinnerEl = document.createElement('div');
             spinnerEl.style.cssText = 'padding:8px 0;color:var(--muted);font-size:13px;display:flex;align-items:center;gap:8px;';
-            spinnerEl.innerHTML = '<span class="agent-spinner"></span><span class="spinner-text"></span>';
+            spinnerEl.innerHTML = '<span class="agent-spinner"></span><span class="spinner-verb" style="min-width:120px;"></span><span class="spinner-time" style="color:var(--muted);opacity:0.7;"></span>';
             // Place spinner inside the current group
             var grp = document.getElementById('current-group');
             (grp || messagesEl).appendChild(spinnerEl);
@@ -1479,7 +1479,8 @@ function setBusy(b) {
             if (!spinnerEl) return;
             const s = Math.round((Date.now() - busyStartTime) / 1000);
             const verb = _verbs[verbIdx % _verbs.length];
-            spinnerEl.querySelector('.spinner-text').textContent = `${verb}... ${_formatDuration(s)}`;
+            spinnerEl.querySelector('.spinner-verb').textContent = verb + '...';
+            spinnerEl.querySelector('.spinner-time').textContent = _formatDuration(s);
         };
         updateSpinner();
         spinnerInterval = setInterval(() => {
