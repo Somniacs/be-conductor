@@ -251,6 +251,14 @@ class AgentSession:
         )
 
         async def _can_use_tool(tool_name, tool_input, context):
+            # Check our internal mode — SDK may still call us even after
+            # set_permission_mode if the change hasn't propagated yet.
+            mode = self._agent_options.get("permission_mode", "default")
+            if mode == "bypassPermissions":
+                return PermissionResultAllow()
+            if mode == "acceptEdits" and tool_name in ("Edit", "Write", "NotebookEdit"):
+                return PermissionResultAllow()
+
             # Build a readable summary
             if tool_name == "Bash":
                 prompt = tool_input.get("command", "") or tool_input.get("description", "")
@@ -283,6 +291,14 @@ class AgentSession:
             })
 
             if answer.lower() in ("yes", "yes_all", "approve", "approved", "ok"):
+                if answer.lower() == "yes_all":
+                    # Switch SDK to bypass so it stops calling this callback
+                    self._agent_options["permission_mode"] = "bypassPermissions"
+                    if self._client:
+                        try:
+                            await self._client.set_permission_mode("bypassPermissions")
+                        except Exception:
+                            pass
                 return PermissionResultAllow()
             if answer.lower() in ("no", "deny", "denied", "cancel", "cancelled"):
                 return PermissionResultDeny(message="User denied this action.")
@@ -469,6 +485,12 @@ class AgentSession:
                     "subtype": message.subtype,
                     "data": message.data,
                 })
+                # Sync permission mode from SDK → our state → all clients
+                pm = message.data.get("permissionMode")
+                if pm and pm != self._agent_options.get("permission_mode"):
+                    self._agent_options["permission_mode"] = pm
+                    self._current_mode = pm
+                    self._broadcast_settings()
                 if message.subtype == "init":
                     sid = message.data.get("session_id")
                     if sid:
@@ -723,6 +745,11 @@ class AgentSession:
         """Provide an answer to a pending AskUserQuestion."""
         if hasattr(self, '_question_answer_queue'):
             self._question_answer_queue.put_nowait(answer)
+        # Broadcast to all clients so they dismiss their modals
+        self._broadcast_event({
+            "type": "question_answered",
+            "answer": answer,
+        })
 
     def set_mode(self, mode: str) -> None:
         """Change the agent permission mode at runtime.
@@ -736,12 +763,24 @@ class AgentSession:
             async def _do_set_mode():
                 try:
                     await self._client.set_permission_mode(mode)
-                except Exception:
-                    pass
+                    self._emit_event({
+                        "type": "system", "subtype": "debug",
+                        "data": {"mode_set": mode, "ok": True},
+                    })
+                except Exception as e:
+                    self._emit_event({
+                        "type": "system", "subtype": "debug",
+                        "data": {"mode_set": mode, "error": str(e)},
+                    })
             try:
                 asyncio.ensure_future(_do_set_mode())
-            except Exception:
-                pass
+            except RuntimeError:
+                # No running event loop — try creating a task directly
+                try:
+                    loop = asyncio.get_event_loop()
+                    loop.create_task(_do_set_mode())
+                except Exception:
+                    pass
         self._broadcast_settings()
 
     def set_effort(self, effort: str) -> None:

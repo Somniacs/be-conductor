@@ -25,7 +25,8 @@
 }
 *, *::before, *::after { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 14px; height: 100vh; height: 100dvh; overflow: hidden; display: flex; flex-direction: column; }
-#messages { flex: 1; overflow-y: auto; padding: 12px 16px 12px 16px; min-height: 0; position: relative; scroll-behavior: smooth; }
+#messages { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 12px 16px 12px 16px; min-height: 0; position: relative; scroll-behavior: smooth; word-wrap: break-word; overflow-wrap: break-word; }
+#last-msg-bar:hover { background: var(--border) !important; }
 #msg-nav { position: sticky; bottom: 0; float: right; display: flex; gap: 2px; padding: 4px; z-index: 10; }
 #msg-nav button { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 5px; width: 22px; height: 22px; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--muted); transition: opacity 0.15s, background 0.15s; }
 #msg-nav button:hover:not(:disabled) { background: var(--border); opacity: 1 !important; }
@@ -111,7 +112,16 @@ summary[style*="list-style:none"]::-webkit-details-marker { display: none; }
 </head>
 <body>
 
-<div id="messages">
+<div id="messages-wrap" style="flex:1;min-height:0;position:relative;display:flex;flex-direction:column;">
+<div id="last-msg-bar" style="display:none;position:absolute;top:0;left:0;right:0;z-index:50;background:var(--bg-secondary);border-bottom:1px solid var(--border);padding:6px 12px;font-size:12px;gap:8px;cursor:pointer;">
+    <div style="display:flex;align-items:flex-start;gap:8px;">
+        <span style="color:var(--accent);flex-shrink:0;margin-top:2px;">&#9656;</span>
+        <span id="last-msg-text" style="flex:1;color:var(--fg);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.4;"></span>
+        <button id="last-msg-expand" style="display:none;background:none;border:none;color:var(--accent);font-size:11px;cursor:pointer;padding:0;flex-shrink:0;white-space:nowrap;margin-top:1px;">more &#9662;</button>
+        <button id="last-msg-close" style="background:none;border:none;color:var(--muted);font-size:14px;cursor:pointer;padding:0 2px;line-height:1;flex-shrink:0;">&times;</button>
+    </div>
+</div>
+<div id="messages" style="flex:1;">
     <div id="msg-nav">
         <button id="nav-up" title="Previous question" disabled style="opacity:0.25;">
             <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M2 7l4-4 4 4"/></svg>
@@ -120,6 +130,7 @@ summary[style*="list-style:none"]::-webkit-details-marker { display: none; }
             <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M2 5l4 4 4-4"/></svg>
         </button>
     </div>
+</div>
 </div>
 <div class="btw-panel" id="btw-panel"></div>
 <div id="drag-handle"><div></div></div>
@@ -295,15 +306,28 @@ const contextIndicator = document.getElementById('context-indicator');
 const MAX_CONTEXT = 1000000; // 1M tokens (Opus)
 let totalTokens = 0;
 
+// Cumulative session stats
+var _stats = {
+    totalInput: 0, totalOutput: 0, totalCacheRead: 0, totalCacheCreate: 0,
+    totalCost: 0, turns: 0, startTime: Date.now(), lastUsage: null,
+};
+
 function updateContextRing(usage) {
     if (!usage) return;
     const input = Number(usage.input_tokens || usage.inputTokens || 0);
     const output = Number(usage.output_tokens || usage.outputTokens || 0);
     const cacheRead = Number(usage.cache_read_input_tokens || usage.cacheReadInputTokens || 0);
     const cacheCreate = Number(usage.cache_creation_input_tokens || 0);
-    // Total context = all input tokens (including cached) + output
-    totalTokens = input + cacheRead + cacheCreate + output;
+    // Context = input + cache_read + cache_creation (all input the model sees).
+    // Output tokens are the model's response, not context.
+    totalTokens = input + cacheRead + cacheCreate;
     const cache = cacheRead + cacheCreate;
+    // Accumulate session stats
+    _stats.totalInput += input;
+    _stats.totalOutput += output;
+    _stats.totalCacheRead += cacheRead;
+    _stats.totalCacheCreate += cacheCreate;
+    _stats.lastUsage = {input, output, cacheRead, cacheCreate};
     const pct = Math.min(1, totalTokens / MAX_CONTEXT);
     const circumference = 37.7;
     const offset = circumference * (1 - pct);
@@ -566,6 +590,19 @@ function renderEvent(event) {
         return;
     }
     if (etype === 'rate_limit') return;
+    // Another client answered a question — dismiss our modal
+    if (etype === 'question_answered') {
+        var modal = document.getElementById('question-modal');
+        if (modal) {
+            modal.remove();
+            var inputBox = document.getElementById('input-box');
+            var handle = document.getElementById('drag-handle');
+            if (inputBox) inputBox.style.display = '';
+            if (handle) handle.style.display = '';
+        }
+        setBusy(true);
+        return;
+    }
     // Apply settings from server
     if (etype === 'settings') {
         var modeMap = {default: 0, acceptEdits: 1, plan: 2};
@@ -630,6 +667,8 @@ function renderEvent(event) {
             div.innerHTML = `<div style="padding:10px 14px;background:var(--user-bg);border-radius:8px;border-left:3px solid var(--accent);white-space:pre-wrap;line-height:1.5;">${escHtml(content)}</div>`;
         }
         messagesEl.appendChild(div);
+        // Update the sticky overlay bar with this message
+        if (!isQueued && !_replayingHistory) _updateLastMsgBar(div, content);
         // Set this new message as the current nav position
         _navUserAction = false;
         var allUserMsgs = _getUserMessages();
@@ -775,8 +814,29 @@ function renderEvent(event) {
         // Render the question in the timeline with a dot
         var qBlock = document.createElement('div');
         qBlock.className = 'msg msg-claude msg-claude-dot';
-        qBlock.style.setProperty('--dot-top', 'calc(10px + 0.4em)');
-        qBlock.innerHTML = '<div style="padding:10px 14px;background:#1a1a2e;border-radius:8px;border-left:3px solid #c084fc;line-height:1.5;"><div style="font-size:11px;color:#c084fc;font-weight:600;margin-bottom:4px;">Question</div>' + _mdToHtml(event.question || '') + '</div>';
+        qBlock.style.setProperty('--dot-top', 'calc(7px + 0.42em)');
+        var qText = event.question || '';
+        // Permission prompts ("Allow **Bash**: ...") → compact collapsible
+        var permMatch = qText.match(/^Allow \*\*(\w+)\*\*:\s*`?([\s\S]*?)`?\s*\??\s*$/);
+        if (permMatch) {
+            var toolName = permMatch[1];
+            var cmd = permMatch[2].trim();
+            var shortCmd = cmd.length > 80 ? cmd.slice(0,80) + '\u2026' : cmd;
+            var det = document.createElement('details');
+            det.style.cssText = 'margin:0;border:1px solid #30363d;border-radius:6px;overflow:hidden;';
+            var sum = document.createElement('summary');
+            sum.style.cssText = 'padding:6px 10px;background:var(--tool-header);color:var(--fg);font-size:12px;cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px;list-style:none;';
+            sum.innerHTML = _chevron + ' <span style="color:#c084fc;">&#9432;</span> <strong style="color:#c084fc;">Allow ' + escHtml(toolName) + '</strong> <span style="color:var(--muted);font-weight:400;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escHtml(shortCmd) + '</span>';
+            _addChevron(det);
+            var cnt = document.createElement('div');
+            cnt.style.cssText = 'padding:8px 12px;background:var(--tool-bg);white-space:pre-wrap;font-size:12px;color:var(--muted);line-height:1.4;max-height:200px;overflow-y:auto;';
+            cnt.textContent = cmd;
+            det.appendChild(sum);
+            det.appendChild(cnt);
+            qBlock.appendChild(det);
+        } else {
+            qBlock.innerHTML = '<div style="padding:10px 14px;background:#1a1a2e;border-radius:8px;border-left:3px solid #c084fc;line-height:1.5;"><div style="font-size:11px;color:#c084fc;font-weight:600;margin-bottom:4px;">Question</div>' + _mdToHtml(qText) + '</div>';
+        }
         var qGroup = document.getElementById('current-group') || messagesEl;
         qGroup.appendChild(qBlock);
 
@@ -836,6 +896,8 @@ function renderEvent(event) {
 
     } else if (etype === 'result') {
         if (event.usage) updateContextRing(event.usage);
+        _stats.turns += (event.num_turns || 1);
+        if (event.total_cost_usd) _stats.totalCost += Number(event.total_cost_usd);
         setBusy(false);
 
     } else if (etype === 'error') {
@@ -917,16 +979,30 @@ function _updateNavButtons() {
         if (_navIdx < 0) _navIdx = 0;
     }
     navUpBtn.disabled = count < 2 || _navIdx <= 0;
-    navDownBtn.disabled = count < 2 || _navIdx >= count - 1;
+    navDownBtn.disabled = count < 2;
     navUpBtn.style.opacity = navUpBtn.disabled ? '0.25' : '0.7';
     navDownBtn.style.opacity = navDownBtn.disabled ? '0.25' : '0.7';
+    // Dynamic tooltips showing target message text
+    var _navMsgs = _getUserMessages();
+    var _trunc = function(el) { var t = (el.querySelector('div') || el).textContent || ''; return t.length > 60 ? t.slice(0,60) + '\u2026' : t; };
+    navUpBtn.title = (!navUpBtn.disabled && _navIdx > 0) ? '\u2191 ' + _trunc(_navMsgs[_navIdx - 1]) : 'Previous message';
+    navDownBtn.title = (!navDownBtn.disabled && _navIdx < count - 1) ? '\u2193 ' + _trunc(_navMsgs[_navIdx + 1]) : (_navIdx >= count - 1 ? 'Scroll to bottom' : 'Next message');
 }
 
 function _navTo(idx) {
     const msgs = _getUserMessages();
     if (msgs.length < 2) return;
     _navUserAction = true;
-    _navIdx = Math.max(0, Math.min(idx, msgs.length - 1));
+    // Past the last message → scroll to very bottom, clear highlight
+    if (idx >= msgs.length) {
+        _navIdx = msgs.length - 1;
+        msgs.forEach((m) => { var inner = m.querySelector('div'); if (inner) inner.style.boxShadow = ''; });
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+        _navUserAction = false;
+        _updateNavButtons();
+        return;
+    }
+    _navIdx = Math.max(0, idx);
     // Highlight current message's inner box, remove from others
     msgs.forEach((m, i) => {
         var inner = m.querySelector('div');
@@ -1068,7 +1144,7 @@ function showPlanModal(planText, onAnswer) {
     // Build modal in the input area (same pattern as showQuestionModal)
     var modal = document.createElement('div');
     modal.id = 'question-modal';
-    modal.style.cssText = 'padding:14px 16px;overflow-y:auto;border-top:2px solid #c084fc;position:relative;';
+    modal.style.cssText = 'padding:14px 16px;overflow-y:auto;max-height:50vh;border-top:2px solid #c084fc;position:relative;';
 
     // Close X
     var closeBtn = document.createElement('button');
@@ -1160,7 +1236,7 @@ function showQuestionModal(q, onAnswer) {
     // Build modal as the input area content
     const modal = document.createElement('div');
     modal.id = 'question-modal';
-    modal.style.cssText = 'padding:14px 16px;overflow-y:auto;border-top:2px solid var(--accent);position:relative;';
+    modal.style.cssText = 'padding:14px 16px;overflow-y:auto;max-height:50vh;border-top:2px solid var(--accent);position:relative;';
 
     // Close button (top-right X)
     const closeBtn = document.createElement('button');
@@ -1426,6 +1502,14 @@ function connect() {
                     if (m.type === 'user_message' && m.content) _inputHistory.push(m.content);
                 }
                 _replayingHistory = false;
+                // Set overlay bar to last user message from history
+                var lastUserEl = null, lastUserText = '';
+                messagesEl.querySelectorAll('.msg-user').forEach(function(el) {
+                    lastUserEl = el;
+                    var inner = el.querySelector('div');
+                    if (inner) lastUserText = inner.textContent || '';
+                });
+                if (lastUserEl && lastUserText) _updateLastMsgBar(lastUserEl, lastUserText);
                 // Scroll to end after replay
                 messagesEl.scrollTop = messagesEl.scrollHeight;
                 // If the last event was an unanswered question, show the modal now
@@ -1480,6 +1564,51 @@ placeholder.setAttribute('data-placeholder', '1');
 placeholder.style.cssText = 'padding:12px;color:var(--muted);font-size:13px;';
 placeholder.textContent = 'Connecting...';
 messagesEl.appendChild(placeholder);
+
+// --- Last user message overlay bar ---
+var _lastUserMsgEl = null;
+var _lastUserMsgText = '';
+var _lastMsgBarDismissed = false;
+var _lastMsgBar = document.getElementById('last-msg-bar');
+var _lastMsgExpanded = false;
+var _lastMsgExpandBtn = document.getElementById('last-msg-expand');
+var _lastMsgTextEl = document.getElementById('last-msg-text');
+
+_lastMsgBar.addEventListener('click', function(e) {
+    if (e.target.id === 'last-msg-close') { _lastMsgBar.style.display = 'none'; return; }
+    if (e.target.id === 'last-msg-expand' || e.target.parentElement && e.target.parentElement.id === 'last-msg-expand') {
+        _lastMsgExpanded = !_lastMsgExpanded;
+        _lastMsgTextEl.style.webkitLineClamp = _lastMsgExpanded ? 'unset' : '2';
+        _lastMsgExpandBtn.innerHTML = _lastMsgExpanded ? 'less &#9652;' : 'more &#9662;';
+        return;
+    }
+    if (_lastUserMsgEl) _lastUserMsgEl.scrollIntoView({block: 'start', behavior: 'smooth'});
+});
+
+// IntersectionObserver to show/hide the bar when message scrolls out of view
+var _lastMsgObserver = new IntersectionObserver(function(entries) {
+    if (!_lastUserMsgEl) return;
+    var visible = entries[0].isIntersecting;
+    _lastMsgBar.style.display = visible ? 'none' : 'flex';
+}, {root: messagesEl, threshold: 0.1});
+
+function _updateLastMsgBar(el, text) {
+    if (_lastUserMsgEl) _lastMsgObserver.unobserve(_lastUserMsgEl);
+    _lastUserMsgEl = el;
+    _lastUserMsgText = text;
+    _lastMsgBarDismissed = false;
+    _lastMsgExpanded = false;
+    _lastMsgTextEl.textContent = text;
+    _lastMsgTextEl.style.webkitLineClamp = '2';
+    _lastMsgExpandBtn.innerHTML = 'more &#9662;';
+    // Show/hide expand button based on whether text is clamped
+    requestAnimationFrame(function() {
+        _lastMsgExpandBtn.style.display = _lastMsgTextEl.scrollHeight > _lastMsgTextEl.clientHeight + 2 ? 'block' : 'none';
+    });
+    _lastMsgObserver.observe(el);
+    _lastMsgBar.style.display = 'none';
+}
+
 connect();
 
 // --- Send prompt ---
@@ -2127,7 +2256,114 @@ function _getSlashItems() {
             if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type: 'prompt', text: '/compact'}));
         }},
         {cmd: '/clear', label: 'Clear conversation', action: function() { messagesEl.innerHTML = ''; }},
+        {cmd: '/stats', label: 'Session statistics', desc: 'Token usage, cost, duration', action: function() { _showStatsPopup(); }},
     ];
+}
+
+function _showStatsPopup() {
+    var old = document.getElementById('stats-popup');
+    if (old) { old.remove(); return; }
+
+    var fk = function(n) { return n >= 1000000 ? (n/1000000).toFixed(1)+'M' : n >= 1000 ? (n/1000).toFixed(0)+'K' : String(n); };
+    var bar = function(val, max, color) {
+        var w = Math.min(100, val/max*100);
+        return '<div style="height:6px;background:#1a1a2e;border-radius:3px;overflow:hidden;margin-top:4px;"><div style="height:100%;width:'+w+'%;background:'+color+';border-radius:3px;transition:width 0.3s;"></div></div>';
+    };
+    var durFmt = function(s) { return s >= 3600 ? Math.floor(s/3600)+'h '+Math.floor((s%3600)/60)+'m' : s >= 60 ? Math.floor(s/60)+'m '+s%60+'s' : s+'s'; };
+    var row = function(label, value, color) {
+        return '<div><div style="color:var(--muted);font-size:11px;margin-bottom:2px;">'+label+'</div><div style="color:'+(color||'var(--fg)')+';font-size:15px;font-weight:500;">'+value+'</div></div>';
+    };
+
+    var popup = document.createElement('div');
+    popup.id = 'stats-popup';
+    popup.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px;';
+    var card = document.createElement('div');
+    card.style.cssText = 'background:#1c2128;border:1px solid var(--border);border-radius:10px;width:440px;max-width:90vw;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.5);';
+    card.innerHTML = '<div style="padding:16px 18px 12px;display:flex;align-items:center;border-bottom:1px solid #2d333b;">'
+        + '<div style="flex:1;font-size:14px;font-weight:600;color:var(--fg);">Session Statistics</div>'
+        + '<button id="stats-close" style="background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;padding:2px 6px;line-height:1;border-radius:4px;">&times;</button>'
+        + '</div><div id="stats-body" style="padding:16px 18px;"><div style="color:var(--muted);font-size:12px;">Loading...</div></div>';
+    popup.appendChild(card);
+    popup.addEventListener('click', function(e) { if (e.target === popup) popup.remove(); });
+    document.body.appendChild(popup);
+    document.getElementById('stats-close').addEventListener('click', function() { popup.remove(); });
+    document.addEventListener('keydown', function esc(e) { if (e.key === 'Escape') { popup.remove(); document.removeEventListener('keydown', esc); } });
+
+    // Fetch session info from API
+    var sid = new URLSearchParams(window.location.search).get('session');
+    var wsParam = new URLSearchParams(window.location.search).get('ws');
+    var baseUrl = wsParam ? wsParam.replace(/^ws/, 'http') : '';
+    fetch(baseUrl + '/sessions/' + encodeURIComponent(sid))
+        .then(function(r) { return r.json(); })
+        .then(function(session) { _renderStats(session); })
+        .catch(function() { _renderStats(null); });
+
+    function _renderStats(session) {
+        var body = document.getElementById('stats-body');
+        if (!body) return;
+
+        // Context window (last turn)
+        var lu = _stats.lastUsage || {};
+        var ctxTotal = (lu.input||0) + (lu.cacheRead||0) + (lu.cacheCreate||0);
+        var ctxPct = Math.min(100, (ctxTotal / MAX_CONTEXT * 100)).toFixed(0);
+        var ctxColor = ctxPct < 50 ? 'var(--success)' : ctxPct < 80 ? '#c4a000' : ctxPct < 95 ? '#f0a020' : 'var(--error)';
+
+        // Session duration from server start_time
+        var dur = 0;
+        if (session && session.start_time) dur = Math.floor(Date.now()/1000 - session.start_time);
+
+        var html = '';
+
+        // === Session info header ===
+        if (session) {
+            html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;margin-bottom:14px;font-size:12px;">';
+            html += row('Session', escHtml(session.name || session.id || sid));
+            html += row('Status', '<span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:7px;height:7px;border-radius:50%;background:'+(session.status==='running'?'var(--success)':'#f85149')+';"></span>'+escHtml(session.status||'?')+'</span>');
+            html += row('Working directory', '<span style="font-size:11px;word-break:break-all;">'+escHtml(session.cwd||'?')+'</span>');
+            html += row('Messages', String(session.message_count||0));
+            html += '</div>';
+            html += '<div style="height:1px;background:#2d333b;margin:0 0 14px;"></div>';
+        }
+
+        // === Context window bar ===
+        html += '<div style="margin-bottom:14px;">'
+            + '<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:2px;"><span>Context Window</span><span style="color:'+ctxColor+';">'+fk(ctxTotal)+' / '+fk(MAX_CONTEXT)+' ('+ctxPct+'%)</span></div>'
+            + bar(ctxTotal, MAX_CONTEXT, ctxColor)
+            + '</div>';
+
+        // === Last turn token breakdown ===
+        html += '<div style="font-size:11px;color:var(--muted);margin-bottom:6px;">Last Turn</div>';
+        html += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px;margin-bottom:14px;">';
+        html += row('Input', fk(lu.input||0));
+        html += row('Output', fk(lu.output||0));
+        html += row('Cache read', fk(lu.cacheRead||0), '#4a6cf7');
+        html += row('Cache new', fk(lu.cacheCreate||0), '#c084fc');
+        html += '</div>';
+
+        html += '<div style="height:1px;background:#2d333b;margin:0 0 14px;"></div>';
+
+        // === Session totals ===
+        html += '<div style="font-size:11px;color:var(--muted);margin-bottom:6px;">Session Totals</div>';
+        html += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px;">';
+        html += row('Duration', durFmt(dur));
+        html += row('Turns', String(_stats.turns));
+        html += row('Cost', '$'+_stats.totalCost.toFixed(2));
+        html += '</div>';
+
+        var cumIn = _stats.totalInput + _stats.totalCacheRead + _stats.totalCacheCreate;
+        html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">';
+        html += row('Total input', fk(cumIn));
+        html += row('Total output', fk(_stats.totalOutput));
+        html += '</div>';
+
+        // === Resume ID ===
+        if (session && session.resume_id) {
+            html += '<div style="height:1px;background:#2d333b;margin:14px 0 10px;"></div>';
+            html += '<div style="font-size:11px;color:var(--muted);">Resume ID <span style="font-family:monospace;color:var(--fg);user-select:all;">'+escHtml(session.resume_id)+'</span></div>';
+        }
+
+        body.innerHTML = html;
+    }
 }
 
 function _renderEffortWidget() {

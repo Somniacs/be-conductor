@@ -2,6 +2,28 @@
 
 All notable changes to be-conductor are documented here.
 
+## v0.3.40
+
+### New
+
+- **`/stats` command** — type `/stats` in the agent view to open a session statistics popup. Fetches live session info from the API and shows: session name, status (with dot), working directory, message count, context window bar with percentage, last-turn token breakdown (input/output/cache read/cache new in a 4-column grid), session totals (duration, turns, cost), cumulative input/output, and resume ID
+- **Last message overlay** — a thin bar sticks to the top of the messages area showing your last message, so you always know what the agent is working on. Appears when the message scrolls out of view, hides when visible. Click to scroll back, X to dismiss temporarily (reappears on next scroll). Long messages clamped to 2 lines with a "more/less" expand button
+- **Nav arrow tooltips** — hovering the up/down arrows shows a preview of the target message text (truncated at 60 chars). Down arrow on last message shows "Scroll to bottom"
+- **Nav down scrolls to end** — the down arrow stays enabled when on the last message; clicking it once more scrolls to the very bottom of the conversation and clears the highlight
+- **Collapsible permission prompts** — "Allow Bash: ..." questions in the timeline are now compact `<details>` blocks (one-line summary with chevron to expand the full command), matching tool block styling
+- **Scrollable question/permission modals** — modals in the input area now cap at `50vh` height and scroll, fixing unreadable long permission prompts
+- **Multi-client question sync** — when one client answers a question or permission prompt, all other connected clients dismiss their modals automatically via a `question_answered` broadcast event
+
+### Fixed
+
+- **Context token count corrected** — now shows `input + cache_read + cache_creation` (what the model sees). Previously double-counted or omitted cache creation tokens
+- **"Yes, allow all" now persists** — clicking "Yes, allow all this session" in a permission prompt now calls `set_permission_mode("bypassPermissions")` on the SDK so it stops asking for the rest of the session. Previously it only approved the single tool call
+- **Free-text permission feedback forwarded** — when typing custom text in a permission prompt (instead of clicking Yes/No), the text is now passed as the deny message so the agent can see and act on the user's instructions
+- **No horizontal scrollbar in agent view** — `overflow-x: hidden` and `overflow-wrap: break-word` on the messages container prevents horizontal scroll from long content
+- **Mode switch debug logging** — `set_permission_mode()` now emits debug events to help diagnose whether mode changes reach the SDK
+- **Permission bypass safety net** — `can_use_tool` callback now checks our internal mode directly, auto-approving in bypass mode even if the SDK's runtime mode change hasn't propagated yet
+- **Mode sync from SDK** — `system` messages with `permissionMode` (sent by the SDK on init/status) now update our internal mode and broadcast to all clients, so the GUI reflects mode changes made by the agent (e.g. after ExitPlanMode)
+
 ## v0.3.39
 
 ### New
