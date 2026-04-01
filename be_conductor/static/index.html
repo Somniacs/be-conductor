@@ -25,6 +25,10 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark-dimmed.min.css">
     <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/languages/glsl.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/languages/cmake.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/languages/latex.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/languages/protobuf.min.js"></script>
     <style>
         @font-face {
             font-family: 'JetBrains Mono';
@@ -10346,17 +10350,26 @@
                 const ext = (_fileActivePath.split('.').pop() || '').toLowerCase();
                 const langMap = {
                     py:'python', js:'javascript', ts:'typescript', jsx:'javascript', tsx:'typescript',
-                    cpp:'cpp', cc:'cpp', cxx:'cpp', c:'c', h:'cpp', hpp:'cpp', cu:'cuda',
+                    cpp:'cpp', cc:'cpp', cxx:'cpp', c:'c', h:'cpp', hpp:'cpp', hxx:'cpp', inl:'cpp',
+                    // GPU / graphics shaders
+                    cu:'cpp', cuh:'cpp',             // CUDA → C++ (closest match)
+                    glsl:'glsl', vert:'glsl', frag:'glsl', geom:'glsl', comp:'glsl', tesc:'glsl', tese:'glsl',
+                    hlsl:'cpp', hlsli:'cpp', fx:'cpp', cg:'cpp',  // HLSL/Cg → C++ (closest)
+                    slang:'cpp',                     // Slang (shader language) → C++
+                    metal:'cpp', mtl:'cpp',          // Metal shading language → C++
+                    wgsl:'rust',                     // WebGPU shading → Rust (similar syntax)
+                    spv:'cpp', spirv:'cpp',          // SPIR-V text → C++
+                    usf:'cpp', ush:'cpp',            // Unreal shader files → C++
+                    // Systems
                     rs:'rust', go:'go', java:'java', kt:'kotlin', cs:'csharp',
                     rb:'ruby', php:'php', swift:'swift', m:'objectivec', mm:'objectivec',
                     sh:'bash', bash:'bash', zsh:'bash', fish:'bash',
-                    json:'json', yaml:'yaml', yml:'yaml', toml:'ini', ini:'ini',
+                    json:'json', yaml:'yaml', yml:'yaml', toml:'ini', ini:'ini', cfg:'ini', conf:'ini',
                     xml:'xml', html:'xml', svg:'xml', css:'css', scss:'scss',
                     sql:'sql', graphql:'graphql', proto:'protobuf',
                     md:'markdown', tex:'latex',
                     dockerfile:'dockerfile', makefile:'makefile',
                     cmake:'cmake', gradle:'groovy', groovy:'groovy',
-                    glsl:'glsl', vert:'glsl', frag:'glsl', hlsl:'hlsl',
                     lua:'lua', perl:'perl', r:'r',
                 };
                 const lang = langMap[ext];
