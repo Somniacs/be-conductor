@@ -28,6 +28,7 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--fo
 #messages { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 12px 16px 12px 16px; min-height: 0; position: relative; scroll-behavior: smooth; word-wrap: break-word; overflow-wrap: break-word; }
 #last-msg-bar:hover { background: #7a8294 !important; }
 #msg-nav { display: flex; gap: 2px; padding: 4px; }
+@keyframes nav-blink { 0%,100% { opacity:0.4; } 50% { opacity:1; background:var(--accent); color:white; border-radius:5px; } }
 #msg-nav button { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 5px; width: 22px; height: 22px; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--muted); transition: opacity 0.15s, background 0.15s; }
 #msg-nav button:hover:not(:disabled) { background: var(--border); opacity: 1 !important; }
 #msg-nav button:disabled { cursor: default; }
@@ -154,6 +155,13 @@ summary[style*="list-style:none"]::-webkit-details-marker { display: none; }
             <div class="right-group" id="right-group">
                 <div class="mode-popup" id="mode-popup"></div>
                 <button class="mode-btn" id="mode-btn" title="Modes &amp; Effort"></button>
+                <div style="position:relative;">
+                    <button id="settings-btn" style="background:none;border:none;color:var(--muted);cursor:pointer;padding:4px;display:flex;align-items:center;border-radius:4px;" title="Settings">
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="3" r="1"/><circle cx="8" cy="8" r="1"/><circle cx="8" cy="13" r="1"/></svg>
+                    </button>
+                    <div id="settings-popup" style="display:none;position:absolute;bottom:100%;right:0;margin-bottom:6px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;min-width:180px;padding:6px 0;z-index:200;box-shadow:0 4px 16px rgba(0,0,0,0.4);">
+                    </div>
+                </div>
                 <button class="send-btn" id="send-btn" title="Send (Enter)"></button>
             </div>
         </div>
@@ -926,6 +934,7 @@ function renderEvent(event) {
 
         // Track as pending (cleared by question_answered)
         _pendingQuestion = event;
+        _importantEvent = true;
 
         if (_replayingHistory) return;
         setBusy(false);
@@ -982,6 +991,8 @@ function renderEvent(event) {
         }
 
     } else if (etype === 'result') {
+        _userSentMessage = false;  // turn done — reset for next turn
+        _importantEvent = true;
         if (event.usage) updateContextRing(event.usage);
         _stats.turns += (event.num_turns || 1);
         if (event.total_cost_usd) _stats.totalCost += Number(event.total_cost_usd);
@@ -997,6 +1008,7 @@ function renderEvent(event) {
 
     } else if (etype === 'session_end') {
         setBusy(false);
+        _importantEvent = true;
         _showSessionEnded(event.resumable, event.message);
     }
 
@@ -1025,14 +1037,44 @@ function _updateGroupLines() {
 // Recalculate lines when any <details> toggles (expand/collapse changes dot positions)
 messagesEl.addEventListener('toggle', function() { _updateGroupLines(); }, true);
 
+var _userSentMessage = false;  // true when THIS client sent the last message
+var _blinkingNav = false;
+var _importantEvent = false;   // set by question, result, session_end — triggers scroll even when not at bottom
+
+function _startNavBlink() {
+    if (_blinkingNav) return;
+    _blinkingNav = true;
+    navDownBtn.style.animation = 'nav-blink 0.8s ease-in-out infinite';
+    navDownBtn.style.opacity = '1';
+}
+function _stopNavBlink() {
+    if (!_blinkingNav) return;
+    _blinkingNav = false;
+    navDownBtn.style.animation = '';
+    navDownBtn.style.opacity = navDownBtn.disabled ? '0.25' : '0.7';
+}
+
+// Detect manual scroll — if user scrolls to bottom, stop blinking
+messagesEl.addEventListener('scroll', function() {
+    if (messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 50) {
+        _stopNavBlink();
+    }
+});
+
 function autoScroll() {
     // Keep spinner at the bottom of its group
     if (spinnerEl && spinnerEl.parentNode) {
         spinnerEl.parentNode.appendChild(spinnerEl);
     }
     _updateGroupLines();
-    if (messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 100) {
+    var nearBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 100;
+    if (_userSentMessage || _importantEvent || nearBottom) {
         messagesEl.scrollTop = messagesEl.scrollHeight;
+        _stopNavBlink();
+        _importantEvent = false;
+    } else if (busy) {
+        // Scrolled up during output — blink but don't pull down
+        _startNavBlink();
     }
     // Update navigation buttons
     if (typeof _updateNavButtons === 'function') _updateNavButtons();
@@ -1066,9 +1108,9 @@ function _updateNavButtons() {
         if (_navIdx < 0) _navIdx = 0;
     }
     navUpBtn.disabled = count < 2 || _navIdx <= 0;
-    navDownBtn.disabled = count < 2;
+    navDownBtn.disabled = false;  // always enabled — scrolls to bottom even with 0-1 messages
     navUpBtn.style.opacity = navUpBtn.disabled ? '0.25' : '0.7';
-    navDownBtn.style.opacity = navDownBtn.disabled ? '0.25' : '0.7';
+    if (!_blinkingNav) navDownBtn.style.opacity = navDownBtn.disabled ? '0.25' : '0.7';
     // Dynamic tooltips showing target message text
     var _navMsgs = _getUserMessages();
     var _trunc = function(el) { var t = (el.querySelector('div') || el).textContent || ''; return t.length > 60 ? t.slice(0,60) + '\u2026' : t; };
@@ -1078,7 +1120,7 @@ function _updateNavButtons() {
 
 function _navTo(idx) {
     const msgs = _getUserMessages();
-    if (msgs.length < 2) return;
+    if (msgs.length < 1) { messagesEl.scrollTop = messagesEl.scrollHeight; return; }
     _navUserAction = true;
     // Past the last message → scroll to very bottom, clear highlight
     if (idx >= msgs.length) {
@@ -1111,6 +1153,7 @@ navUpBtn.addEventListener('click', (e) => {
 });
 navDownBtn.addEventListener('click', (e) => {
     e.preventDefault(); e.stopPropagation();
+    _stopNavBlink();
     _navTo(_navIdx + 1);
 });
 
@@ -1455,7 +1498,14 @@ function setBusy(b) {
     busy = b;
     updateSendBtn();
     promptEl.placeholder = b ? 'Queue another message...' : 'Message Claude...';
-    const _verbs = ['Composing', 'Orchestrating', 'Harmonizing', 'Conducting', 'Arranging', 'Counterpointing', 'Modulating', 'Embellishing', 'Transposing', 'Cadencing', 'Ornamenting', 'Fuguing', 'Preluding', 'Tempering'];
+    const _verbs = [
+        'Composing', 'Orchestrating', 'Harmonizing', 'Conducting', 'Arranging',
+        'Counterpointing', 'Modulating', 'Embellishing', 'Transposing', 'Cadencing',
+        'Ornamenting', 'Fuguing', 'Preluding', 'Tempering', 'Improvising',
+        'Crescendoing', 'Arpeggiating', 'Syncopating', 'Resonating', 'Attuning',
+        'Articulating', 'Fermataing', 'Trilling', 'Glissandoing', 'Pizzicatoing',
+        'Staccatoing', 'Fortissimoing', 'Solfèging', 'Overtoning', 'Vibratoing',
+    ];
     if (b) {
         busyStartTime = Date.now();
         if (!spinnerEl) {
@@ -1484,9 +1534,9 @@ function setBusy(b) {
         };
         updateSpinner();
         spinnerInterval = setInterval(() => {
-            // Change verb every 5 seconds
+            // Change verb every 10 seconds
             const s = Math.round((Date.now() - busyStartTime) / 1000);
-            if (s > 0 && s % 5 === 0) verbIdx++;
+            if (s > 0 && s % 10 === 0) verbIdx++;
             updateSpinner();
         }, 1000);
         autoScroll();
@@ -1708,6 +1758,8 @@ function sendPrompt() {
     const text = promptEl.value.trim();
     if (!text && !pendingAttachments.length) return;
     if (text) { _inputHistory.push(text); _historyIdx = -1; _historyDraft = ''; }
+    _userSentMessage = true;
+    _stopNavBlink();
     _userDismissedQuestion = true;
     // Plan approval feedback — send as answer, not prompt
     if (_planPendingApproval && text) {
@@ -2333,8 +2385,64 @@ modeBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     modePopup.style.display = modePopup.style.display === 'none' ? 'block' : 'none';
 });
-document.addEventListener('click', () => { modePopup.style.display = 'none'; });
+document.addEventListener('click', () => { modePopup.style.display = 'none'; _settingsPopup.style.display = 'none'; });
 modePopup.addEventListener('click', (e) => e.stopPropagation());
+
+// --- Settings popup (⋮ menu) ---
+var _settingsPopup = document.getElementById('settings-popup');
+var _settingsBtn = document.getElementById('settings-btn');
+
+function _buildSettingsPopup() {
+    var itemStyle = 'padding:8px 14px;display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;color:#e0e0e0;';
+    var iconStyle = 'color:var(--muted);flex-shrink:0;';
+
+    var html = '';
+
+    // Font size
+    html += '<div style="' + itemStyle + 'cursor:default;">'
+        + '<div style="' + iconStyle + '"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 13V3h4l3 5-3 5"/><path d="M13 8H7"/></svg></div>'
+        + '<div style="flex:1;">Font size</div>'
+        + '<div style="display:flex;align-items:center;gap:4px;">'
+        + '<button id="set-font-minus" style="background:var(--code-bg);border:1px solid var(--border);color:var(--fg);border-radius:4px;width:24px;height:24px;cursor:pointer;font-size:14px;">\u2212</button>'
+        + '<span id="set-font-label" style="font-size:11px;color:var(--fg);min-width:30px;text-align:center;">' + _fontSize + 'px</span>'
+        + '<button id="set-font-plus" style="background:var(--code-bg);border:1px solid var(--border);color:var(--fg);border-radius:4px;width:24px;height:24px;cursor:pointer;font-size:14px;">+</button>'
+        + '</div></div>';
+
+    // Divider
+    html += '<div style="height:1px;background:#30363d;margin:4px 0;"></div>';
+
+    // Reload
+    html += '<div class="settings-item" style="' + itemStyle + '" id="set-reload">'
+        + '<div style="' + iconStyle + '"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 8a6 6 0 1 1 1.5 4"/><path d="M2 12V8h4"/></svg></div>'
+        + 'Reload</div>';
+
+    _settingsPopup.innerHTML = html;
+
+    // Bind events
+    document.getElementById('set-font-minus').addEventListener('click', function(e) {
+        e.stopPropagation();
+        if (_fontSize > 10) { _fontSize--; document.body.style.fontSize = _fontSize + 'px'; localStorage.setItem('agent-view-fontsize', _fontSize); document.getElementById('set-font-label').textContent = _fontSize + 'px'; }
+    });
+    document.getElementById('set-font-plus').addEventListener('click', function(e) {
+        e.stopPropagation();
+        if (_fontSize < 24) { _fontSize++; document.body.style.fontSize = _fontSize + 'px'; localStorage.setItem('agent-view-fontsize', _fontSize); document.getElementById('set-font-label').textContent = _fontSize + 'px'; }
+    });
+    document.getElementById('set-reload').addEventListener('click', function() { location.reload(); });
+}
+
+_settingsBtn.addEventListener('click', function(e) {
+    e.stopPropagation();
+    modePopup.style.display = 'none';
+    if (_settingsPopup.style.display === 'none') {
+        _buildSettingsPopup();
+        _settingsPopup.style.display = 'block';
+    } else {
+        _settingsPopup.style.display = 'none';
+    }
+});
+_settingsPopup.addEventListener('click', function(e) { e.stopPropagation(); });
+_settingsBtn.addEventListener('mouseover', function() { _settingsBtn.style.color = 'var(--fg)'; });
+_settingsBtn.addEventListener('mouseout', function() { _settingsBtn.style.color = 'var(--muted)'; });
 
 // --- Slash command popup (command palette) ---
 var _slashPopupEl = document.getElementById('slash-popup');

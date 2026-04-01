@@ -9,6 +9,10 @@ All notable changes to be-conductor are documented here.
 - **Syntax highlighting in file viewer** — source files now display with syntax coloring for 40+ languages including C++, Python, JavaScript, Rust, Go, and all GPU/graphics shader languages (GLSL, HLSL, Slang, Metal, CUDA, WGSL, Unreal .usf/.ush). Custom dark color scheme matching the dashboard theme
 - **File link fix** — `project.json` no longer incorrectly links as `project.js`. Extensions are now matched longest-first
 - **Stable spinner layout** — the status verb, elapsed time, and token count are now in fixed-width columns so the time doesn't jump when the verb changes
+- **Settings menu** — a `⋮` button in the input toolbar (next to mode button) gives access to Font size +/− and Reload. Works in JetBrains, VSCode, and browser where there's no native menu bar
+- **Smart auto-scroll** — scrolling up to read while the agent works no longer pulls you back down. The view stays put and the down arrow blinks to signal new content. Only important events (questions, results, session end) jump to the bottom. Sending a message always scrolls to follow your conversation
+- **Down arrow always enabled** — even with one message, clicking down scrolls to the bottom of long agent output
+- **30 orchestra verbs** — the thinking spinner now cycles through 30 musical terms (Crescendoing, Arpeggiating, Pizzicatoing, Fermataing...) changing every 10 seconds instead of 5
 
 ## v0.3.40
 
