@@ -305,13 +305,11 @@ class AgentSession:
 
             if answer.lower() in ("yes", "yes_all", "approve", "approved", "ok"):
                 if answer.lower() == "yes_all":
-                    # Switch SDK to bypass so it stops calling this callback
+                    # Mark bypass internally — can't call set_permission_mode here
+                    # because we're inside can_use_tool callback (would deadlock).
+                    # The mode change is applied after this callback returns.
                     self._agent_options["permission_mode"] = "bypassPermissions"
-                    if self._client:
-                        try:
-                            await self._client.set_permission_mode("bypassPermissions")
-                        except Exception:
-                            pass
+                    self._pending_mode_change = "bypassPermissions"
                 return PermissionResultAllow()
             if answer.lower() in ("no", "deny", "denied", "cancel", "cancelled"):
                 return PermissionResultDeny(message="User denied this action.")
@@ -413,6 +411,13 @@ class AgentSession:
                             await client.query(text)
                         await self._stream_response(client)
                         self._processing = False
+                        # Apply deferred mode change (from yes_all inside can_use_tool)
+                        if getattr(self, '_pending_mode_change', None):
+                            try:
+                                await client.set_permission_mode(self._pending_mode_change)
+                            except Exception:
+                                pass
+                            self._pending_mode_change = None
                         if is_btw:
                             self._broadcast_event({"type": "btw_end"})
 
