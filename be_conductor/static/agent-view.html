@@ -1100,9 +1100,15 @@ messagesEl.addEventListener('scroll', function() {
 });
 
 function autoScroll() {
-    // Keep spinner at the bottom of its group
-    if (spinnerEl && spinnerEl.parentNode) {
-        spinnerEl.parentNode.appendChild(spinnerEl);
+    // Keep spinner at the bottom of the latest active group
+    if (spinnerEl) {
+        var currentGrp = document.getElementById('current-group');
+        var target = currentGrp || messagesEl;
+        if (spinnerEl.parentNode !== target) {
+            target.appendChild(spinnerEl);
+        } else {
+            target.appendChild(spinnerEl);
+        }
     }
     _updateGroupLines();
     var nearBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 100;
