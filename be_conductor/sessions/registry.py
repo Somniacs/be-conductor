@@ -226,6 +226,33 @@ class SessionRegistry:
             except Exception:
                 pass
 
+        # Dedup: if multiple sessions share the same resume_id, keep the
+        # newest (by start_time) and clear the others' resume_id so they
+        # start fresh on resume instead of conflicting.
+        rid_owners: dict[str, list[str]] = {}
+        for sid, meta in self.resumable.items():
+            rid = meta.get("resume_id")
+            if rid:
+                rid_owners.setdefault(rid, []).append(sid)
+        for rid, sids in rid_owners.items():
+            if len(sids) > 1:
+                # Keep the one with the latest start_time
+                sids.sort(key=lambda s: self.resumable[s].get("start_time", 0),
+                          reverse=True)
+                keeper = sids[0]
+                for dup in sids[1:]:
+                    log.warning(
+                        "Duplicate resume_id %s: keeping '%s', clearing '%s'",
+                        rid[:12], keeper, dup)
+                    self.resumable[dup]["resume_id"] = None
+                    # Persist the change
+                    dup_path = SESSIONS_DIR / f"{dup}.json"
+                    if dup_path.exists():
+                        try:
+                            dup_path.write_text(json.dumps(self.resumable[dup]))
+                        except Exception:
+                            pass
+
     async def _on_session_exit(self, session_id: str):
         """Called when a session's process exits."""
         session = self.sessions.pop(session_id, None)
