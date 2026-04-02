@@ -113,7 +113,7 @@ summary[style*="list-style:none"]::-webkit-details-marker { display: none; }
 </head>
 <body>
 
-<div id="messages-wrap" style="flex:1;min-height:0;position:relative;display:flex;flex-direction:column;">
+<div id="messages-wrap" style="flex:1;min-height:0;position:relative;display:flex;flex-direction:column;overflow:hidden;">
 <div id="last-msg-bar" style="display:none;position:absolute;top:0;left:0;right:0;z-index:50;background:#8890a0;border-bottom:1px solid #6a7080;padding:6px 12px;font-size:12px;gap:8px;cursor:pointer;">
     <div style="display:flex;align-items:flex-start;gap:8px;">
         <span style="color:#4a6cf7;flex-shrink:0;margin-top:2px;">&#9656;</span>
@@ -130,7 +130,7 @@ summary[style*="list-style:none"]::-webkit-details-marker { display: none; }
             <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M2 5l4 4 4-4"/></svg>
         </button>
 </div>
-<div id="messages" style="flex:1;">
+<div id="messages" style="flex:1;width:100%;">
 </div>
 </div>
 <div class="btw-panel" id="btw-panel"></div>
@@ -229,7 +229,7 @@ function applyTheme(t) {
     root.style.setProperty('--success-bg', t.successBg);
     root.style.setProperty('--error-bg', t.errorBg);
 }
-const themeName = params.get('theme') || window.__THEME || 'default';
+const themeName = params.get('theme') || window.__THEME || localStorage.getItem('agent-view-theme') || 'default';
 applyTheme(THEMES[themeName] || THEMES.default);
 window.addEventListener('message', (e) => {
     if (!e.data) return;
@@ -890,7 +890,7 @@ function renderEvent(event) {
                 // Add copy + view buttons for longer text blocks
                 if (block.text.split('\n').length > 5 || block.text.length > 300) {
                     var btnRow = document.createElement('div');
-                    btnRow.style.cssText = 'position:absolute;top:4px;right:4px;display:flex;gap:4px;opacity:0;transition:opacity 0.15s;';
+                    btnRow.style.cssText = 'position:sticky;bottom:8px;display:flex;gap:4px;opacity:0;transition:opacity 0.15s;z-index:5;margin-top:6px;';
 
                     var viewBtn = document.createElement('button');
                     viewBtn.style.cssText = 'background:var(--code-bg);border:1px solid var(--border);border-radius:4px;padding:3px 6px;cursor:pointer;color:var(--muted);font-size:11px;display:flex;align-items:center;gap:4px;';
@@ -2527,6 +2527,24 @@ function _buildSettingsPopup() {
     // Divider
     html += '<div style="height:1px;background:#30363d;margin:4px 0;"></div>';
 
+    // Theme picker
+    var _currentTheme = localStorage.getItem('agent-view-theme') || 'default';
+    var themeNames = {default:'Indigo', dark:'Dark', mid:'Catppuccin', bright:'Light', bernstein:'Bernstein', green:'Terminal'};
+    html += '<div style="' + itemStyle + 'cursor:default;">'
+        + '<div style="' + iconStyle + '"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="5"/><path d="M8 3v2M8 11v2M3 8h2M11 8h2"/></svg></div>'
+        + '<div style="flex:1;">Theme</div>'
+        + '</div>';
+    html += '<div style="padding:2px 14px 8px;display:flex;flex-wrap:wrap;gap:4px;">';
+    Object.keys(THEMES).forEach(function(key) {
+        var t = THEMES[key];
+        var active = key === _currentTheme;
+        html += '<button data-theme="' + key + '" style="background:' + t.bg + ';border:2px solid ' + (active ? t.accent : t.border) + ';border-radius:6px;padding:4px 8px;cursor:pointer;font-size:10px;color:' + t.fg + ';">' + (themeNames[key] || key) + '</button>';
+    });
+    html += '</div>';
+
+    // Divider
+    html += '<div style="height:1px;background:#30363d;margin:4px 0;"></div>';
+
     // Reload
     html += '<div class="settings-item" style="' + itemStyle + '" id="set-reload">'
         + '<div style="' + iconStyle + '"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 8a6 6 0 1 1 1.5 4"/><path d="M2 12V8h4"/></svg></div>'
@@ -2542,6 +2560,15 @@ function _buildSettingsPopup() {
     document.getElementById('set-font-plus').addEventListener('click', function(e) {
         e.stopPropagation();
         if (_fontSize < 24) { _fontSize++; document.body.style.fontSize = _fontSize + 'px'; localStorage.setItem('agent-view-fontsize', _fontSize); document.getElementById('set-font-label').textContent = _fontSize + 'px'; }
+    });
+    _settingsPopup.querySelectorAll('[data-theme]').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            var key = btn.dataset.theme;
+            applyTheme(THEMES[key]);
+            localStorage.setItem('agent-view-theme', key);
+            _buildSettingsPopup(); // rebuild to update active border
+        });
     });
     document.getElementById('set-reload').addEventListener('click', function() { location.reload(); });
 }
