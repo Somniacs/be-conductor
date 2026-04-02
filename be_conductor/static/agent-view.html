@@ -1426,7 +1426,7 @@ function showPlanModal(planText, onAnswer) {
     cancelLink.addEventListener('click', function() { dismiss('cancelled'); });
     modal.appendChild(cancelLink);
 
-    var escHandler = function(e) { if (e.key === 'Escape') dismiss('cancelled'); };
+    var escHandler = function(e) { if (e.key === 'Escape' || e.key === 'Esc' || e.keyCode === 27) dismiss('cancelled'); };
     document.addEventListener('keydown', escHandler);
 
     function dismiss(answer) {
@@ -1543,7 +1543,7 @@ function showQuestionModal(q, onAnswer) {
     modal.appendChild(cancelRow);
 
     const escHandler = (e) => {
-        if (e.key === 'Escape') dismiss('cancelled');
+        if (e.key === 'Escape' || e.key === 'Esc' || e.keyCode === 27) dismiss('cancelled');
     };
     document.addEventListener('keydown', escHandler);
 
@@ -1716,7 +1716,7 @@ function _openStudyMode(text) {
     content.innerHTML = _mdToHtml(text);
     overlay.appendChild(content);
 
-    var esc = function(e) { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', esc); } };
+    var esc = function(e) { if (e.key === 'Escape' || e.key === 'Esc' || e.keyCode === 27) { overlay.remove(); document.removeEventListener('keydown', esc); } };
     document.addEventListener('keydown', esc);
     document.body.appendChild(overlay);
 }
@@ -1972,7 +1972,7 @@ promptEl.addEventListener('keydown', (e) => {
             return;
         }
         if (e.key === 'Enter') { e.preventDefault(); _slashSelect(); return; }
-        if (e.key === 'Escape') { e.preventDefault(); closeSlashPopup(); return; }
+        if (e.key === 'Escape' || e.key === 'Esc' || e.keyCode === 27) { e.preventDefault(); closeSlashPopup(); return; }
     }
     // Input history (ArrowUp/Down when input is single-line)
     if (e.key === 'ArrowUp' && !e.shiftKey && _inputHistory.length > 0 && promptEl.selectionStart === 0 && !promptEl.value.includes('\n')) {
@@ -2005,7 +2005,7 @@ promptEl.addEventListener('keydown', (e) => {
         }
         return;
     }
-    if (e.key === 'Escape' && busy) {
+    if (e.key === 'Escape' || e.key === 'Esc' || e.keyCode === 27 && busy) {
         if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({type: 'interrupt'}));
         }
@@ -2111,7 +2111,7 @@ function _showAttachmentPreview(att) {
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:1000;display:flex;align-items:center;justify-content:center;cursor:pointer;';
     overlay.addEventListener('click', () => overlay.remove());
     document.addEventListener('keydown', function handler(e) {
-        if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', handler); }
+        if (e.key === 'Escape' || e.key === 'Esc' || e.keyCode === 27) { overlay.remove(); document.removeEventListener('keydown', handler); }
     });
 
     var container = document.createElement('div');
@@ -2652,7 +2652,7 @@ function _showStatsPopup() {
     popup.addEventListener('click', function(e) { if (e.target === popup) popup.remove(); });
     document.body.appendChild(popup);
     document.getElementById('stats-close').addEventListener('click', function() { popup.remove(); });
-    document.addEventListener('keydown', function esc(e) { if (e.key === 'Escape') { popup.remove(); document.removeEventListener('keydown', esc); } });
+    document.addEventListener('keydown', function esc(e) { if (e.key === 'Escape' || e.key === 'Esc' || e.keyCode === 27) { popup.remove(); document.removeEventListener('keydown', esc); } });
 
     // Fetch session info from API
     var sid = new URLSearchParams(window.location.search).get('session');
