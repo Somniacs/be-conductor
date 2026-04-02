@@ -1663,13 +1663,16 @@ function updateSendBtn() {
         sendBtn.innerHTML = SEND_ICON;
         sendBtn.className = 'send-btn';
         sendBtn.title = 'Send (Enter)';
+        var modeVal = MODES[modeIdx].value;
         sendBtn.style.background = 'var(--mode-color, #2563eb)';
+        sendBtn.style.color = (modeVal === 'acceptEdits') ? '#000' : '#fff';
     } else {
         // Idle, no text → disabled
         sendBtn.innerHTML = SEND_ICON;
         sendBtn.className = 'send-btn disabled';
         sendBtn.title = '';
         sendBtn.style.background = '';
+        sendBtn.style.color = '';
     }
 }
 setBusy(false);
