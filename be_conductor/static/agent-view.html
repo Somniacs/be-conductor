@@ -767,6 +767,7 @@ function renderEvent(event) {
     }
     // Apply settings from server
     if (etype === 'settings') {
+        _hideLoading();  // settings always arrives after history — safe to hide
         var modeMap = {default: 0, acceptEdits: 1, plan: 2};
         var effortMap = {low: 0, medium: 1, high: 2, max: 3};
         if (event.mode in modeMap) { modeIdx = modeMap[event.mode]; updateModeUI(); }
@@ -1825,7 +1826,8 @@ function connect() {
         retryCount = 0;
         const ph = messagesEl.querySelector('[data-placeholder]');
         if (ph) ph.remove();
-        _hideLoading();
+        // Don't hide loading here — wait for history or first live event.
+        // For empty sessions, settings message hides it.
         promptEl.focus();
         // Fetch session info for cwd
         const httpBase = WS_BASE.replace('ws://', 'http://').replace('wss://', 'https://');
