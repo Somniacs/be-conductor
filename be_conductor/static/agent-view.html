@@ -316,11 +316,18 @@ if (typeof acquireVsCodeApi !== 'undefined') {
 // Use visualViewport to resize the agent view when mobile keyboard opens.
 // The dashboard handles its own layout — we only resize within our iframe.
 if (window.visualViewport) {
+    var _resizeTimer = null;
     const onResize = () => {
-        document.body.style.height = window.visualViewport.height + 'px';
+        // Debounce to avoid jump when keyboard opens/closes during send
+        clearTimeout(_resizeTimer);
+        _resizeTimer = setTimeout(() => {
+            document.body.style.height = window.visualViewport.height + 'px';
+        }, 100);
     };
     window.visualViewport.addEventListener('resize', onResize);
-    window.visualViewport.addEventListener('scroll', onResize);
+    window.visualViewport.addEventListener('scroll', () => {
+        document.body.style.height = window.visualViewport.height + 'px';
+    });
 }
 
 // --- DOM refs ---
