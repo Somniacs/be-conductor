@@ -1766,24 +1766,18 @@ function connect() {
             const msg = JSON.parse(e.data);
             if (msg.type === 'history') {
                 const allMsgs = msg.messages || [];
-                const TAIL = 100;
-                var needsFullRender = allMsgs.length > TAIL;
-                var recent = needsFullRender ? allMsgs.slice(allMsgs.length - TAIL) : allMsgs;
-
-                // 1. Render last 100 immediately for fast display
                 _replayingHistory = true;
                 try {
-                    for (var ri = 0; ri < recent.length; ri++) {
-                        try { renderEvent(recent[ri]); } catch (e) {}
-                        if (recent[ri].type === 'user_message' && recent[ri].content) _inputHistory.push(recent[ri].content);
+                    for (var hi = 0; hi < allMsgs.length; hi++) {
+                        try { renderEvent(allMsgs[hi]); } catch (e) {}
+                        if (allMsgs[hi].type === 'user_message' && allMsgs[hi].content) _inputHistory.push(allMsgs[hi].content);
                     }
                 } finally {
                     _replayingHistory = false;
                 }
                 _hideLoading();
                 messagesEl.scrollTop = messagesEl.scrollHeight;
-
-                // Set overlay bar + pending question
+                // Set overlay bar
                 var lastUserEl = null, lastUserText = '';
                 messagesEl.querySelectorAll('.msg-user').forEach(function(el) {
                     lastUserEl = el;
@@ -1791,6 +1785,7 @@ function connect() {
                     if (inner) lastUserText = inner.textContent || '';
                 });
                 if (lastUserEl && lastUserText) _updateLastMsgBar(lastUserEl, lastUserText);
+                // Show pending question modal
                 if (_pendingQuestion) {
                     setBusy(false);
                     showQuestionModal(_pendingQuestion, (answer) => {
@@ -1799,65 +1794,6 @@ function connect() {
                         }
                         setBusy(true);
                     });
-                }
-
-                // 2. If there's older history, collect live events during a
-                //    short wait, then re-render everything in one clean pass
-                if (needsFullRender) {
-                    var topSpinner = document.createElement('div');
-                    topSpinner.id = 'history-loading-top';
-                    topSpinner.style.cssText = 'padding:8px;text-align:center;color:var(--muted);font-size:11px;display:flex;align-items:center;justify-content:center;gap:6px;';
-                    topSpinner.innerHTML = '<span class="agent-spinner" style="width:12px;height:12px;"></span> Loading full history...';
-                    messagesEl.insertBefore(topSpinner, messagesEl.firstChild);
-
-                    // Store all history + any live events that arrive
-                    var _fullHistory = allMsgs.slice();
-                    var _liveEvents = [];
-                    var _bgDone = false;
-
-                    // Intercept live events during background load
-                    var _origRenderEvent = renderEvent;
-                    renderEvent = function(ev) {
-                        if (_bgDone) return _origRenderEvent(ev);
-                        _liveEvents.push(ev);
-                    };
-
-                    setTimeout(function() {
-                        // Restore renderEvent
-                        _bgDone = true;
-                        renderEvent = _origRenderEvent;
-
-                        // Clear and re-render everything: full history + live events
-                        var sp = document.getElementById('history-loading-top');
-                        if (sp) sp.remove();
-                        messagesEl.innerHTML = '';
-
-                        _replayingHistory = true;
-                        try {
-                            for (var i = 0; i < _fullHistory.length; i++) {
-                                try { renderEvent(_fullHistory[i]); } catch (e) {}
-                            }
-                        } finally {
-                            _replayingHistory = false;
-                        }
-
-                        // Replay live events that arrived during loading
-                        for (var li = 0; li < _liveEvents.length; li++) {
-                            try { renderEvent(_liveEvents[li]); } catch (e) {}
-                        }
-
-                        messagesEl.scrollTop = messagesEl.scrollHeight;
-                        _updateGroupLines();
-
-                        // Update overlay bar
-                        var lastUserEl = null, lastUserText = '';
-                        messagesEl.querySelectorAll('.msg-user').forEach(function(el) {
-                            lastUserEl = el;
-                            var inner = el.querySelector('div');
-                            if (inner) lastUserText = inner.textContent || '';
-                        });
-                        if (lastUserEl && lastUserText) _updateLastMsgBar(lastUserEl, lastUserText);
-                    }, 100);
                 }
             } else if (msg.type === 'ping') {
                 return;
