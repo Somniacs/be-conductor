@@ -16,6 +16,10 @@ All notable changes to be-conductor are documented here.
 - **Question modals dismiss instantly** — clicking Yes/No on permission prompts and plan reviews now dismisses immediately instead of lingering for 250ms
 - **Loading spinner on empty sessions** — new sessions with no history no longer show "Loading session..." forever. The overlay hides as soon as the WebSocket connects
 - **BTW events no longer leak into history** — `/btw` responses were being saved to the session history file. Now fully ephemeral
+- **Ghost modal after dismiss** — question and permission modals now force a repaint on dismiss, fixing the ghost rendering in JCEF where the modal visually lingered until scroll
+- **Duplicate resume_id at startup** — if two sessions shared the same Claude conversation ID after a server restart, the newer one keeps it and the older starts fresh. Prevents sessions from getting mixed up and corrupting each other's context
+- **Loading spinner visible during history render** — the spinner now stays until the settings message arrives, not just until WebSocket opens. Large sessions show the spinner during the entire load
+- **Task panel clears on turn end** — sub-agent tasks that never sent a completion event are now cleared when the agent's turn finishes
 
 ## v0.3.41
 
