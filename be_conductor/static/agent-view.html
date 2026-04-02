@@ -722,6 +722,9 @@ function renderEvent(event) {
                 var handle = document.getElementById('drag-handle');
                 if (inputBox) inputBox.style.display = '';
                 if (handle) handle.style.display = '';
+                // Force repaint
+                var ia = document.getElementById('input-area');
+                if (ia) { ia.style.display = 'none'; ia.offsetHeight; ia.style.display = ''; }
             }
             setBusy(true);
         }
@@ -1456,7 +1459,10 @@ function showPlanModal(planText, onAnswer) {
         if (inputBox) inputBox.style.display = '';
         if (handle) handle.style.display = '';
         document.removeEventListener('keydown', escHandler);
-        setTimeout(function() { messagesEl.scrollTop = messagesEl.scrollHeight; }, 100);
+        // Force repaint (JCEF sometimes leaves ghost rendering)
+        var ia = document.getElementById('input-area');
+        if (ia) { ia.style.display = 'none'; ia.offsetHeight; ia.style.display = ''; }
+        setTimeout(function() { messagesEl.scrollTop = messagesEl.scrollHeight; }, 50);
         onAnswer(answer);
     }
 
@@ -1514,8 +1520,10 @@ function showQuestionModal(q, onAnswer) {
         if (inputBox) inputBox.style.display = '';
         if (handle) handle.style.display = '';
         document.removeEventListener('keydown', escHandler);
-        // Scroll to bottom after answer
-        setTimeout(() => { messagesEl.scrollTop = messagesEl.scrollHeight; }, 100);
+        // Force repaint (JCEF sometimes leaves ghost rendering)
+        var ia = document.getElementById('input-area');
+        if (ia) { ia.style.display = 'none'; ia.offsetHeight; ia.style.display = ''; }
+        setTimeout(() => { messagesEl.scrollTop = messagesEl.scrollHeight; }, 50);
         onAnswer(answer);
     }
 
