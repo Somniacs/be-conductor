@@ -1659,15 +1659,17 @@ function updateSendBtn() {
         sendBtn.className = 'send-btn queued';
         sendBtn.title = 'Send (queued)';
     } else if (!busy && hasText) {
-        // Idle, has text → send button
+        // Idle, has text → send button in mode color
         sendBtn.innerHTML = SEND_ICON;
         sendBtn.className = 'send-btn';
         sendBtn.title = 'Send (Enter)';
+        sendBtn.style.background = 'var(--mode-color, #2563eb)';
     } else {
         // Idle, no text → disabled
         sendBtn.innerHTML = SEND_ICON;
         sendBtn.className = 'send-btn disabled';
         sendBtn.title = '';
+        sendBtn.style.background = '';
     }
 }
 setBusy(false);
