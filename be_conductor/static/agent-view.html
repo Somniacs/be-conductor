@@ -1869,8 +1869,8 @@ function connect() {
                         }
                         markerNode.remove();
 
-                        // Preserve scroll position
-                        messagesEl.scrollTop = oldScroll + (messagesEl.scrollHeight - oldHeight);
+                        // Stay at the bottom while loading
+                        messagesEl.scrollTop = messagesEl.scrollHeight;
 
                         if (olderIdx > 0) {
                             setTimeout(_renderOlderBatch, 30);
