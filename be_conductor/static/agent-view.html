@@ -512,6 +512,15 @@ function _mdToHtml(text) {
         html += '</table>';
         return html;
     });
+    // Horizontal rules (---, ***, ___) — only outside <pre> blocks
+    h = h.replace(/^-{3,}$|^\*{3,}$|^_{3,}$/gm, function(match, offset) {
+        // Skip if inside a <pre> block
+        var before = h.slice(0, offset);
+        var openPre = (before.match(/<pre/g) || []).length;
+        var closePre = (before.match(/<\/pre>/g) || []).length;
+        if (openPre > closePre) return match;
+        return '<div style="height:1px;background:#30363d;margin:14px 0;"></div>';
+    });
     // Blockquotes (> lines)
     h = h.replace(/((?:^&gt; .+$\n?)+)/gm, function(block) {
         var inner = block.replace(/^&gt; /gm, '');
@@ -878,11 +887,18 @@ function renderEvent(event) {
                 el.className = 'msg msg-claude msg-claude-dot';
                 el.style.cssText = 'line-height:1.6;color:#e0e0e0;position:relative;';
                 el.innerHTML = _mdToHtml(block.text);
-                // Add copy button for longer text blocks
+                // Add copy + view buttons for longer text blocks
                 if (block.text.split('\n').length > 5 || block.text.length > 300) {
+                    var btnRow = document.createElement('div');
+                    btnRow.style.cssText = 'position:absolute;top:4px;right:4px;display:flex;gap:4px;opacity:0;transition:opacity 0.15s;';
+
+                    var viewBtn = document.createElement('button');
+                    viewBtn.style.cssText = 'background:var(--code-bg);border:1px solid var(--border);border-radius:4px;padding:3px 6px;cursor:pointer;color:var(--muted);font-size:11px;display:flex;align-items:center;gap:4px;';
+                    viewBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="10" rx="1"/><path d="M5 13v1M11 13v1M4 14h8"/></svg>View';
+                    viewBtn.addEventListener('click', function(e) { e.stopPropagation(); _openStudyMode(block.text); });
+
                     var copyBtn = document.createElement('button');
-                    copyBtn.className = 'copy-btn';
-                    copyBtn.style.cssText = 'position:absolute;top:4px;right:4px;background:var(--code-bg);border:1px solid var(--border);border-radius:4px;padding:3px 6px;cursor:pointer;color:var(--muted);font-size:11px;opacity:0;transition:opacity 0.15s;display:flex;align-items:center;gap:4px;';
+                    copyBtn.style.cssText = 'background:var(--code-bg);border:1px solid var(--border);border-radius:4px;padding:3px 6px;cursor:pointer;color:var(--muted);font-size:11px;display:flex;align-items:center;gap:4px;';
                     copyBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="5" width="8" height="8" rx="1"/><path d="M5 11H4a1 1 0 01-1-1V4a1 1 0 011-1h6a1 1 0 011 1v1"/></svg>Copy';
                     copyBtn.addEventListener('click', function(e) {
                         e.stopPropagation();
@@ -893,9 +909,12 @@ function renderEvent(event) {
                             }, 1500);
                         });
                     });
-                    el.addEventListener('mouseenter', function() { copyBtn.style.opacity = '1'; });
-                    el.addEventListener('mouseleave', function() { copyBtn.style.opacity = '0'; });
-                    el.appendChild(copyBtn);
+
+                    btnRow.appendChild(viewBtn);
+                    btnRow.appendChild(copyBtn);
+                    el.addEventListener('mouseenter', function() { btnRow.style.opacity = '1'; });
+                    el.addEventListener('mouseleave', function() { btnRow.style.opacity = '0'; });
+                    el.appendChild(btnRow);
                 }
                 targetGroup.appendChild(el);
 
@@ -1653,6 +1672,47 @@ function updateSendBtn() {
     }
 }
 setBusy(false);
+
+// --- Study mode (fullscreen reading overlay) ---
+function _openStudyMode(text) {
+    var overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:var(--bg);display:flex;flex-direction:column;';
+
+    // Header bar
+    var header = document.createElement('div');
+    header.style.cssText = 'padding:10px 16px;display:flex;align-items:center;flex-shrink:0;border-bottom:1px solid var(--border);';
+    header.innerHTML = '<div style="flex:1;font-size:13px;color:var(--muted);">Study Mode</div>';
+
+    var copyBtn2 = document.createElement('button');
+    copyBtn2.style.cssText = 'background:var(--code-bg);border:1px solid var(--border);border-radius:4px;padding:4px 10px;cursor:pointer;color:var(--muted);font-size:12px;display:flex;align-items:center;gap:5px;margin-right:8px;';
+    copyBtn2.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="5" width="8" height="8" rx="1"/><path d="M5 11H4a1 1 0 01-1-1V4a1 1 0 011-1h6a1 1 0 011 1v1"/></svg>Copy';
+    copyBtn2.addEventListener('click', function() {
+        navigator.clipboard.writeText(text).then(function() {
+            copyBtn2.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#3fb950" stroke-width="2"><path d="M3 8l3 3 7-7"/></svg>Copied';
+            setTimeout(function() {
+                copyBtn2.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="5" width="8" height="8" rx="1"/><path d="M5 11H4a1 1 0 01-1-1V4a1 1 0 011-1h6a1 1 0 011 1v1"/></svg>Copy';
+            }, 1500);
+        });
+    });
+    header.appendChild(copyBtn2);
+
+    var closeBtn = document.createElement('button');
+    closeBtn.innerHTML = '&times;';
+    closeBtn.style.cssText = 'background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;padding:2px 6px;line-height:1;border-radius:4px;';
+    closeBtn.addEventListener('click', function() { overlay.remove(); document.removeEventListener('keydown', esc); });
+    header.appendChild(closeBtn);
+    overlay.appendChild(header);
+
+    // Scrollable content
+    var content = document.createElement('div');
+    content.style.cssText = 'flex:1;overflow-y:auto;padding:24px 32px;max-width:800px;margin:0 auto;width:100%;line-height:1.7;font-size:14px;color:#e0e0e0;';
+    content.innerHTML = _mdToHtml(text);
+    overlay.appendChild(content);
+
+    var esc = function(e) { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', esc); } };
+    document.addEventListener('keydown', esc);
+    document.body.appendChild(overlay);
+}
 
 // --- Loading overlay ---
 var _loadingOverlay = document.createElement('div');
