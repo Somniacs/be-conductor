@@ -1635,6 +1635,13 @@ function updateSendBtn() {
 }
 setBusy(false);
 
+// --- Loading overlay ---
+var _loadingOverlay = document.createElement('div');
+_loadingOverlay.style.cssText = 'position:absolute;inset:0;z-index:200;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;';
+_loadingOverlay.innerHTML = '<span class="agent-spinner" style="width:24px;height:24px;"></span><span style="color:var(--muted);font-size:13px;">Loading session...</span>';
+function _showLoading() { if (!_loadingOverlay.parentNode) messagesEl.parentNode.appendChild(_loadingOverlay); }
+function _hideLoading() { if (_loadingOverlay.parentNode) _loadingOverlay.remove(); }
+
 // --- WebSocket ---
 function connect() {
     if (!SESSION_ID) {
@@ -1646,6 +1653,7 @@ function connect() {
     }
 
     const url = `${WS_BASE}/sessions/${SESSION_ID}/stream?source=agent-view`;
+    _showLoading();
     ws = new WebSocket(url);
 
     ws.onopen = () => {
@@ -1696,6 +1704,7 @@ function connect() {
                 });
                 if (lastUserEl && lastUserText) _updateLastMsgBar(lastUserEl, lastUserText);
                 // Scroll to end after replay
+                _hideLoading();
                 messagesEl.scrollTop = messagesEl.scrollHeight;
                 // If there's an unanswered question after replay, show the modal
                 if (_pendingQuestion) {
@@ -1717,6 +1726,7 @@ function connect() {
 
     ws.onclose = (ev) => {
         ws = null;
+        _hideLoading();
         if (_sessionEnded) return; // Already showing ended state
         if (retryCount < MAX_RETRIES) {
             retryCount++;
