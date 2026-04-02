@@ -14,6 +14,12 @@ All notable changes to be-conductor are documented here.
 - **Down arrow always enabled** — even with one message, clicking down scrolls to the bottom of long agent output
 - **30 orchestra verbs** — the thinking spinner now cycles through 30 musical terms (Crescendoing, Arpeggiating, Pizzicatoing, Fermataing...) changing every 10 seconds instead of 5
 - **Server-side message queue** — messages sent while the agent is busy are now queued on the server instead of in browser memory. All connected clients see queued messages (dimmed with a "queued" badge). The queue survives tab close, page reload, and server restart. Messages are processed in order after each turn completes
+- **Theme picker** — 6 color themes (Indigo, Dark, Catppuccin, Light, Bernstein, Terminal) available in the `⋮` settings menu. Persists across sessions. Works in JetBrains, VSCode, and browser
+- **Study mode** — click "View" on any long text block to open a distraction-free fullscreen reader. The agent keeps working in the background while you read
+- **Copy button** — hover any longer text block to see Copy and View buttons. They stick to the bottom-left of the block as you scroll
+- **Loading spinner** — a centered "Loading session..." overlay appears while connecting and replaying history
+- **Markdown horizontal rules** — `---` separators from Claude now render as clean divider lines
+- **Wider scrollbar** — easier to grab, especially in JetBrains JCEF panels
 
 ## v0.3.40
 
