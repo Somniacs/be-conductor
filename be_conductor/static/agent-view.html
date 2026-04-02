@@ -1538,21 +1538,41 @@ function showQuestionModal(q, onAnswer) {
         onAnswer(answer);
     }
 
-    // Options
+    // Options (keyboard navigable: arrows to move, Enter to select)
     const opts = q.options || q.choices || [];
+    var optBtns = [];
+    var _focusIdx = 0;
+    function _focusOpt(idx) {
+        _focusIdx = Math.max(0, Math.min(idx, optBtns.length - 1));
+        optBtns.forEach((b, i) => {
+            var focused = i === _focusIdx;
+            b.style.borderColor = focused ? 'var(--accent)' : 'var(--border)';
+            b.style.background = focused ? 'var(--tool-header)' : 'var(--code-bg)';
+        });
+        optBtns[_focusIdx].focus();
+    }
     if (opts.length) {
-        opts.forEach(opt => {
+        opts.forEach((opt, oi) => {
             const label = typeof opt === 'string' ? opt : (opt.label || opt.value || String(opt));
             const desc = typeof opt === 'object' ? (opt.description || '') : '';
             const value = typeof opt === 'string' ? opt : (opt.value || opt.label || String(opt));
             const btn = document.createElement('button');
-            btn.style.cssText = 'background:var(--code-bg);color:var(--fg);border:1px solid var(--border);border-radius:8px;padding:10px 14px;cursor:pointer;font-size:13px;text-align:left;display:flex;align-items:center;gap:10px;margin-bottom:4px;width:100%;';
+            btn.tabIndex = 0;
+            btn.style.cssText = 'background:var(--code-bg);color:var(--fg);border:1px solid var(--border);border-radius:8px;padding:10px 14px;cursor:pointer;font-size:13px;text-align:left;display:flex;align-items:center;gap:10px;margin-bottom:4px;width:100%;outline:none;';
             btn.innerHTML = `<span style="width:16px;height:16px;border:2px solid var(--accent);border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;"></span><div><div>${escHtml(label)}</div>${desc ? `<div style="font-size:11px;color:var(--muted);margin-top:2px;">${escHtml(desc)}</div>` : ''}</div>`;
-            btn.addEventListener('mouseover', () => { btn.style.borderColor = 'var(--accent)'; });
-            btn.addEventListener('mouseout', () => { btn.style.borderColor = 'var(--border)'; });
+            btn.addEventListener('mouseover', () => { _focusOpt(oi); });
+            btn.addEventListener('mouseout', () => { btn.style.borderColor = 'var(--border)'; btn.style.background = 'var(--code-bg)'; });
             btn.addEventListener('click', () => { dismiss(value); });
+            btn.addEventListener('keydown', (e) => {
+                if (e.key === 'ArrowDown' || e.key === 'ArrowRight') { e.preventDefault(); _focusOpt(oi + 1); }
+                else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') { e.preventDefault(); _focusOpt(oi - 1); }
+                else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); dismiss(value); }
+            });
+            optBtns.push(btn);
             modal.appendChild(btn);
         });
+        // Focus first option after modal is added to DOM
+        setTimeout(() => { if (optBtns.length) _focusOpt(0); }, 50);
     }
 
     // Free-text input — always shown (below options or standalone)
