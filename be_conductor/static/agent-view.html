@@ -1746,6 +1746,7 @@ function connect() {
         retryCount = 0;
         const ph = messagesEl.querySelector('[data-placeholder]');
         if (ph) ph.remove();
+        _hideLoading();
         promptEl.focus();
         // Fetch session info for cwd
         const httpBase = WS_BASE.replace('ws://', 'http://').replace('wss://', 'https://');
