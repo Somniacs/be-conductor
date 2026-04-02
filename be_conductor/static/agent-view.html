@@ -36,7 +36,8 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--fo
 #drag-handle div { width: 24px; height: 2px; background: var(--border); border-radius: 1px; opacity: 0.4; }
 #drag-handle:hover div { opacity: 0.8; }
 #input-area { flex-shrink: 0; background: var(--bg-secondary); border-top: 1px solid var(--border); padding: 8px 12px; position: relative; }
-#input-box { display: flex; flex-direction: column; background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px; padding: 0; }
+#input-box { display: flex; flex-direction: column; background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px; padding: 0; transition: border-color 0.2s; }
+#input-box:focus-within { border-color: var(--mode-color, var(--border)); }
 #input-toolbar { display: flex; align-items: center; gap: 0; padding: 2px 4px; border-top: 1px solid var(--border); border-radius: 0 0 10px 10px; }
 #prompt { width: 100%; resize: none; background: transparent; color: var(--fg); border: none; outline: none; padding: 8px 12px; font-family: inherit; font-size: 13px; height: 38px; line-height: 1.4; overflow: hidden; }
 .attach-btn, .mode-btn, .send-btn { flex-shrink: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; }
@@ -1658,18 +1659,15 @@ function updateSendBtn() {
         sendBtn.className = 'send-btn queued';
         sendBtn.title = 'Send (queued)';
     } else if (!busy && hasText) {
-        // Idle, has text → send button colored by mode
+        // Idle, has text → send button
         sendBtn.innerHTML = SEND_ICON;
         sendBtn.className = 'send-btn';
         sendBtn.title = 'Send (Enter)';
-        var mc = {default:'#e67e22', acceptEdits:'#2563eb', plan:'#4a6cf7'};
-        sendBtn.style.background = mc[MODES[modeIdx].value] || '#2563eb';
     } else {
         // Idle, no text → disabled
         sendBtn.innerHTML = SEND_ICON;
         sendBtn.className = 'send-btn disabled';
         sendBtn.title = '';
-        sendBtn.style.background = '';
     }
 }
 setBusy(false);
@@ -2487,13 +2485,12 @@ function updateModeUI() {
     const m = MODES[modeIdx];
     const labels = {default: 'Ask Mode', acceptEdits: 'Auto Edit', plan: 'Plan Mode'};
     modeBtn.innerHTML = m.icon.replace('width="16"', 'width="14"').replace('height="16"', 'height="14"') + ' <span>' + (labels[m.value] || m.label) + '</span>';
-    // Color-code the mode: orange = ask, white = auto edit, blue = plan
-    var modeColors = {default: '#e67e22', acceptEdits: '#a0a0b0', plan: '#4a6cf7'};
-    var color = modeColors[m.value] || '#a0a0b0';
-    modeBtn.style.borderColor = color;
-    modeBtn.style.color = color;
-    var inputBox = document.getElementById('input-box');
-    if (inputBox) inputBox.style.borderColor = color;
+    // Color-code the mode — subtle: only input box border on focus
+    var modeColors = {default: '#e67e22', acceptEdits: 'var(--border)', plan: '#4a6cf7'};
+    var color = modeColors[m.value] || 'var(--border)';
+    document.documentElement.style.setProperty('--mode-color', color);
+    modeBtn.style.borderColor = '';
+    modeBtn.style.color = '';
 }
 
 function updateEffortUI() {
