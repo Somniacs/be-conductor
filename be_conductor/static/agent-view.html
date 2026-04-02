@@ -1665,7 +1665,10 @@ function updateSendBtn() {
         sendBtn.title = 'Send (Enter)';
         var modeVal = MODES[modeIdx].value;
         sendBtn.style.background = 'var(--mode-color, #2563eb)';
-        sendBtn.style.color = (modeVal === 'acceptEdits') ? '#000' : '#fff';
+        var dark = modeVal === 'acceptEdits';
+        sendBtn.style.color = dark ? '#000' : '#fff';
+        var svg = sendBtn.querySelector('svg');
+        if (svg) svg.setAttribute('stroke', dark ? '#000' : 'white');
     } else {
         // Idle, no text → disabled
         sendBtn.innerHTML = SEND_ICON;
