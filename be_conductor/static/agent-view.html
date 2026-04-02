@@ -2525,17 +2525,23 @@ function _buildSettingsPopup() {
     // Divider
     html += '<div style="height:1px;background:#30363d;margin:4px 0;"></div>';
 
-    // Theme picker
+    // Theme picker (custom items, no <select> — JCEF mispositions native dropdowns)
     var _currentTheme = localStorage.getItem('agent-view-theme') || 'default';
     var themeNames = {default:'Indigo', dark:'Dark', mid:'Catppuccin', bright:'Light', bernstein:'Bernstein', green:'Terminal'};
-    var themeOpts = Object.keys(THEMES).map(function(key) {
-        return '<option value="' + key + '"' + (key === _currentTheme ? ' selected' : '') + '>' + (themeNames[key] || key) + '</option>';
-    }).join('');
-    html += '<div style="' + itemStyle + 'cursor:default;">'
+    html += '<div style="' + itemStyle + 'cursor:default;padding-bottom:4px;">'
         + '<div style="' + iconStyle + '"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="5"/><path d="M8 3v2M8 11v2M3 8h2M11 8h2"/></svg></div>'
         + '<div style="flex:1;">Theme</div>'
-        + '<select id="set-theme" style="background:var(--code-bg);color:var(--fg);border:1px solid var(--border);border-radius:4px;padding:3px 6px;font-size:11px;outline:none;cursor:pointer;">' + themeOpts + '</select>'
+        + '<span style="font-size:11px;color:var(--muted);">' + (themeNames[_currentTheme] || _currentTheme) + '</span>'
         + '</div>';
+    Object.keys(THEMES).forEach(function(key) {
+        var t = THEMES[key];
+        var active = key === _currentTheme;
+        html += '<div data-theme="' + key + '" style="padding:4px 14px 4px 38px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:8px;color:' + (active ? 'var(--accent)' : '#e0e0e0') + ';">'
+            + '<span style="width:12px;height:12px;border-radius:3px;background:' + t.bg + ';border:1px solid ' + t.border + ';flex-shrink:0;"></span>'
+            + (themeNames[key] || key)
+            + (active ? '<span style="margin-left:auto;font-size:10px;">✓</span>' : '')
+            + '</div>';
+    });
 
     // Divider
     html += '<div style="height:1px;background:#30363d;margin:4px 0;"></div>';
@@ -2556,13 +2562,16 @@ function _buildSettingsPopup() {
         e.stopPropagation();
         if (_fontSize < 24) { _fontSize++; document.body.style.fontSize = _fontSize + 'px'; localStorage.setItem('agent-view-fontsize', _fontSize); document.getElementById('set-font-label').textContent = _fontSize + 'px'; }
     });
-    document.getElementById('set-theme').addEventListener('change', function(e) {
-        e.stopPropagation();
-        var key = e.target.value;
-        applyTheme(THEMES[key]);
-        localStorage.setItem('agent-view-theme', key);
+    _settingsPopup.querySelectorAll('[data-theme]').forEach(function(el) {
+        el.addEventListener('mouseenter', function() { el.style.background = 'var(--border)'; });
+        el.addEventListener('mouseleave', function() { el.style.background = ''; });
+        el.addEventListener('click', function(e) {
+            e.stopPropagation();
+            applyTheme(THEMES[el.dataset.theme]);
+            localStorage.setItem('agent-view-theme', el.dataset.theme);
+            _buildSettingsPopup();
+        });
     });
-    document.getElementById('set-theme').addEventListener('click', function(e) { e.stopPropagation(); });
     document.getElementById('set-reload').addEventListener('click', function() { location.reload(); });
 }
 
