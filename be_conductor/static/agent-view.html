@@ -690,6 +690,24 @@ function renderEvent(event) {
     // Skip internal events
     if (etype === 'system') {
         if (event.subtype === 'debug') console.log('[DEBUG]', JSON.stringify(event.data));
+        var d = event.data || {};
+        if (event.subtype === 'task_started') {
+            _activeTasks[d.task_id] = {description: d.description || '', activity: '', status: 'active', type: d.task_type || ''};
+            _renderTaskPanel();
+        } else if (event.subtype === 'task_progress') {
+            if (_activeTasks[d.task_id]) {
+                _activeTasks[d.task_id].activity = d.description || d.last_tool_name || '';
+            }
+            _renderTaskPanel();
+        } else if (event.subtype === 'task_notification') {
+            if (_activeTasks[d.task_id]) {
+                _activeTasks[d.task_id].status = 'done';
+                _activeTasks[d.task_id].activity = d.summary || 'Done';
+            }
+            _renderTaskPanel();
+            // Remove done tasks after a short delay
+            setTimeout(function() { delete _activeTasks[d.task_id]; _renderTaskPanel(); }, 5000);
+        }
         return;
     }
     if (etype === 'rate_limit') return;
@@ -1562,6 +1580,37 @@ var _thinkingEnabled = false;
 var _planPendingApproval = false;
 var _pendingQuestion = null;  // last unanswered question event
 var _pendingQuestionCount = 0; // how many questions without answers
+var _activeTasks = {};  // task_id → {description, activity, status, type}
+
+function _renderTaskPanel() {
+    var panel = document.getElementById('task-panel');
+    var keys = Object.keys(_activeTasks);
+    if (keys.length === 0) {
+        if (panel) panel.style.display = 'none';
+        return;
+    }
+    if (!panel) {
+        panel = document.createElement('div');
+        panel.id = 'task-panel';
+        panel.style.cssText = 'border-top:1px solid var(--border);padding:6px 12px;font-size:11px;color:var(--muted);background:var(--bg-secondary);';
+        // Insert above input-area
+        var inputArea = document.getElementById('input-area');
+        if (inputArea) inputArea.parentNode.insertBefore(panel, inputArea);
+    }
+    panel.style.display = 'block';
+    var html = '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;"><span style="font-weight:600;color:var(--fg);font-size:11px;">Tasks</span><span style="color:var(--muted);">(' + keys.length + ')</span></div>';
+    keys.forEach(function(id) {
+        var t = _activeTasks[id];
+        var dot = t.status === 'active' ? '#3fb950' : '#8b949e';
+        var activity = t.activity ? ' — ' + escHtml(t.activity.length > 60 ? t.activity.slice(0,60) + '\u2026' : t.activity) : '';
+        html += '<div style="display:flex;align-items:center;gap:6px;padding:1px 0;">'
+            + '<span style="width:6px;height:6px;border-radius:50%;background:' + dot + ';flex-shrink:0;"></span>'
+            + '<span style="color:var(--fg);font-size:11px;">' + escHtml(t.description.length > 40 ? t.description.slice(0,40) + '\u2026' : t.description) + '</span>'
+            + '<span style="color:var(--muted);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + activity + '</span>'
+            + '</div>';
+    });
+    panel.innerHTML = html;
+}
 var _availableModels = [];
 var _btwPanel = document.getElementById('btw-panel');
 var _btwActive = false;
@@ -2616,6 +2665,11 @@ function _getSlashItems() {
         }},
         {cmd: '/clear', label: 'Clear conversation', action: function() { messagesEl.innerHTML = ''; }},
         {cmd: '/stats', label: 'Session statistics', desc: 'Token usage, cost, duration', action: function() { _showStatsPopup(); }},
+        {cmd: '/tasks', label: 'Show active tasks', desc: 'Sub-agents and background work', action: function() {
+            var panel = document.getElementById('task-panel');
+            if (panel) panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+            else _renderTaskPanel();
+        }},
     ];
 }
 

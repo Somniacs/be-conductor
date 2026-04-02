@@ -683,8 +683,10 @@ class AgentSession:
             event['turn_id'] = turn_id
             if getattr(self, '_current_turn_btw', False):
                 event['btw'] = True
-        self._message_history.append(event)
-        self._save_history()
+        # BTW events are ephemeral — broadcast only, don't save to history
+        if not event.get('btw'):
+            self._message_history.append(event)
+            self._save_history()
         self._append_console(event)
 
         for queue in list(self.subscribers):
@@ -774,13 +776,17 @@ class AgentSession:
         to the agent.
         """
         msg: dict | str
-        if attachments or btw:
-            msg = {"text": text}
-            if attachments:
-                msg["attachments"] = attachments
-            if btw:
-                msg["_btw"] = True
-            # BTW messages bypass the queue — send immediately
+        if btw:
+            # BTW: if agent is busy, use direct Anthropic API (concurrent).
+            # If idle, go through normal queue.
+            if self._processing:
+                import asyncio
+                asyncio.create_task(self._send_btw(text))
+            else:
+                self._input_queue.put_nowait({"text": text, "_btw": True})
+            return
+        if attachments:
+            msg = {"text": text, "attachments": attachments}
             self._input_queue.put_nowait(msg)
             return
         else:
@@ -802,31 +808,84 @@ class AgentSession:
         self._input_queue.put_nowait(msg)
 
     async def _send_btw(self, text: str) -> None:
-        """Send a /btw query directly to Claude Code CLI, bypassing the queue.
+        """Answer a /btw question using the Anthropic API directly.
 
-        The /btw prefix tells Claude Code to handle this as an ephemeral
-        side-channel query that doesn't get added to conversation history.
+        Runs concurrently with the main agent turn. Uses the session's
+        conversation context but doesn't touch the SDK client or history.
+        Fully ephemeral — nothing saved to disk.
         """
-        if not self._client:
-            self._emit_event({"type": "btw_end", "error": "Not connected"})
-            return
-        self._btw_active = True
-        self._btw_response_text = ""
-        # Emit btw_start so frontend shows the panel
-        for queue in list(self.subscribers):
-            try:
-                queue.put_nowait({"type": "btw_start", "text": text, "timestamp": time.time()})
-            except asyncio.QueueFull:
-                pass
+        import os
+
+        # Broadcast btw_start
+        self._broadcast_event({"type": "btw_start", "text": text})
+
         try:
-            await self._client.query("/btw " + text)
+            # Build context from recent non-btw history
+            messages = []
+            for ev in self._message_history[-30:]:
+                if ev.get("btw"):
+                    continue
+                if ev.get("type") == "user_message":
+                    messages.append({"role": "user", "content": ev.get("content", "")})
+                elif ev.get("type") == "assistant_message":
+                    txt = ""
+                    for b in ev.get("content", []):
+                        if b.get("type") == "text":
+                            txt += b.get("text", "") + "\n"
+                    if txt.strip():
+                        messages.append({"role": "assistant", "content": txt.strip()})
+
+            # Add the btw question
+            messages.append({"role": "user", "content": text})
+
+            if not messages:
+                self._broadcast_event({"type": "btw_end", "error": "No context"})
+                return
+
+            # Call Anthropic API directly (no SDK, no conflict)
+            api_key = os.environ.get("ANTHROPIC_API_KEY")
+            if not api_key:
+                self._broadcast_event({"type": "btw_end", "error": "No API key"})
+                return
+
+            import httpx
+            async with httpx.AsyncClient() as http:
+                resp = await http.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={
+                        "x-api-key": api_key,
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json",
+                    },
+                    json={
+                        "model": "claude-sonnet-4-20250514",
+                        "max_tokens": 1024,
+                        "system": "You are a helpful side-channel assistant. Answer briefly based on the conversation context. No tools.",
+                        "messages": messages,
+                    },
+                    timeout=30.0,
+                )
+                data = resp.json()
+
+            # Extract response text
+            answer = ""
+            for block in data.get("content", []):
+                if block.get("type") == "text":
+                    answer += block.get("text", "")
+
+            # Broadcast response (NOT saved to history)
+            if answer.strip():
+                self._broadcast_event({
+                    "type": "assistant_message",
+                    "content": [{"type": "text", "text": answer.strip()}],
+                    "btw": True,
+                })
+
         except Exception as e:
-            self._btw_active = False
-            for queue in list(self.subscribers):
-                try:
-                    queue.put_nowait({"type": "btw_end", "error": str(e), "timestamp": time.time()})
-                except asyncio.QueueFull:
-                    pass
+            self._broadcast_event({"type": "btw_end", "error": str(e)})
+            return
+
+        self._broadcast_event({"type": "btw_end"})
 
     def send_input_bytes(self, data: bytes) -> None:
         self.send_input(data.decode("utf-8", errors="replace"))
