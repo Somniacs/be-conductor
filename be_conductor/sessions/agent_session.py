@@ -689,6 +689,32 @@ class AgentSession:
             self._save_history()
         self._append_console(event)
 
+        # Fire notification for events that need user attention
+        etype = event.get("type")
+        if etype in ("question", "error", "plan_review") and self._notifier:
+            import asyncio
+            from be_conductor.notifications.manager import NotificationEvent
+            reason = {
+                "question": "Needs your answer",
+                "error": "Error occurred",
+                "plan_review": "Plan ready for review",
+            }.get(etype, "Needs attention")
+            snippet = event.get("question", event.get("error", event.get("plan", "")))
+            if isinstance(snippet, str):
+                snippet = snippet[:120]
+            else:
+                snippet = str(snippet)[:120]
+            notif = NotificationEvent(
+                session_id=self.id,
+                session_name=self.name,
+                reason=reason,
+                snippet=snippet,
+            )
+            try:
+                asyncio.ensure_future(self._notifier._manager.notify(notif))
+            except Exception:
+                pass
+
         for queue in list(self.subscribers):
             try:
                 queue.put_nowait(event)
