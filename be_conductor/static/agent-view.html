@@ -1658,15 +1658,18 @@ function updateSendBtn() {
         sendBtn.className = 'send-btn queued';
         sendBtn.title = 'Send (queued)';
     } else if (!busy && hasText) {
-        // Idle, has text → send button
+        // Idle, has text → send button colored by mode
         sendBtn.innerHTML = SEND_ICON;
         sendBtn.className = 'send-btn';
         sendBtn.title = 'Send (Enter)';
+        var mc = {default:'#e67e22', acceptEdits:'#2563eb', plan:'#4a6cf7'};
+        sendBtn.style.background = mc[MODES[modeIdx].value] || '#2563eb';
     } else {
         // Idle, no text → disabled
         sendBtn.innerHTML = SEND_ICON;
         sendBtn.className = 'send-btn disabled';
         sendBtn.title = '';
+        sendBtn.style.background = '';
     }
 }
 setBusy(false);
@@ -2484,6 +2487,13 @@ function updateModeUI() {
     const m = MODES[modeIdx];
     const labels = {default: 'Ask Mode', acceptEdits: 'Auto Edit', plan: 'Plan Mode'};
     modeBtn.innerHTML = m.icon.replace('width="16"', 'width="14"').replace('height="16"', 'height="14"') + ' <span>' + (labels[m.value] || m.label) + '</span>';
+    // Color-code the mode: orange = ask, white = auto edit, blue = plan
+    var modeColors = {default: '#e67e22', acceptEdits: '#a0a0b0', plan: '#4a6cf7'};
+    var color = modeColors[m.value] || '#a0a0b0';
+    modeBtn.style.borderColor = color;
+    modeBtn.style.color = color;
+    var inputBox = document.getElementById('input-box');
+    if (inputBox) inputBox.style.borderColor = color;
 }
 
 function updateEffortUI() {
