@@ -2,6 +2,19 @@
 
 All notable changes to be-conductor are documented here.
 
+## v0.3.42
+
+### New
+
+- **`/btw` side questions work while agent is busy** — type `/btw <question>` while the agent is working to ask a quick question about the current context. Uses the Anthropic API directly so it runs concurrently without blocking the agent. Fully ephemeral — nothing saved to history
+- **Task manager panel** — when the agent spawns sub-agents (via the Agent tool), a compact panel appears above the input area showing each task's name and current activity. Auto-hides when tasks complete. Toggle with `/tasks`
+
+### Fixed
+
+- **Question modals dismiss instantly** — clicking Yes/No on permission prompts and plan reviews now dismisses immediately instead of lingering for 250ms
+- **Loading spinner on empty sessions** — new sessions with no history no longer show "Loading session..." forever. The overlay hides as soon as the WebSocket connects
+- **BTW events no longer leak into history** — `/btw` responses were being saved to the session history file. Now fully ephemeral
+
 ## v0.3.41
 
 ### New
