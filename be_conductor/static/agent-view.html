@@ -2486,7 +2486,7 @@ function updateModeUI() {
     const labels = {default: 'Ask Mode', acceptEdits: 'Auto Edit', plan: 'Plan Mode'};
     modeBtn.innerHTML = m.icon.replace('width="16"', 'width="14"').replace('height="16"', 'height="14"') + ' <span>' + (labels[m.value] || m.label) + '</span>';
     // Color-code the mode — subtle: only input box border on focus
-    var modeColors = {default: '#e67e22', acceptEdits: 'var(--border)', plan: '#4a6cf7'};
+    var modeColors = {default: '#e67e22', acceptEdits: '#ffffff', plan: '#4a6cf7'};
     var color = modeColors[m.value] || 'var(--border)';
     document.documentElement.style.setProperty('--mode-color', color);
     modeBtn.style.borderColor = '';
