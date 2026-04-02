@@ -1812,40 +1812,44 @@ function connect() {
                     });
                 }
             } else if (msg.type === 'history_prepend') {
-                // Older history chunk — render into temp container, then prepend
+                // Older history chunk — render normally, then move to top
                 var chunk = msg.messages || [];
                 if (chunk.length) {
                     var oldHeight = messagesEl.scrollHeight;
                     var oldScroll = messagesEl.scrollTop;
-                    // Temporarily redirect renderEvent output to a fragment
-                    var tempDiv = document.createElement('div');
-                    var realParent = messagesEl;
-                    // Swap messagesEl briefly so renderEvent appends to tempDiv
-                    var _origMessagesEl = messagesEl;
-                    messagesEl = tempDiv;
+                    // Mark where new content starts
+                    var marker = document.createElement('span');
+                    marker.id = '_prepend_marker';
+                    messagesEl.appendChild(marker);
+                    // Render events (appends after marker)
                     _replayingHistory = true;
                     try {
                         for (var ci = 0; ci < chunk.length; ci++) {
                             try { renderEvent(chunk[ci]); } catch (e) {}
-                            if (chunk[ci].type === 'user_message' && chunk[ci].content) _inputHistory.unshift(chunk[ci].content);
                         }
                     } finally {
                         _replayingHistory = false;
-                        messagesEl = _origMessagesEl;
                     }
-                    // Insert rendered nodes before the first real content (after top spinner)
-                    var insertBefore = document.getElementById('history-loading-top');
-                    insertBefore = insertBefore ? insertBefore.nextSibling : messagesEl.firstChild;
-                    while (tempDiv.firstChild) {
-                        messagesEl.insertBefore(tempDiv.firstChild, insertBefore);
+                    // Move everything after marker to the top (after loading spinner)
+                    var insertPoint = document.getElementById('history-loading-top');
+                    insertPoint = insertPoint ? insertPoint.nextSibling : messagesEl.firstChild;
+                    var nodesToMove = [];
+                    var node = marker.nextSibling;
+                    while (node) {
+                        nodesToMove.push(node);
+                        node = node.nextSibling;
                     }
-                    // Restore scroll position so prepending doesn't jump the view
+                    for (var ni = 0; ni < nodesToMove.length; ni++) {
+                        messagesEl.insertBefore(nodesToMove[ni], insertPoint);
+                    }
+                    marker.remove();
+                    // Restore scroll position
                     messagesEl.scrollTop = oldScroll + (messagesEl.scrollHeight - oldHeight);
                 }
-                // Remove spinner when done
                 if (msg.done) {
                     var ts = document.getElementById('history-loading-top');
                     if (ts) ts.remove();
+                    _updateGroupLines();
                 }
             } else if (msg.type === 'ping') {
                 return;
