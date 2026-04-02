@@ -1875,9 +1875,10 @@ function connect() {
                         if (olderIdx > 0) {
                             setTimeout(_renderOlderBatch, 30);
                         } else {
-                            // Done — remove spinner
+                            // Done — remove spinner, scroll to bottom
                             if (spinner) spinner.remove();
                             _updateGroupLines();
+                            messagesEl.scrollTop = messagesEl.scrollHeight;
                         }
                     }
                     setTimeout(_renderOlderBatch, 30);
