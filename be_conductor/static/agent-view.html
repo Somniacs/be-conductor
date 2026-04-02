@@ -1766,71 +1766,97 @@ function connect() {
             const msg = JSON.parse(e.data);
             if (msg.type === 'history') {
                 const allMsgs = msg.messages || [];
-                const BATCH = 100;
+                const TAIL = 100;
 
-                // Render all events in order, but in batches so the browser
-                // doesn't freeze. First batch renders immediately (shows latest
-                // content fast), rest via setTimeout.
-                var totalIdx = 0;
+                // Split into older + recent
+                var older = allMsgs.length > TAIL ? allMsgs.slice(0, allMsgs.length - TAIL) : [];
+                var recent = allMsgs.length > TAIL ? allMsgs.slice(allMsgs.length - TAIL) : allMsgs;
 
-                function _renderHistoryBatch() {
-                    var end = Math.min(totalIdx + BATCH, allMsgs.length);
-                    _replayingHistory = true;
-                    try {
-                        for (var i = totalIdx; i < end; i++) {
-                            try { renderEvent(allMsgs[i]); } catch (e) {}
-                            if (allMsgs[i].type === 'user_message' && allMsgs[i].content) _inputHistory.push(allMsgs[i].content);
-                        }
-                    } finally {
-                        _replayingHistory = false;
+                // 1. Render last 100 immediately
+                _replayingHistory = true;
+                try {
+                    for (var ri = 0; ri < recent.length; ri++) {
+                        try { renderEvent(recent[ri]); } catch (e) {}
+                        if (recent[ri].type === 'user_message' && recent[ri].content) _inputHistory.push(recent[ri].content);
                     }
-                    totalIdx = end;
-                    messagesEl.scrollTop = messagesEl.scrollHeight;
-
-                    if (totalIdx < allMsgs.length) {
-                        // More to render — show progress
-                        var pct = Math.round(totalIdx / allMsgs.length * 100);
-                        var spinner = document.getElementById('history-loading-top');
-                        if (spinner) spinner.querySelector('span:last-child').textContent = 'Loading... ' + pct + '%';
-                        setTimeout(_renderHistoryBatch, 10);
-                    } else {
-                        // Done
-                        var spinner = document.getElementById('history-loading-top');
-                        if (spinner) spinner.remove();
-                        _updateGroupLines();
-                        messagesEl.scrollTop = messagesEl.scrollHeight;
-                        // Set overlay bar
-                        var lastUserEl = null, lastUserText = '';
-                        messagesEl.querySelectorAll('.msg-user').forEach(function(el) {
-                            lastUserEl = el;
-                            var inner = el.querySelector('div');
-                            if (inner) lastUserText = inner.textContent || '';
-                        });
-                        if (lastUserEl && lastUserText) _updateLastMsgBar(lastUserEl, lastUserText);
-                        // Show pending question modal
-                        if (_pendingQuestion) {
-                            setBusy(false);
-                            showQuestionModal(_pendingQuestion, (answer) => {
-                                if (ws && ws.readyState === WebSocket.OPEN) {
-                                    ws.send(JSON.stringify({type: 'answer', text: answer}));
-                                }
-                                setBusy(true);
-                            });
-                        }
-                    }
-                }
-
-                // Show spinner if large history
-                if (allMsgs.length > BATCH) {
-                    var topSpinner = document.createElement('div');
-                    topSpinner.id = 'history-loading-top';
-                    topSpinner.style.cssText = 'padding:8px;text-align:center;color:var(--muted);font-size:11px;display:flex;align-items:center;justify-content:center;gap:6px;';
-                    topSpinner.innerHTML = '<span class="agent-spinner" style="width:12px;height:12px;"></span><span>Loading... 0%</span>';
-                    messagesEl.appendChild(topSpinner);
+                } finally {
+                    _replayingHistory = false;
                 }
 
                 _hideLoading();
-                _renderHistoryBatch();
+                messagesEl.scrollTop = messagesEl.scrollHeight;
+
+                // Set overlay bar + pending question
+                var lastUserEl = null, lastUserText = '';
+                messagesEl.querySelectorAll('.msg-user').forEach(function(el) {
+                    lastUserEl = el;
+                    var inner = el.querySelector('div');
+                    if (inner) lastUserText = inner.textContent || '';
+                });
+                if (lastUserEl && lastUserText) _updateLastMsgBar(lastUserEl, lastUserText);
+                if (_pendingQuestion) {
+                    setBusy(false);
+                    showQuestionModal(_pendingQuestion, (answer) => {
+                        if (ws && ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({type: 'answer', text: answer}));
+                        }
+                        setBusy(true);
+                    });
+                }
+
+                // 2. Render older events in background into a hidden div,
+                //    then insert all at once when done
+                if (older.length > 0) {
+                    // Show spinner at top
+                    var topSpinner = document.createElement('div');
+                    topSpinner.id = 'history-loading-top';
+                    topSpinner.style.cssText = 'padding:8px;text-align:center;color:var(--muted);font-size:11px;display:flex;align-items:center;justify-content:center;gap:6px;';
+                    topSpinner.innerHTML = '<span class="agent-spinner" style="width:12px;height:12px;"></span> Loading older messages...';
+                    messagesEl.insertBefore(topSpinner, messagesEl.firstChild);
+
+                    // Render into a hidden offscreen div
+                    var offscreen = document.createElement('div');
+                    offscreen.style.cssText = 'position:absolute;left:-9999px;top:-9999px;visibility:hidden;';
+                    document.body.appendChild(offscreen);
+                    var savedMessages = messagesEl;
+                    messagesEl = offscreen;
+
+                    var idx = 0;
+                    var BATCH = 100;
+                    function _bgRender() {
+                        var end = Math.min(idx + BATCH, older.length);
+                        _replayingHistory = true;
+                        try {
+                            for (var i = idx; i < end; i++) {
+                                try { renderEvent(older[i]); } catch (e) {}
+                            }
+                        } finally {
+                            _replayingHistory = false;
+                        }
+                        idx = end;
+                        if (idx < older.length) {
+                            setTimeout(_bgRender, 20);
+                        } else {
+                            // Done — insert all at once into real messagesEl
+                            messagesEl = savedMessages;
+                            var oldScroll = messagesEl.scrollTop;
+                            var oldHeight = messagesEl.scrollHeight;
+                            // Remove spinner
+                            var sp = document.getElementById('history-loading-top');
+                            var insertPoint = sp ? sp : messagesEl.firstChild;
+                            // Move all children from offscreen to before the recent content
+                            while (offscreen.firstChild) {
+                                messagesEl.insertBefore(offscreen.firstChild, insertPoint);
+                            }
+                            if (sp) sp.remove();
+                            offscreen.remove();
+                            // Keep scroll position — old content added above
+                            messagesEl.scrollTop = oldScroll + (messagesEl.scrollHeight - oldHeight);
+                            _updateGroupLines();
+                        }
+                    }
+                    setTimeout(_bgRender, 20);
+                }
             } else if (msg.type === 'ping') {
                 return;
             } else {
