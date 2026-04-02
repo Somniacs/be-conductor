@@ -20,6 +20,12 @@ All notable changes to be-conductor are documented here.
 - **Loading spinner** — a centered "Loading session..." overlay appears while connecting and replaying history
 - **Markdown horizontal rules** — `---` separators from Claude now render as clean divider lines
 - **Wider scrollbar** — easier to grab, especially in JetBrains JCEF panels
+- **Color-coded permission modes** — input border and send button change color by mode: orange for Ask, white for Auto Edit, blue for Plan
+- **File search in JetBrains/standalone** — clicking a file link that doesn't exist searches the session's working directory, not just the dashboard
+- **Escape key on mobile** — virtual keyboard Esc now works on touch devices and JCEF panels
+- **Pending question on late join** — opening a session in a new window while a question is active shows the permission modal immediately
+- **"Yes, allow all" deadlock fix** — clicking "allow all this session" no longer freezes the agent
+- **Duplicate resume guard** — two sessions can no longer accidentally resume the same Claude conversation
 
 ## v0.3.40
 
