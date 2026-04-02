@@ -876,8 +876,27 @@ function renderEvent(event) {
             if (block.type === 'text') {
                 const el = document.createElement('div');
                 el.className = 'msg msg-claude msg-claude-dot';
-                el.style.cssText = 'line-height:1.6;color:#e0e0e0;';
+                el.style.cssText = 'line-height:1.6;color:#e0e0e0;position:relative;';
                 el.innerHTML = _mdToHtml(block.text);
+                // Add copy button for longer text blocks
+                if (block.text.split('\n').length > 5 || block.text.length > 300) {
+                    var copyBtn = document.createElement('button');
+                    copyBtn.className = 'copy-btn';
+                    copyBtn.style.cssText = 'position:absolute;top:4px;right:4px;background:var(--code-bg);border:1px solid var(--border);border-radius:4px;padding:3px 6px;cursor:pointer;color:var(--muted);font-size:11px;opacity:0;transition:opacity 0.15s;display:flex;align-items:center;gap:4px;';
+                    copyBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="5" width="8" height="8" rx="1"/><path d="M5 11H4a1 1 0 01-1-1V4a1 1 0 011-1h6a1 1 0 011 1v1"/></svg>Copy';
+                    copyBtn.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        navigator.clipboard.writeText(block.text).then(function() {
+                            copyBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#3fb950" stroke-width="2"><path d="M3 8l3 3 7-7"/></svg>Copied';
+                            setTimeout(function() {
+                                copyBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="5" width="8" height="8" rx="1"/><path d="M5 11H4a1 1 0 01-1-1V4a1 1 0 011-1h6a1 1 0 011 1v1"/></svg>Copy';
+                            }, 1500);
+                        });
+                    });
+                    el.addEventListener('mouseenter', function() { copyBtn.style.opacity = '1'; });
+                    el.addEventListener('mouseleave', function() { copyBtn.style.opacity = '0'; });
+                    el.appendChild(copyBtn);
+                }
                 targetGroup.appendChild(el);
 
             } else if (block.type === 'thinking') {
