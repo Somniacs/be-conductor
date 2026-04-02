@@ -1483,6 +1483,10 @@ function showQuestionModal(q, onAnswer) {
     const inputBox = document.getElementById('input-box');
     const handle = document.getElementById('drag-handle');
 
+    // Close BTW panel if open — question needs the input area
+    var btwPanel = document.getElementById('btw-panel');
+    if (btwPanel) btwPanel.classList.remove('open');
+
     // Remove any existing modal
     const old = document.getElementById('question-modal');
     if (old) old.remove();
