@@ -20,6 +20,9 @@ All notable changes to be-conductor are documented here.
 - **Duplicate resume_id at startup** — if two sessions shared the same Claude conversation ID after a server restart, the newer one keeps it and the older starts fresh. Prevents sessions from getting mixed up and corrupting each other's context
 - **Loading spinner visible during history render** — the spinner now stays until the settings message arrives, not just until WebSocket opens. Large sessions show the spinner during the entire load
 - **Task panel clears on turn end** — sub-agent tasks that never sent a completion event are now cleared when the agent's turn finishes
+- **BTW panel closes for questions** — when a permission prompt arrives while the BTW panel is open, it automatically closes so you can see and answer the question
+- **Keyboard navigation for question modals** — arrow keys move between options, Enter/Space selects, first option auto-focused. No mouse needed
+- **Mobile keyboard jump** — sending a message on touch devices no longer causes the view to jump when the virtual keyboard closes
 
 ## v0.3.41
 
