@@ -1792,6 +1792,15 @@ function connect() {
                 // Scroll to end after replay
                 _hideLoading();
                 messagesEl.scrollTop = messagesEl.scrollHeight;
+                // Show "loading older" spinner at top (removed when history_prepend done:true arrives)
+                // Only shown if there could be more history (server sends history_prepend if > 100 events)
+                if (msgs.length >= 100 && !document.getElementById('history-loading-top')) {
+                    var topSpinner = document.createElement('div');
+                    topSpinner.id = 'history-loading-top';
+                    topSpinner.style.cssText = 'padding:8px;text-align:center;color:var(--muted);font-size:11px;display:flex;align-items:center;justify-content:center;gap:6px;';
+                    topSpinner.innerHTML = '<span class="agent-spinner" style="width:12px;height:12px;"></span> Loading older messages...';
+                    messagesEl.insertBefore(topSpinner, messagesEl.firstChild);
+                }
                 // If there's an unanswered question after replay, show the modal
                 if (_pendingQuestion) {
                     setBusy(false);
@@ -1801,6 +1810,42 @@ function connect() {
                         }
                         setBusy(true);
                     });
+                }
+            } else if (msg.type === 'history_prepend') {
+                // Older history chunk — render into temp container, then prepend
+                var chunk = msg.messages || [];
+                if (chunk.length) {
+                    var oldHeight = messagesEl.scrollHeight;
+                    var oldScroll = messagesEl.scrollTop;
+                    // Temporarily redirect renderEvent output to a fragment
+                    var tempDiv = document.createElement('div');
+                    var realParent = messagesEl;
+                    // Swap messagesEl briefly so renderEvent appends to tempDiv
+                    var _origMessagesEl = messagesEl;
+                    messagesEl = tempDiv;
+                    _replayingHistory = true;
+                    try {
+                        for (var ci = 0; ci < chunk.length; ci++) {
+                            try { renderEvent(chunk[ci]); } catch (e) {}
+                            if (chunk[ci].type === 'user_message' && chunk[ci].content) _inputHistory.unshift(chunk[ci].content);
+                        }
+                    } finally {
+                        _replayingHistory = false;
+                        messagesEl = _origMessagesEl;
+                    }
+                    // Insert rendered nodes before the first real content (after top spinner)
+                    var insertBefore = document.getElementById('history-loading-top');
+                    insertBefore = insertBefore ? insertBefore.nextSibling : messagesEl.firstChild;
+                    while (tempDiv.firstChild) {
+                        messagesEl.insertBefore(tempDiv.firstChild, insertBefore);
+                    }
+                    // Restore scroll position so prepending doesn't jump the view
+                    messagesEl.scrollTop = oldScroll + (messagesEl.scrollHeight - oldHeight);
+                }
+                // Remove spinner when done
+                if (msg.done) {
+                    var ts = document.getElementById('history-loading-top');
+                    if (ts) ts.remove();
                 }
             } else if (msg.type === 'ping') {
                 return;

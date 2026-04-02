@@ -1963,10 +1963,16 @@ async def _stream_agent(ws: WebSocket, session: Any):
 
     Replays message history, then streams live events as typed JSON.
     """
-    # Replay history to the new subscriber
-    history = session.get_message_history()
-    if history:
-        await ws.send_json({"type": "history", "messages": history})
+    # Replay history — send last 100 events first for fast UI, then
+    # stream older events in background chunks so the page appears instantly.
+    INITIAL = 100
+    CHUNK = 200
+    total = session.get_message_count() if hasattr(session, 'get_message_count') else 0
+    initial_offset = max(0, total - INITIAL)
+    recent = session.get_message_history(initial_offset)
+    if recent:
+        await ws.send_json({"type": "history", "messages": recent})
+    has_older = initial_offset > 0
 
     # Send current settings (mode/effort/model) so the UI reflects the right state
     if hasattr(session, 'get_settings'):
@@ -1976,6 +1982,24 @@ async def _stream_agent(ws: WebSocket, session: Any):
         await ws.send_json(settings)
 
     queue = session.subscribe()
+
+    # Stream older history in background chunks (newest-first)
+    if has_older:
+        remaining = initial_offset
+        while remaining > 0:
+            chunk_start = max(0, remaining - CHUNK)
+            chunk_size = remaining - chunk_start
+            chunk = session.get_message_history(chunk_start, chunk_size)
+            remaining = chunk_start
+            try:
+                await ws.send_json({
+                    "type": "history_prepend",
+                    "messages": chunk,
+                    "done": remaining == 0,
+                })
+            except Exception:
+                break
+            await asyncio.sleep(0.05)  # yield to let live events through
 
     async def writer():
         try:

@@ -1016,9 +1016,19 @@ class AgentSession:
     def unsubscribe(self, queue: asyncio.Queue) -> None:
         self.subscribers.discard(queue)
 
-    def get_message_history(self) -> list[dict]:
-        """Return structured message history for replay."""
-        return list(self._message_history)
+    def get_message_history(self, offset: int = 0,
+                            limit: int | None = None) -> list[dict]:
+        """Return structured message history for replay.
+
+        With *offset* and *limit* you can paginate: ``offset`` is the
+        start index, ``limit`` the max number of events to return.
+        """
+        if limit is None:
+            return list(self._message_history[offset:])
+        return list(self._message_history[offset:offset + limit])
+
+    def get_message_count(self) -> int:
+        return len(self._message_history)
 
     def get_buffer(self) -> bytes:
         return bytes(self._console_buffer)
