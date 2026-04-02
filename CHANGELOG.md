@@ -7,7 +7,9 @@ All notable changes to be-conductor are documented here.
 ### New
 
 - **`/btw` side questions work while agent is busy** — type `/btw <question>` while the agent is working to ask a quick question about the current context. Uses the Anthropic API directly so it runs concurrently without blocking the agent. Fully ephemeral — nothing saved to history
-- **Task manager panel** — when the agent spawns sub-agents (via the Agent tool), a compact panel appears above the input area showing each task's name and current activity. Auto-hides when tasks complete. Toggle with `/tasks`
+- **Task manager panel** — when the agent spawns sub-agents (via the Agent tool), a compact panel appears above the input area showing each task's name and current activity. Clears when the turn ends. Toggle with `/tasks`
+- **Webhook notifications for agent sessions** — questions, errors, and plan reviews now fire notifications through the same pipeline as terminal sessions (Telegram, Discord, Slack, Signal). If the agent view tab is focused, the webhook is suppressed. If unfocused, you get notified on your phone
+- **Notification toggle** — enable/disable notifications per session in the `⋮` settings menu. Orange bell badge appears when notifications arrive while the tab is unfocused
 
 ### Fixed
 
