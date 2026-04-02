@@ -1765,6 +1765,41 @@ function _openStudyMode(text) {
     document.body.appendChild(overlay);
 }
 
+// --- Notification badge ---
+var _notifBadgeEl = null;
+var _notifMessages = [];
+function _showNotifBadge(reason) {
+    _notifMessages.push(reason);
+    if (!_notifBadgeEl) {
+        _notifBadgeEl = document.createElement('div');
+        _notifBadgeEl.style.cssText = 'position:absolute;top:8px;right:8px;z-index:60;background:#e67e22;color:white;border-radius:12px;padding:4px 10px;font-size:11px;cursor:pointer;display:flex;align-items:center;gap:6px;box-shadow:0 2px 8px rgba(0,0,0,0.3);animation:nav-blink 1s ease-in-out 3;';
+        _notifBadgeEl.addEventListener('click', function() {
+            _notifMessages = [];
+            _notifBadgeEl.remove();
+            _notifBadgeEl = null;
+            // Scroll to bottom to see latest
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+        });
+        var wrap = document.getElementById('messages-wrap');
+        if (wrap) wrap.appendChild(_notifBadgeEl);
+    }
+    _notifBadgeEl.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M8 14c.8 0 1.5-.7 1.5-1.5h-3C6.5 13.3 7.2 14 8 14zm4.5-4V7c0-2.3-1.2-4.2-3.2-4.7V2c0-.6-.5-1-1.3-1s-1.3.4-1.3 1v.3C4.7 2.8 3.5 4.7 3.5 7v3L2 11.5V12h12v-.5L12.5 10z"/></svg>'
+        + '<span>' + _notifMessages.length + '</span>';
+}
+
+// Clear badge when window gets focus
+document.addEventListener('visibilitychange', function() {
+    if (!document.hidden && _notifBadgeEl) {
+        // Ack any pending notifications
+        if (ws && ws.readyState === 1) {
+            ws.send(JSON.stringify({type: 'notification_ack'}));
+        }
+        _notifMessages = [];
+        _notifBadgeEl.remove();
+        _notifBadgeEl = null;
+    }
+});
+
 // --- Loading overlay ---
 var _loadingOverlay = document.createElement('div');
 _loadingOverlay.style.cssText = 'position:absolute;inset:0;z-index:200;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;';
@@ -1842,6 +1877,17 @@ function connect() {
                 }
             } else if (msg.type === 'ping') {
                 return;
+            } else if (msg.type === 'notification') {
+                // Server notification — ack if focused (suppresses webhook)
+                var _notifOn = localStorage.getItem('agent-view-notif') !== 'off';
+                if (document.hasFocus()) {
+                    if (ws && ws.readyState === 1) {
+                        ws.send(JSON.stringify({type: 'notification_ack'}));
+                    }
+                } else if (_notifOn) {
+                    _showNotifBadge(msg.reason || msg.snippet || 'Needs attention');
+                    // Don't ack — let webhook fire (Telegram/Signal/etc.)
+                }
             } else {
                 renderEvent(msg);
             }
@@ -2599,6 +2645,17 @@ function _buildSettingsPopup() {
     // Divider
     html += '<div style="height:1px;background:#30363d;margin:4px 0;"></div>';
 
+    // Notifications toggle
+    var _notifEnabled = localStorage.getItem('agent-view-notif') !== 'off';
+    html += '<div style="' + itemStyle + 'cursor:default;">'
+        + '<div style="' + iconStyle + '"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 14c.8 0 1.5-.7 1.5-1.5h-3C6.5 13.3 7.2 14 8 14zm4.5-4V7c0-2.3-1.2-4.2-3.2-4.7V2c0-.6-.5-1-1.3-1s-1.3.4-1.3 1v.3C4.7 2.8 3.5 4.7 3.5 7v3L2 11.5V12h12v-.5L12.5 10z"/></svg></div>'
+        + '<div style="flex:1;">Notifications</div>'
+        + '<div id="set-notif-toggle" style="display:inline-block;width:32px;height:18px;border-radius:9px;background:' + (_notifEnabled ? '#3fb950' : '#333') + ';position:relative;vertical-align:middle;cursor:pointer;"><span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:#e0e0e0;position:absolute;top:2px;' + (_notifEnabled ? 'left:16px' : 'left:2px') + ';transition:left 0.2s;"></span></div>'
+        + '</div>';
+
+    // Divider
+    html += '<div style="height:1px;background:#30363d;margin:4px 0;"></div>';
+
     // Reload
     html += '<div class="settings-item" style="' + itemStyle + '" id="set-reload">'
         + '<div style="' + iconStyle + '"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 8a6 6 0 1 1 1.5 4"/><path d="M2 12V8h4"/></svg></div>'
@@ -2624,6 +2681,12 @@ function _buildSettingsPopup() {
             localStorage.setItem('agent-view-theme', el.dataset.theme);
             _buildSettingsPopup();
         });
+    });
+    document.getElementById('set-notif-toggle').addEventListener('click', function(e) {
+        e.stopPropagation();
+        var on = localStorage.getItem('agent-view-notif') !== 'off';
+        localStorage.setItem('agent-view-notif', on ? 'off' : 'on');
+        _buildSettingsPopup();
     });
     document.getElementById('set-reload').addEventListener('click', function() { location.reload(); });
 }
