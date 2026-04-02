@@ -1102,6 +1102,9 @@ function renderEvent(event) {
         if (event.usage) updateContextRing(event.usage);
         _stats.turns += (event.num_turns || 1);
         if (event.total_cost_usd) _stats.totalCost += Number(event.total_cost_usd);
+        // Clear all tasks — turn is done
+        _activeTasks = {};
+        _renderTaskPanel();
         setBusy(false);
 
     } else if (etype === 'error') {
