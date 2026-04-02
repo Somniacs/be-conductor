@@ -1766,123 +1766,71 @@ function connect() {
             const msg = JSON.parse(e.data);
             if (msg.type === 'history') {
                 const allMsgs = msg.messages || [];
-                const INITIAL = 100;
-                const BATCH = 50;
+                const BATCH = 100;
 
-                // Split: render last 100 now, rest in background
-                var older = allMsgs.length > INITIAL ? allMsgs.slice(0, allMsgs.length - INITIAL) : [];
-                var recent = allMsgs.length > INITIAL ? allMsgs.slice(allMsgs.length - INITIAL) : allMsgs;
+                // Render all events in order, but in batches so the browser
+                // doesn't freeze. First batch renders immediately (shows latest
+                // content fast), rest via setTimeout.
+                var totalIdx = 0;
 
-                // Show top spinner if there's older history to load
-                if (older.length > 0) {
+                function _renderHistoryBatch() {
+                    var end = Math.min(totalIdx + BATCH, allMsgs.length);
+                    _replayingHistory = true;
+                    try {
+                        for (var i = totalIdx; i < end; i++) {
+                            try { renderEvent(allMsgs[i]); } catch (e) {}
+                            if (allMsgs[i].type === 'user_message' && allMsgs[i].content) _inputHistory.push(allMsgs[i].content);
+                        }
+                    } finally {
+                        _replayingHistory = false;
+                    }
+                    totalIdx = end;
+                    messagesEl.scrollTop = messagesEl.scrollHeight;
+
+                    if (totalIdx < allMsgs.length) {
+                        // More to render — show progress
+                        var pct = Math.round(totalIdx / allMsgs.length * 100);
+                        var spinner = document.getElementById('history-loading-top');
+                        if (spinner) spinner.querySelector('span:last-child').textContent = 'Loading... ' + pct + '%';
+                        setTimeout(_renderHistoryBatch, 10);
+                    } else {
+                        // Done
+                        var spinner = document.getElementById('history-loading-top');
+                        if (spinner) spinner.remove();
+                        _updateGroupLines();
+                        messagesEl.scrollTop = messagesEl.scrollHeight;
+                        // Set overlay bar
+                        var lastUserEl = null, lastUserText = '';
+                        messagesEl.querySelectorAll('.msg-user').forEach(function(el) {
+                            lastUserEl = el;
+                            var inner = el.querySelector('div');
+                            if (inner) lastUserText = inner.textContent || '';
+                        });
+                        if (lastUserEl && lastUserText) _updateLastMsgBar(lastUserEl, lastUserText);
+                        // Show pending question modal
+                        if (_pendingQuestion) {
+                            setBusy(false);
+                            showQuestionModal(_pendingQuestion, (answer) => {
+                                if (ws && ws.readyState === WebSocket.OPEN) {
+                                    ws.send(JSON.stringify({type: 'answer', text: answer}));
+                                }
+                                setBusy(true);
+                            });
+                        }
+                    }
+                }
+
+                // Show spinner if large history
+                if (allMsgs.length > BATCH) {
                     var topSpinner = document.createElement('div');
                     topSpinner.id = 'history-loading-top';
                     topSpinner.style.cssText = 'padding:8px;text-align:center;color:var(--muted);font-size:11px;display:flex;align-items:center;justify-content:center;gap:6px;';
-                    topSpinner.innerHTML = '<span class="agent-spinner" style="width:12px;height:12px;"></span> Loading older messages...';
+                    topSpinner.innerHTML = '<span class="agent-spinner" style="width:12px;height:12px;"></span><span>Loading... 0%</span>';
                     messagesEl.appendChild(topSpinner);
                 }
 
-                // Render recent events immediately
-                _replayingHistory = true;
-                try {
-                    for (var ri = 0; ri < recent.length; ri++) {
-                        try { renderEvent(recent[ri]); } catch (renderErr) {
-                            console.warn('[history] skip:', renderErr.message, recent[ri].type);
-                        }
-                        if (recent[ri].type === 'user_message' && recent[ri].content) _inputHistory.push(recent[ri].content);
-                    }
-                } finally {
-                    _replayingHistory = false;
-                }
-
-                // Set overlay bar, hide loading, scroll to end
-                var lastUserEl = null, lastUserText = '';
-                messagesEl.querySelectorAll('.msg-user').forEach(function(el) {
-                    lastUserEl = el;
-                    var inner = el.querySelector('div');
-                    if (inner) lastUserText = inner.textContent || '';
-                });
-                if (lastUserEl && lastUserText) _updateLastMsgBar(lastUserEl, lastUserText);
                 _hideLoading();
-                messagesEl.scrollTop = messagesEl.scrollHeight;
-
-                // Show pending question modal
-                if (_pendingQuestion) {
-                    setBusy(false);
-                    showQuestionModal(_pendingQuestion, (answer) => {
-                        if (ws && ws.readyState === WebSocket.OPEN) {
-                            ws.send(JSON.stringify({type: 'answer', text: answer}));
-                        }
-                        setBusy(true);
-                    });
-                }
-
-                // Render older events in background batches via setTimeout
-                if (older.length > 0) {
-                    var olderIdx = older.length;  // start from the end (newest first)
-                    function _renderOlderBatch() {
-                        var batchStart = Math.max(0, olderIdx - BATCH);
-                        var batch = older.slice(batchStart, olderIdx);
-                        olderIdx = batchStart;
-
-                        var oldHeight = messagesEl.scrollHeight;
-                        var oldScroll = messagesEl.scrollTop;
-                        var spinner = document.getElementById('history-loading-top');
-                        var insertBefore = spinner ? spinner.nextSibling : messagesEl.firstChild;
-
-                        _replayingHistory = true;
-                        // Render batch into a fragment, then insert at top
-                        for (var bi = 0; bi < batch.length; bi++) {
-                            var el = document.createElement('div');
-                            el.style.display = 'contents';
-                            messagesEl.insertBefore(el, insertBefore);
-                        }
-                        // Remove placeholders and render properly
-                        // Actually simpler: just render and collect new nodes
-                        // Remove the placeholder divs
-                        var placeholders = [];
-                        var n = spinner ? spinner.nextSibling : messagesEl.firstChild;
-                        for (var pi = 0; pi < batch.length; pi++) {
-                            if (n) { placeholders.push(n); n = n.nextSibling; }
-                        }
-                        placeholders.forEach(function(p) { p.remove(); });
-
-                        // Mark current end of messagesEl
-                        var markerNode = document.createElement('span');
-                        markerNode.id = '_batch_end';
-                        messagesEl.appendChild(markerNode);
-
-                        try {
-                            for (var bi = 0; bi < batch.length; bi++) {
-                                try { renderEvent(batch[bi]); } catch (e) {}
-                            }
-                        } finally {
-                            _replayingHistory = false;
-                        }
-
-                        // Move rendered nodes from after marker to the insert point
-                        var toMove = [];
-                        var cur = markerNode.nextSibling;
-                        while (cur) { toMove.push(cur); cur = cur.nextSibling; }
-                        for (var mi = 0; mi < toMove.length; mi++) {
-                            messagesEl.insertBefore(toMove[mi], insertBefore);
-                        }
-                        markerNode.remove();
-
-                        // Stay at the bottom while loading
-                        messagesEl.scrollTop = messagesEl.scrollHeight;
-
-                        if (olderIdx > 0) {
-                            setTimeout(_renderOlderBatch, 30);
-                        } else {
-                            // Done — remove spinner, scroll to bottom
-                            if (spinner) spinner.remove();
-                            _updateGroupLines();
-                            messagesEl.scrollTop = messagesEl.scrollHeight;
-                        }
-                    }
-                    setTimeout(_renderOlderBatch, 30);
-                }
+                _renderHistoryBatch();
             } else if (msg.type === 'ping') {
                 return;
             } else {
