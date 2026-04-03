@@ -469,7 +469,7 @@ let retryCount = 0;
 const MAX_RETRIES = 10;
 const pendingAttachments = [];
 
-const SEND_ICON = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12V4M4 7l4-4 4 4"/></svg>';
+const SEND_ICON = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12V4M4 7l4-4 4 4"/></svg>';
 const STOP_ICON = '<svg width="10" height="10" viewBox="0 0 10 10"><rect width="10" height="10" rx="1.5" fill="white"/></svg>';
 
 // --- Rendering helpers (copied from dashboard) ---
@@ -682,6 +682,18 @@ function renderEvent(event) {
     const ph = messagesEl.querySelector('[data-placeholder]');
     if (ph) ph.remove();
     const etype = event.type;
+    // Safety: if a pending question exists but modal isn't showing, show it now
+    if (_pendingQuestion && !_replayingHistory && !document.getElementById('question-modal')) {
+        var pq = _pendingQuestion;
+        setBusy(false);
+        showQuestionModal(pq, (answer) => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({type: 'answer', text: answer}));
+            }
+            setBusy(true);
+        });
+    }
+
     // Skip internal events
     if (etype === 'system') {
         if (event.subtype === 'debug') console.log('[DEBUG]', JSON.stringify(event.data));
@@ -1740,10 +1752,7 @@ function updateSendBtn() {
         sendBtn.title = 'Send (Enter)';
         var modeVal = MODES[modeIdx].value;
         sendBtn.style.background = 'var(--mode-color, #2563eb)';
-        var dark = modeVal === 'acceptEdits';
-        sendBtn.style.color = dark ? '#000' : '#fff';
-        var svg = sendBtn.querySelector('svg');
-        if (svg) svg.setAttribute('stroke', dark ? '#000' : 'white');
+        sendBtn.style.color = (modeVal === 'acceptEdits') ? '#000' : '#fff';
     } else {
         // Idle, no text → disabled
         sendBtn.innerHTML = SEND_ICON;
