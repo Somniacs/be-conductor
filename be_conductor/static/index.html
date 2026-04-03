@@ -5182,7 +5182,20 @@
 
         function sendKey(key) {
             const panel = _getFocusedPanel();
-            if (!panel || !panel.ws || panel.ws.readyState !== WebSocket.OPEN) return;
+            if (!panel) return;
+
+            // Agent sessions: dispatch key to the agent iframe via postMessage
+            if (panel._sessionType === 'agent') {
+                var iframe = document.getElementById('panel-' + panel.id)
+                    ?.querySelector('iframe');
+                if (iframe && iframe.contentWindow) {
+                    iframe.contentWindow.postMessage({type: 'extraKey', key: key}, '*');
+                }
+                _clearModifiers();
+                return;
+            }
+
+            if (!panel.ws || panel.ws.readyState !== WebSocket.OPEN) return;
 
             let seq = _KEY_SEQS[key] || '';
 

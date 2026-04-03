@@ -26,8 +26,6 @@
 *, *::before, *::after { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 14px; height: 100vh; height: 100dvh; overflow: hidden; display: flex; flex-direction: column; }
 @supports (height: 100dvh) { body { height: 100dvh; } }
-.ek { background:var(--code-bg);color:var(--fg);border:1px solid var(--border);border-radius:4px;padding:6px 10px;font-size:12px;cursor:pointer;min-width:32px;text-align:center; }
-.ek:active { background:var(--accent);color:white; }
 #messages { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 12px 16px 12px 16px; min-height: 0; position: relative; scroll-behavior: smooth; word-wrap: break-word; overflow-wrap: break-word; }
 #last-msg-bar:hover { background: #7a8294 !important; }
 #msg-nav { display: flex; gap: 2px; padding: 4px; }
@@ -138,15 +136,6 @@ summary[style*="list-style:none"]::-webkit-details-marker { display: none; }
 </div>
 </div>
 <div class="btw-panel" id="btw-panel"></div>
-<div id="extra-keys" style="display:none;background:var(--bg-secondary);border-top:1px solid var(--border);padding:4px 8px;gap:4px;flex-wrap:wrap;flex-shrink:0;" onpointerdown="event.preventDefault()">
-    <button class="ek" onpointerdown="_ekSend('Escape')">ESC</button>
-    <button class="ek" onpointerdown="_ekSend('Tab')">&#x21E5;</button>
-    <button class="ek" onpointerdown="_ekSend('ArrowUp')">&uarr;</button>
-    <button class="ek" onpointerdown="_ekSend('ArrowDown')">&darr;</button>
-    <button class="ek" onpointerdown="_ekSend('ArrowLeft')">&larr;</button>
-    <button class="ek" onpointerdown="_ekSend('ArrowRight')">&rarr;</button>
-    <button class="ek" onpointerdown="_ekSend('/')">/</button>
-</div>
 <div id="drag-handle"><div></div></div>
 <div id="input-area">
     <div class="slash-popup" id="slash-popup"></div>
@@ -329,21 +318,19 @@ if (typeof acquireVsCodeApi !== 'undefined') {
 // The dashboard handles its own layout — we only resize within our iframe.
 // Mobile keyboard: CSS `100dvh` handles viewport resizing natively.
 
-// Extra keys bar for touch devices
-function _ekSend(key) {
-    var target = document.activeElement || promptEl;
-    target.dispatchEvent(new KeyboardEvent('keydown', {key: key, bubbles: true, cancelable: true}));
-    if (key === '/' && target === promptEl) {
-        promptEl.value += '/';
-        promptEl.dispatchEvent(new Event('input', {bubbles: true}));
+// Extra keys: listen for postMessage from dashboard's extra-keys bar
+window.addEventListener('message', function(e) {
+    if (e.data && e.data.type === 'extraKey') {
+        var key = e.data.key;
+        var target = document.activeElement || promptEl;
+        target.dispatchEvent(new KeyboardEvent('keydown', {key: key, bubbles: true, cancelable: true}));
+        if (key.length === 1 && target === promptEl) {
+            promptEl.value += key;
+            promptEl.dispatchEvent(new Event('input', {bubbles: true}));
+        }
+        promptEl.focus();
     }
-    promptEl.focus();
-}
-// Show extra keys on touch devices
-if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
-    var ekBar = document.getElementById('extra-keys');
-    if (ekBar) ekBar.style.display = 'flex';
-}
+});
 
 // --- DOM refs ---
 const messagesEl = document.getElementById('messages');
