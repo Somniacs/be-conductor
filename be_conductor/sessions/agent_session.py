@@ -342,12 +342,16 @@ class AgentSession:
         except Exception:
             hooks_config = None
 
+        # Always use "default" permission_mode in the SDK so it calls our
+        # can_use_tool callback for EVERY tool.  We handle the actual mode
+        # logic (acceptEdits, bypassPermissions, plan) ourselves in the
+        # callback — the SDK's built-in modes skip the callback for tools
+        # it considers "safe" and falls back to interactive CLI prompts
+        # that don't work in the GUI.
         options = ClaudeAgentOptions(
             cwd=self.cwd or ".",
             allowed_tools=self._agent_options.get("allowed_tools"),
-            permission_mode=self._agent_options.get(
-                "permission_mode", "default"
-            ),
+            permission_mode="default",
             can_use_tool=_can_use_tool,
             system_prompt=self._agent_options.get("system_prompt"),
             max_turns=self._agent_options.get("max_turns"),
@@ -542,10 +546,16 @@ class AgentSession:
                         self.resume_id = sid
             elif isinstance(message, RateLimitEvent):
                 rli = getattr(message, "rate_limit_info", None)
-                self._emit_event({
-                    "type": "rate_limit",
-                    "info": str(rli) if rli else None,
-                })
+                if rli:
+                    self._broadcast_event({
+                        "type": "rate_limit",
+                        "status": getattr(rli, "status", None),
+                        "utilization": getattr(rli, "utilization", None),
+                        "resets_at": getattr(rli, "resets_at", None),
+                        "rate_limit_type": getattr(rli, "rate_limit_type", None),
+                        "overage_status": getattr(rli, "overage_status", None),
+                        "raw": getattr(rli, "raw", None),
+                    })
 
     def _emit_plan_review(self) -> None:
         """Read the latest plan file and emit a plan_review event."""

@@ -1910,7 +1910,21 @@ async def stream_session(ws: WebSocket, session_id: str, typed: bool = False,
                 if history_path.exists():
                     import json as _json
                     history = _json.loads(history_path.read_text(encoding="utf-8"))
-                    await ws.send_json({"type": "history", "messages": history})
+                    # Chunked history: send last 200 first for fast UI,
+                    # then stream older messages in batches of 200.
+                    CHUNK = 200
+                    if len(history) <= CHUNK:
+                        await ws.send_json({"type": "history", "messages": history})
+                    else:
+                        # Recent chunk first
+                        await ws.send_json({"type": "history", "messages": history[-CHUNK:]})
+                        # Older chunks in reverse-chronological batches
+                        remaining = history[:-CHUNK]
+                        while remaining:
+                            batch = remaining[-CHUNK:]
+                            remaining = remaining[:-CHUNK]
+                            await ws.send_json({"type": "history_prepend", "messages": batch})
+                            await asyncio.sleep(0.05)  # yield to event loop
                 meta = registry.resumable[session_id]
                 await ws.send_json({
                     "type": "session_end",

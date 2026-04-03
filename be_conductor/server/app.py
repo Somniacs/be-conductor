@@ -219,7 +219,8 @@ def run_server(host: str = HOST, port: int = PORT,
 
     certfile = ssl_certfile or _cfg.SSL_CERTFILE
     keyfile = ssl_keyfile or _cfg.SSL_KEYFILE
-    kwargs: dict = dict(host=host, port=port, log_level="info")
+    kwargs: dict = dict(host=host, port=port, log_level="info",
+                        ws_max_size=16 * 1024 * 1024)  # 16MB for image attachments
     if certfile and keyfile:
         kwargs["ssl_certfile"] = certfile
         kwargs["ssl_keyfile"] = keyfile

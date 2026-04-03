@@ -9,6 +9,9 @@ All notable changes to be-conductor are documented here.
 - **Auto-update for both IDE plugins** — VS Code checks GitHub on activation and offers one-click update. JetBrains checks via a custom plugin repository (one-time setup)
 - **JetBrains auto-close on session end** — agent editor tabs automatically close 2 seconds after a non-resumable session ends
 - **Collapsible long user messages** — messages with more than 4 lines collapse to the first line with "..." — click to expand, with View and Copy buttons when open
+- **Brighter user message background** — user messages stand out more clearly from AI responses
+- **Sticky message bar cleanup** — close button always aligned to the far right, higher contrast, removed decorative dot
+- **Chunked history rendering** — large sessions (3000+ messages) no longer freeze the browser. Last 200 messages render instantly, older messages are added in batches so the UI stays responsive
 
 ### Fixed
 

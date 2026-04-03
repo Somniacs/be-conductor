@@ -130,13 +130,10 @@ summary[style*="list-style:none"]::-webkit-details-marker { display: none; }
 <body>
 
 <div id="messages-wrap" style="flex:1;min-height:0;position:relative;display:flex;flex-direction:column;">
-<div id="last-msg-bar" style="display:none;position:absolute;top:0;left:0;right:0;z-index:50;background:#8890a0;border-bottom:1px solid #6a7080;padding:6px 12px;font-size:12px;gap:8px;cursor:pointer;">
-    <div style="display:flex;align-items:flex-start;gap:8px;">
-        <span style="color:#4a6cf7;flex-shrink:0;margin-top:2px;">&#9656;</span>
-        <span id="last-msg-text" style="flex:1;color:#1a1a2e;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.4;font-weight:500;"></span>
-        <button id="last-msg-expand" style="display:none;background:none;border:none;color:#4a6cf7;font-size:11px;cursor:pointer;padding:0;flex-shrink:0;white-space:nowrap;margin-top:1px;">more &#9662;</button>
-        <button id="last-msg-close" style="background:none;border:none;color:#666;font-size:14px;cursor:pointer;padding:0 2px;line-height:1;flex-shrink:0;">&times;</button>
-    </div>
+<div id="last-msg-bar" style="display:none;position:absolute;top:0;left:0;right:0;z-index:50;background:#8890a0;border-bottom:1px solid #6a7080;padding:6px 12px;font-size:12px;cursor:pointer;align-items:flex-start;gap:8px;">
+    <span id="last-msg-text" style="flex:1;color:#1a1a2e;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.4;font-weight:500;min-width:0;"></span>
+    <button id="last-msg-expand" style="display:none;background:none;border:none;color:#4a6cf7;font-size:11px;cursor:pointer;padding:0;flex-shrink:0;white-space:nowrap;margin-top:1px;">more &#9662;</button>
+    <button id="last-msg-close" style="background:none;border:none;color:#1a1a2e;font-size:18px;font-weight:bold;cursor:pointer;padding:0 2px;line-height:1;flex-shrink:0;">&times;</button>
 </div>
 <div id="msg-nav" style="position:absolute;bottom:8px;right:12px;z-index:50;">
     <button id="nav-up" title="Previous question" disabled style="opacity:0.25;">
@@ -424,6 +421,11 @@ function updateContextRing(usage) {
     // instead of misleadingly showing 0K during compact or internal SDK calls.
     if (newTotal === 0 && totalTokens > 0) return;
     totalTokens = newTotal;
+    // Auto-compact: flag for compact after turn ends when context exceeds 80%
+    var pctCheck = newTotal / MAX_CONTEXT;
+    if (pctCheck > 0.8 && !_autoCompactPending && !_compacting) {
+        _autoCompactPending = true;
+    }
     const cache = cacheRead + cacheCreate;
     // Accumulate session stats
     _stats.totalInput += input;
@@ -475,8 +477,17 @@ function updateContextRing(usage) {
     }
 }
 
+// Close all popups — called when any popup opens or on outside click
+function _closeAllPopups() {
+    if (typeof _ctxPopup !== 'undefined') _ctxPopup.style.display = 'none';
+    if (typeof modePopup !== 'undefined') modePopup.style.display = 'none';
+    var sp = document.getElementById('settings-popup');
+    if (sp) sp.style.display = 'none';
+    if (typeof closeSlashPopup === 'function') closeSlashPopup();
+}
+
 if (contextIndicator) {
-    // Context menu popup (like slash commands)
+    // Context menu popup
     var _ctxPopup = document.createElement('div');
     _ctxPopup.style.cssText = 'display:none;position:absolute;bottom:100%;left:0;margin-bottom:8px;background:#1c2028;border:1px solid var(--border);border-radius:10px;padding:6px 0;min-width:200px;z-index:150;box-shadow:0 8px 24px rgba(0,0,0,0.5);';
     contextIndicator.style.position = 'relative';
@@ -503,27 +514,41 @@ if (contextIndicator) {
         header.textContent = 'Context';
         _ctxPopup.appendChild(header);
 
-        _ctxPopup.appendChild(_ctxMenuItem('/compact', 'Summarize conversation to free tokens', () => {
+        _ctxPopup.appendChild(_ctxMenuItem('Compact', 'Summarize conversation to free tokens', () => {
             if (ws && ws.readyState === WebSocket.OPEN) {
+                _compacting = true;
                 ws.send(JSON.stringify({type: 'prompt', text: '/compact'}));
                 setBusy(true);
             }
         }));
-        _ctxPopup.appendChild(_ctxMenuItem('/clear', 'Clear the display', () => {
+        _ctxPopup.appendChild(_ctxMenuItem('Clear display', 'Remove messages from view', () => {
             messagesEl.innerHTML = '';
         }));
+        _ctxPopup.appendChild(_ctxMenuItem('Statistics', 'Token usage, cost, duration', () => {
+            _showStatsPopup();
+        }));
+
+        // Usage limits — disabled until data arrives
+        var hasRlData = _rateLimitInfo && Object.keys(_rateLimitInfo).length > 0;
+        var rlItem = _ctxMenuItem('Usage limits', hasRlData ? 'View rate limit details' : 'Waiting for data\u2026', () => {
+            if (hasRlData) _showRateLimitPopup();
+        });
+        if (!hasRlData) {
+            rlItem.style.opacity = '0.4';
+            rlItem.style.cursor = 'default';
+        }
+        _ctxPopup.appendChild(rlItem);
     }
 
     contextIndicator.addEventListener('click', (e) => {
         e.stopPropagation();
-        if (_ctxPopup.style.display === 'none') {
+        var wasOpen = _ctxPopup.style.display !== 'none';
+        _closeAllPopups();
+        if (!wasOpen) {
             _buildCtxPopup();
             _ctxPopup.style.display = 'block';
-        } else {
-            _ctxPopup.style.display = 'none';
         }
     });
-    document.addEventListener('click', () => { _ctxPopup.style.display = 'none'; });
     _ctxPopup.addEventListener('click', (e) => e.stopPropagation());
 }
 
@@ -785,7 +810,21 @@ function renderEvent(event) {
         }
         return;
     }
-    if (etype === 'rate_limit') return;
+    if (etype === 'rate_limit') {
+        // Store per-type rate limit info
+        var rlKey = event.rate_limit_type;
+        if (!rlKey) return;  // skip events without a type
+        if (!_rateLimitInfo || typeof _rateLimitInfo !== 'object') _rateLimitInfo = {};
+        _rateLimitInfo[rlKey] = {
+            status: event.status,
+            utilization: event.utilization,
+            resets_at: event.resets_at,
+            type: event.rate_limit_type,
+            overage_status: event.overage_status,
+        };
+        try { localStorage.setItem('agent-view-ratelimit', JSON.stringify(_rateLimitInfo)); } catch(e) {}
+        return;
+    }
     // Question was answered (by us or another client) — clear pending + dismiss modal
     if (etype === 'question_answered') {
         _pendingQuestion = null;
@@ -1288,6 +1327,15 @@ function renderEvent(event) {
         _activeTasks = {};
         _renderTaskPanel();
         setBusy(false);
+        // Auto-compact: if context is over 90%, compact now
+        if (_autoCompactPending && !_compacting && !_replayingHistory) {
+            _autoCompactPending = false;
+            _compacting = true;
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({type: 'prompt', text: '/compact'}));
+                setBusy(true);
+            }
+        }
 
     } else if (etype === 'error') {
         setBusy(false);
@@ -1791,6 +1839,18 @@ let spinnerEl = null;
 let busyStartTime = 0;
 let spinnerInterval = null;
 var _compacting = false;  // true while /compact is in progress
+var _autoCompactPending = false;  // true when context > 80%, triggers compact after turn
+var _rateLimitInfo = {};  // rate limit info keyed by type, e.g. {five_hour: {...}, seven_day: {...}}
+try {
+    var _rlStored = JSON.parse(localStorage.getItem('agent-view-ratelimit'));
+    // Validate format: must be keyed by type with objects that have a .type field
+    if (_rlStored && typeof _rlStored === 'object' && !_rlStored.status) {
+        _rateLimitInfo = _rlStored;
+        delete _rateLimitInfo['unknown'];  // clean up stale entries
+    } else {
+        localStorage.removeItem('agent-view-ratelimit');
+    }
+} catch(e) {}
 let _localSeqCounter = 0;     // monotonic counter for user message groups
 var _currentModel = 'default';
 var _thinkingEnabled = false;
@@ -2121,6 +2181,43 @@ function connect() {
                             setBusy(true);
                         }
                     });
+                }
+            } else if (msg.type === 'history_prepend') {
+                // Older messages arriving in chunks — render at the top
+                var oldMsgs = msg.messages || [];
+                if (oldMsgs.length) {
+                    _replayingHistory = true;
+                    var savedScroll = messagesEl.scrollHeight;
+                    // Create a fragment, render into it, then prepend
+                    var frag = document.createDocumentFragment();
+                    var tempDiv = document.createElement('div');
+                    // Temporarily swap messagesEl target to tempDiv
+                    var realMessages = messagesEl;
+                    // Render each event — they append to messagesEl, so we
+                    // collect the new children after rendering
+                    var beforeCount = messagesEl.childNodes.length;
+                    try {
+                        for (var pi = 0; pi < oldMsgs.length; pi++) {
+                            try { renderEvent(oldMsgs[pi]); } catch(e) {}
+                            if (oldMsgs[pi].type === 'user_message' && oldMsgs[pi].content) _inputHistory.unshift(oldMsgs[pi].content);
+                        }
+                    } finally {
+                        _replayingHistory = false;
+                    }
+                    // Move newly appended children to the top
+                    var newNodes = [];
+                    while (messagesEl.childNodes.length > beforeCount) {
+                        newNodes.push(messagesEl.childNodes[beforeCount]);
+                        messagesEl.removeChild(messagesEl.childNodes[beforeCount]);
+                    }
+                    // Find the welcome header to insert after it
+                    var firstMsg = messagesEl.querySelector('.msg, .msg-group');
+                    for (var ni = 0; ni < newNodes.length; ni++) {
+                        if (firstMsg) messagesEl.insertBefore(newNodes[ni], firstMsg);
+                        else messagesEl.appendChild(newNodes[ni]);
+                    }
+                    // Restore scroll position so viewport doesn't jump
+                    messagesEl.scrollTop += (messagesEl.scrollHeight - savedScroll);
                 }
             } else if (msg.type === 'ping') {
                 return;
@@ -2757,7 +2854,8 @@ function _openAnnotator(attIdx) {
 
 document.getElementById('slash-btn').addEventListener('click', function(e) {
     e.stopPropagation();
-    if (_slashOpen) { closeSlashPopup(); promptEl.value = ''; promptEl.focus({ preventScroll: true }); return; }
+    _closeAllPopups();
+    if (_slashOpen) { promptEl.value = ''; promptEl.focus({ preventScroll: true }); return; }
     promptEl.value = '/';
     promptEl.focus({ preventScroll: true });
     updateSlashPopup();
@@ -3033,47 +3131,9 @@ function _addModelSwitchBanner(label) {
     autoScroll();
 }
 
-// --- Font size controls ---
-const fontSep = document.createElement('div');
-fontSep.style.cssText = 'height:1px;background:#30363d;margin:6px 0;';
-modePopup.appendChild(fontSep);
-
-const fontRow = document.createElement('div');
-fontRow.style.cssText = 'padding:8px 14px;display:flex;align-items:center;gap:10px;';
-fontRow.innerHTML = `
-    <div style="color:var(--muted);flex-shrink:0;">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13V3h4l3 5-3 5"/><path d="M13 8H7"/></svg>
-    </div>
-    <div style="flex:1;font-size:13px;color:#e0e0e0;">Font size</div>`;
-const fontToggle = document.createElement('div');
-fontToggle.className = 'effort-toggle';
+// Font size — keep initialization, removed from mode popup (lives in settings ⋮ menu)
 let _fontSize = parseInt(localStorage.getItem('agent-view-fontsize') || '14');
 document.body.style.fontSize = _fontSize + 'px';
-function _updateFontLabel() {
-    fontLabel.textContent = _fontSize + 'px';
-}
-const fontMinus = document.createElement('button');
-fontMinus.className = 'effort-btn';
-fontMinus.textContent = '\u2212';
-fontMinus.title = 'Decrease font size';
-fontMinus.addEventListener('click', () => {
-    if (_fontSize > 10) { _fontSize--; document.body.style.fontSize = _fontSize + 'px'; localStorage.setItem('agent-view-fontsize', _fontSize); _updateFontLabel(); autoScroll(); }
-});
-const fontLabel = document.createElement('span');
-fontLabel.style.cssText = 'font-size:11px;color:var(--fg);min-width:30px;text-align:center;';
-fontLabel.textContent = _fontSize + 'px';
-const fontPlus = document.createElement('button');
-fontPlus.className = 'effort-btn';
-fontPlus.textContent = '+';
-fontPlus.title = 'Increase font size';
-fontPlus.addEventListener('click', () => {
-    if (_fontSize < 24) { _fontSize++; document.body.style.fontSize = _fontSize + 'px'; localStorage.setItem('agent-view-fontsize', _fontSize); _updateFontLabel(); autoScroll(); }
-});
-fontToggle.appendChild(fontMinus);
-fontToggle.appendChild(fontLabel);
-fontToggle.appendChild(fontPlus);
-fontRow.appendChild(fontToggle);
-modePopup.appendChild(fontRow);
 
 function updateModeUI() {
     const items = modePopup.querySelectorAll('.mode-item');
@@ -3104,9 +3164,11 @@ updateModeUI();
 
 modeBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    modePopup.style.display = modePopup.style.display === 'none' ? 'block' : 'none';
+    var wasOpen = modePopup.style.display !== 'none';
+    _closeAllPopups();
+    if (!wasOpen) modePopup.style.display = 'block';
 });
-document.addEventListener('click', () => { modePopup.style.display = 'none'; _settingsPopup.style.display = 'none'; });
+document.addEventListener('click', () => { _closeAllPopups(); });
 modePopup.addEventListener('click', (e) => e.stopPropagation());
 
 // --- Settings popup (⋮ menu) ---
@@ -3201,17 +3263,14 @@ function _buildSettingsPopup() {
 
 _settingsBtn.addEventListener('click', function(e) {
     e.stopPropagation();
-    modePopup.style.display = 'none';
-    if (_settingsPopup.style.display === 'none') {
+    var wasOpen = _settingsPopup.style.display !== 'none';
+    _closeAllPopups();
+    if (!wasOpen) {
         _buildSettingsPopup();
-        // Position above the button using fixed coordinates
         var rect = _settingsBtn.getBoundingClientRect();
         _settingsPopup.style.display = 'block';
-        var popH = _settingsPopup.offsetHeight;
         _settingsPopup.style.bottom = (window.innerHeight - rect.top + 6) + 'px';
         _settingsPopup.style.right = (window.innerWidth - rect.right) + 'px';
-    } else {
-        _settingsPopup.style.display = 'none';
     }
 });
 _settingsPopup.addEventListener('click', function(e) { e.stopPropagation(); });
@@ -3226,11 +3285,6 @@ function _getSlashItems() {
     var shortLabels = {0: 'Ask', 1: 'Edit', 2: 'Plan'};
     return [
         {section: 'Commands'},
-        {cmd: '/compact', label: 'Compact conversation', desc: 'Free up tokens', action: function() {
-            if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type: 'prompt', text: '/compact'}));
-        }},
-        {cmd: '/clear', label: 'Clear conversation', action: function() { messagesEl.innerHTML = ''; }},
-        {cmd: '/stats', label: 'Session statistics', desc: 'Token usage, cost, duration', action: function() { _showStatsPopup(); }},
         {cmd: '/btw', label: 'Ask a side question', desc: 'Quick question while agent works', action: function() {
             promptEl.value = '/btw ';
             promptEl.dispatchEvent(new Event('input', {bubbles: true}));
@@ -3241,6 +3295,80 @@ function _getSlashItems() {
             else _renderTaskPanel();
         }},
     ];
+}
+
+function _showRateLimitPopup() {
+    var old = document.getElementById('ratelimit-popup');
+    if (old) { old.remove(); return; }
+
+    var popup = document.createElement('div');
+    popup.id = 'ratelimit-popup';
+    popup.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:20px 24px;min-width:320px;max-width:400px;z-index:9999;box-shadow:0 8px 32px rgba(0,0,0,0.6);';
+
+    var closeBtn = document.createElement('button');
+    closeBtn.innerHTML = '&times;';
+    closeBtn.style.cssText = 'position:absolute;top:10px;right:14px;background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;';
+    closeBtn.addEventListener('click', function() { popup.remove(); document.removeEventListener('keydown', esc); });
+    popup.appendChild(closeBtn);
+
+    var title = document.createElement('div');
+    title.style.cssText = 'font-size:15px;font-weight:600;color:var(--fg);margin-bottom:16px;';
+    title.textContent = 'Usage Limits';
+    popup.appendChild(title);
+
+    var keys = _rateLimitInfo && typeof _rateLimitInfo === 'object' ? Object.keys(_rateLimitInfo) : [];
+    if (keys.length === 0) {
+        var noData = document.createElement('div');
+        noData.style.cssText = 'color:var(--muted);font-size:13px;';
+        noData.textContent = 'No rate limit data yet. Send a message in any session to fetch current limits.';
+        popup.appendChild(noData);
+    } else {
+        // Sort: seven_day first, then five_hour, then others
+        keys.sort(function(a, b) {
+            var order = {'seven_day': 0, 'seven_day_opus': 0, 'seven_day_sonnet': 1, 'five_hour': 2};
+            return (order[a] != null ? order[a] : 9) - (order[b] != null ? order[b] : 9);
+        });
+        keys.forEach(function(key) {
+            var rl = _rateLimitInfo[key];
+            var section = document.createElement('div');
+            section.style.cssText = 'margin-bottom:14px;';
+            var label = (rl.type || key).replace(/_/g, ' ');
+            label = label.charAt(0).toUpperCase() + label.slice(1);
+            var hasPct = rl.utilization != null;
+            var pct = hasPct ? Math.round(rl.utilization * 100) : 0;
+            var barColor = pct < 50 ? 'var(--success)' : pct < 80 ? '#c4a000' : pct < 95 ? '#f0a020' : 'var(--error)';
+            var status = rl.status || '';
+            var statusColor = status === 'allowed' ? 'var(--success)' : status === 'allowed_warning' ? '#c4a000' : '#f0a020';
+            var statusLabel = status.replace(/_/g, ' ');
+
+            var html = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">' +
+                '<span style="font-size:13px;color:var(--fg);font-weight:500;">' + escHtml(label) + '</span>' +
+                '<span style="margin-left:auto;font-size:12px;color:' + statusColor + ';font-weight:500;">' +
+                (hasPct ? pct + '%' : statusLabel) + '</span></div>';
+            if (hasPct) {
+                html += '<div style="height:6px;background:#1a1a2e;border-radius:3px;overflow:hidden;margin-bottom:4px;">' +
+                    '<div style="height:100%;width:' + pct + '%;background:' + barColor + ';border-radius:3px;transition:width 0.3s;"></div></div>';
+            }
+            if (rl.resets_at) {
+                var resetDate = new Date(rl.resets_at * 1000);
+                var now = Date.now();
+                var diffMs = Math.max(0, resetDate - now);
+                var diffH = Math.floor(diffMs / 3600000);
+                var diffM = Math.floor((diffMs % 3600000) / 60000);
+                var resetStr = diffH > 24 ? Math.floor(diffH / 24) + 'd ' + (diffH % 24) + 'h' : diffH + 'h ' + diffM + 'm';
+                html += '<div style="font-size:11px;color:var(--muted);">Resets in ' + resetStr + '</div>';
+            }
+            if (rl.overage_status) {
+                html += '<div style="font-size:11px;color:var(--muted);margin-top:2px;">Overage: ' + rl.overage_status.replace(/_/g, ' ') + '</div>';
+            }
+            section.innerHTML = html;
+            popup.appendChild(section);
+        });
+    }
+
+    var esc = function(e) { if (e.key === 'Escape') { popup.remove(); document.removeEventListener('keydown', esc); } };
+    document.addEventListener('keydown', esc);
+    document.body.appendChild(popup);
 }
 
 function _showStatsPopup() {
@@ -3330,7 +3458,7 @@ function _showStatsPopup() {
         html += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px;">';
         html += row('Duration', durFmt(dur));
         html += row('Turns', String(_stats.turns));
-        html += row('Cost', '$'+_stats.totalCost.toFixed(2));
+        html += row('Est. API cost', '$'+_stats.totalCost.toFixed(2));
         html += '</div>';
 
         var cumIn = _stats.totalInput + _stats.totalCacheRead + _stats.totalCacheCreate;
