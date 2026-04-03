@@ -5188,7 +5188,7 @@
             if (panel._sessionType === 'agent') {
                 var iframe = panel._agentIframe;
                 if (iframe && iframe.contentWindow) {
-                    iframe.contentWindow.postMessage({type: 'extraKey', key: key}, '*');
+                    iframe.contentWindow.postMessage({type: 'extraKey', key: key, shiftKey: _ekMods.shift, ctrlKey: _ekMods.ctrl, altKey: _ekMods.alt}, '*');
                 }
                 _clearModifiers();
                 return;
@@ -5371,6 +5371,10 @@
                 }
             }
         }
+
+        // Lock document scroll — mobile browsers scroll the document after
+        // layout changes in focused iframes.  Force scroll back to origin.
+        window.addEventListener('scroll', () => { window.scrollTo(0, 0); });
 
         // Listen for keyboard open/close via viewport resize.
         window.addEventListener('resize', _updateKeyboardLayout);

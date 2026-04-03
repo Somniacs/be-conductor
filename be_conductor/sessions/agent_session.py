@@ -231,6 +231,7 @@ class AgentSession:
                     pass
 
             # Emit plan review event to UI
+            self._question_pending = True
             self._emit_event({
                 "type": "plan_review",
                 "plan": plan_content,
@@ -247,8 +248,15 @@ class AgentSession:
                 answer = "rejected"
 
             if answer.lower() in ("approve", "approved", "yes", "ok"):
+                # SDK exits plan mode internally — sync our state
+                self._current_mode = "default"
+                self._agent_options["permission_mode"] = "default"
                 return None  # Allow the tool to proceed
             else:
+                # Rejected or feedback — SDK stays in plan mode for feedback,
+                # exits for rejection.  Reset to default either way.
+                self._current_mode = "default"
+                self._agent_options["permission_mode"] = "default"
                 return {"content": [{"type": "text", "text": answer}]}
 
         # SDK permission callback — the SDK decides WHEN to ask (based on
@@ -834,76 +842,59 @@ class AgentSession:
         self._input_queue.put_nowait(msg)
 
     async def _send_btw(self, text: str) -> None:
-        """Answer a /btw question using the Anthropic API directly.
+        """Answer a /btw question using SDK query() — parallel, no API key needed.
 
-        Runs concurrently with the main agent turn. Uses the session's
-        conversation context but doesn't touch the SDK client or history.
+        Uses the same OAuth auth as the main agent. Runs as an independent
+        one-shot conversation with context from recent history.
         Fully ephemeral — nothing saved to disk.
         """
-        import os
+        from claude_agent_sdk import query, ClaudeAgentOptions, AssistantMessage, TextBlock
 
-        # Broadcast btw_start
         self._broadcast_event({"type": "btw_start", "text": text})
 
         try:
             # Build context from recent non-btw history
-            messages = []
+            context_lines = []
             for ev in self._message_history[-30:]:
                 if ev.get("btw"):
                     continue
                 if ev.get("type") == "user_message":
-                    messages.append({"role": "user", "content": ev.get("content", "")})
+                    context_lines.append("User: " + (ev.get("content", ""))[:300])
                 elif ev.get("type") == "assistant_message":
-                    txt = ""
                     for b in ev.get("content", []):
                         if b.get("type") == "text":
-                            txt += b.get("text", "") + "\n"
-                    if txt.strip():
-                        messages.append({"role": "assistant", "content": txt.strip()})
+                            context_lines.append("Assistant: " + b.get("text", "")[:300])
+                            break
+            context = "\n\n".join(context_lines[-20:])
 
-            # Add the btw question
-            messages.append({"role": "user", "content": text})
+            prompt = (
+                "You have the following conversation context:\n\n"
+                f"{context}\n\n---\n"
+                "The user has a quick side question. Be concise.\n\n"
+                f"Question: {text}"
+            )
 
-            if not messages:
-                self._broadcast_event({"type": "btw_end", "error": "No context"})
-                return
+            options = ClaudeAgentOptions(
+                tools=[],          # no tools
+                max_turns=1,       # one-shot
+                system_prompt=(
+                    "You are answering a quick side question about an ongoing "
+                    "coding session. Be concise and direct. You have NO tool "
+                    "access."
+                ),
+            )
 
-            # Call Anthropic API directly (no SDK, no conflict)
-            api_key = os.environ.get("ANTHROPIC_API_KEY")
-            if not api_key:
-                self._broadcast_event({"type": "btw_end", "error": "No API key"})
-                return
+            response_text = ""
+            async for message in query(prompt=prompt, options=options):
+                if isinstance(message, AssistantMessage):
+                    for block in message.content:
+                        if isinstance(block, TextBlock):
+                            response_text += block.text + "\n"
 
-            import httpx
-            async with httpx.AsyncClient() as http:
-                resp = await http.post(
-                    "https://api.anthropic.com/v1/messages",
-                    headers={
-                        "x-api-key": api_key,
-                        "anthropic-version": "2023-06-01",
-                        "content-type": "application/json",
-                    },
-                    json={
-                        "model": "claude-sonnet-4-20250514",
-                        "max_tokens": 1024,
-                        "system": "You are a helpful side-channel assistant. Answer briefly based on the conversation context. No tools.",
-                        "messages": messages,
-                    },
-                    timeout=30.0,
-                )
-                data = resp.json()
-
-            # Extract response text
-            answer = ""
-            for block in data.get("content", []):
-                if block.get("type") == "text":
-                    answer += block.get("text", "")
-
-            # Broadcast response (NOT saved to history)
-            if answer.strip():
+            if response_text.strip():
                 self._broadcast_event({
                     "type": "assistant_message",
-                    "content": [{"type": "text", "text": answer.strip()}],
+                    "content": [{"type": "text", "text": response_text.strip()}],
                     "btw": True,
                 })
 
@@ -1041,10 +1032,13 @@ class AgentSession:
         # If there's a pending question, include it so late-joining clients
         # can show the modal immediately without relying on history replay.
         if getattr(self, '_question_pending', False):
-            # Find the last question event in history
+            # Find the last question or plan_review event in history
             for ev in reversed(self._message_history):
                 if ev.get("type") == "question":
                     settings["pending_question"] = ev
+                    break
+                if ev.get("type") == "plan_review":
+                    settings["pending_plan_review"] = ev
                     break
         return settings
 

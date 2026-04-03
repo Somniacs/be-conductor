@@ -2,6 +2,32 @@
 
 All notable changes to be-conductor are documented here.
 
+## v0.3.43
+
+### New
+
+- **Shimmer animation on spinner** — the thinking verb text has a subtle brightness sweep that glides back and forth
+- **`/btw` in slash menu** — typing `/` now shows `/btw` (side question) in the command popup, easy to discover and use
+- **Slash command descriptions** — the `/` popup now shows short descriptions next to each command
+- **Plan blocks have View and Copy buttons** — plans are easy to read in full-screen study mode and copy to clipboard
+- **Compact shows "Compacting..."** — the spinner displays a clear status instead of random verbs while compacting
+- **Image annotation editor** — click an attached image to open a full-screen annotation tool. Draw arrows, lines, circles, rectangles, and numbered markers in 6 colors (red, green, blue, yellow, white, black). Annotations are composited onto the image before sending so the AI sees exactly what you're pointing at. Works on touch and desktop
+- **Images visible in chat history** — attached images now appear as thumbnails in your sent messages. Click to view full-size
+- **Image file links open as images** — clicking an image path in tool results (e.g., `image.png` in a Read block) now shows the image in a proper viewer instead of trying to open it as code
+
+### Fixed
+
+- **Mobile viewport stable on send** — sending a message on touch devices no longer causes the view to jump. Document scroll is locked so the browser can't shift the page when the keyboard is already open
+- **Arrow keys recall history on touch** — the up/down arrow buttons in the extra keys bar now cycle through your full message history, not just the last message
+- **Permission prompts show the actual question** — "Allow AskUserQuestion" blocks display a compact one-liner with the question text instead of raw parameters and a collapsible
+- **Mode indicator updates after plan approval** — approving or rejecting a plan switches the UI back from "Plan Mode" to "Ask Mode"
+- **Spinner verb no longer races** — the thinking verb now changes every 2–5 seconds as designed, not every second due to leaked intervals
+- **Context ring doesn't drop to 0K** — the ring keeps showing the last known context size during compact instead of misleadingly resetting to zero
+- **Questions answered correctly** — typing a free-text answer to a question now reaches the agent. Previously a duplicate modal was sending answers as prompts instead of answers, so the agent never received them
+- **Plan review visible on all clients** — opening a second browser tab while a plan is waiting for approval now shows the approval modal. Previously plan reviews were invisible to late-joining clients
+- **`/btw` works with web auth** — side questions now use the SDK's `query()` function which handles OAuth internally. No API key needed
+- **`/btw` errors shown** — if a side question fails, the BTW panel shows the actual error message instead of "(no response)"
+
 ## v0.3.42
 
 ### New
@@ -22,7 +48,6 @@ All notable changes to be-conductor are documented here.
 - **Task panel clears on turn end** — sub-agent tasks that never sent a completion event are now cleared when the agent's turn finishes
 - **BTW panel closes for questions** — when a permission prompt arrives while the BTW panel is open, it automatically closes so you can see and answer the question
 - **Keyboard navigation for question modals** — arrow keys move between options, Enter/Space selects, first option auto-focused. No mouse needed
-- **Mobile keyboard jump** — sending a message on touch devices no longer causes the view to jump when the virtual keyboard closes
 
 ## v0.3.41
 

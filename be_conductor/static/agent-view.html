@@ -24,9 +24,9 @@
     --font-mono: 'JetBrains Mono', 'Cascadia Mono', Menlo, Consolas, monospace;
 }
 *, *::before, *::after { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 14px; height: 100vh; height: 100dvh; overflow: hidden; display: flex; flex-direction: column; }
-@supports (height: 100dvh) { body { height: 100dvh; } }
-#messages { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 12px 16px 12px 16px; min-height: 0; position: relative; scroll-behavior: smooth; word-wrap: break-word; overflow-wrap: break-word; overflow-anchor: none; }
+html { height: 100%; overflow: hidden; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 14px; position: fixed; top: 0; left: 0; right: 0; bottom: 0; overflow: hidden; overscroll-behavior: none; display: flex; flex-direction: column; }
+#messages { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 12px 16px 12px 16px; min-height: 0; position: relative; word-wrap: break-word; overflow-wrap: break-word; overflow-anchor: none; }
 #input-area { overflow-anchor: none; }
 #last-msg-bar:hover { background: #7a8294 !important; }
 #msg-nav { display: flex; gap: 2px; padding: 4px; }
@@ -57,6 +57,8 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--fo
 .send-btn.disabled:hover { background: #333; }
 .agent-spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--muted); border-radius: 50%; animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+.spinner-verb { background: linear-gradient(90deg, #8b949e 0%, #8b949e 40%, #e0e0e0 50%, #8b949e 60%, #8b949e 100%); background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; animation: shimmer 2.5s ease-in-out infinite; }
+@keyframes shimmer { 0%,100% { background-position: 100% 0; } 50% { background-position: 0% 0; } }
 .right-group { display: flex; align-items: center; gap: 4px; flex-shrink: 0; position: relative; }
 .mode-popup { display: none; position: absolute; bottom: 100%; right: 0; margin-bottom: 8px; background: #1c2028; border: 1px solid var(--border); border-radius: 10px; padding: 8px 0; min-width: 300px; z-index: 100; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
 .slash-popup { display: none; position: absolute; bottom: 100%; left: 0; right: 0; margin-bottom: 4px; background: #1c2028; border: 1px solid var(--border); border-radius: 10px; padding: 6px 0; z-index: 150; box-shadow: 0 8px 24px rgba(0,0,0,0.5); max-height: 360px; overflow-y: auto; }
@@ -89,6 +91,17 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--fo
 .attachment-item img { max-height: 40px; max-width: 60px; border-radius: 3px; object-fit: cover; }
 .attachment-item .remove-btn { background: none; border: none; color: #888; cursor: pointer; font-size: 14px; padding: 0 2px; line-height: 1; }
 .attachment-item .remove-btn:hover { color: #ff6666; }
+/* Annotation editor */
+.annotate-overlay { position:fixed; inset:0; z-index:2000; background:var(--bg); display:flex; flex-direction:column; touch-action:none; }
+.annotate-toolbar { display:flex; align-items:center; gap:6px; padding:8px 12px; border-bottom:1px solid var(--border); flex-shrink:0; flex-wrap:wrap; }
+.annotate-toolbar button { background:var(--code-bg); border:1px solid var(--border); border-radius:4px; padding:5px 10px; color:var(--muted); font-size:12px; cursor:pointer; white-space:nowrap; }
+.annotate-toolbar button:hover { border-color:#666; color:var(--fg); }
+.annotate-toolbar button.active { border-color:var(--accent); color:var(--fg); background:var(--tool-header); }
+.annotate-toolbar .color-dot { width:20px; height:20px; border-radius:50%; border:2px solid #555; cursor:pointer; flex-shrink:0; }
+.annotate-toolbar .color-dot.active { border-color:white; box-shadow:0 0 4px rgba(255,255,255,0.5); }
+.annotate-toolbar .sep { width:1px; height:20px; background:var(--border); flex-shrink:0; }
+.annotate-canvas-wrap { flex:1; overflow:auto; display:flex; align-items:center; justify-content:center; min-height:0; position:relative; }
+.annotate-canvas-wrap canvas { cursor:crosshair; position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); }
 .file-link { color: var(--accent); text-decoration: none; }
 .file-link:hover { text-decoration: underline; }
 /* Context indicator */
@@ -260,8 +273,22 @@ function _ideOpenResolved(resolved, line) {
         fetch('http://localhost:63342/api/file' + (resolved.startsWith('/') ? '' : '/') + resolved + '?line=' + l + '&column=0', {mode:'no-cors'}).catch(function(){});
     }
 }
+var _IMAGE_EXTS = /\.(png|jpg|jpeg|gif|svg|webp|bmp|ico)$/i;
 const ideBridge = {
     openFile(path, line) {
+        // Images: show in preview overlay instead of opening in IDE
+        if (_IMAGE_EXTS.test(path)) {
+            var httpBase = WS_BASE ? WS_BASE.replace(/^ws/, 'http') : '';
+            if (httpBase) {
+                _showAttachmentPreview({
+                    name: path.split('/').pop(),
+                    type: 'image/' + path.split('.').pop().toLowerCase().replace('jpg','jpeg'),
+                    data: null,
+                    _url: httpBase + '/files/read?path=' + encodeURIComponent(path),
+                });
+            }
+            return;
+        }
         const resolved = _resolvePath(path);
         const l = line || 0;
         // In dashboard iframe — parent handles existence check + search
@@ -315,21 +342,35 @@ if (typeof acquireVsCodeApi !== 'undefined') {
 // Dashboard iframe case handled by default ideBridge.openFile
 
 // --- Mobile keyboard resize ---
-// Use visualViewport to resize the agent view when mobile keyboard opens.
-// The dashboard handles its own layout — we only resize within our iframe.
-// Mobile keyboard: CSS `100dvh` handles viewport resizing natively.
+// When embedded in the dashboard iframe, the parent already manages viewport
+// sizing for the keyboard.  Remove interactive-widget=resizes-content so the
+// iframe's viewport doesn't fight the parent's flex layout (causes jumps).
+if (window.self !== window.top) {
+    var vpMeta = document.querySelector('meta[name="viewport"]');
+    if (vpMeta) vpMeta.content = 'width=device-width, initial-scale=1.0';
+}
+// Lock document scroll — mobile browsers scroll the document to keep the
+// focused textarea "visible" after any layout change, even when the keyboard
+// is already open and nothing moved.  This is the definitive fix.
+window.addEventListener('scroll', function() { window.scrollTo(0, 0); });
 
-// Extra keys: listen for postMessage from dashboard's extra-keys bar
+// Extra keys: listen for postMessage from dashboard's extra-keys bar.
+// Always target promptEl so keydown handlers (history, slash, etc.) fire.
 window.addEventListener('message', function(e) {
     if (e.data && e.data.type === 'extraKey') {
         var key = e.data.key;
-        var target = document.activeElement || promptEl;
-        target.dispatchEvent(new KeyboardEvent('keydown', {key: key, bubbles: true, cancelable: true}));
-        if (key.length === 1 && target === promptEl) {
+        promptEl.focus({ preventScroll: true });
+        // Move cursor to start for ArrowUp so history check (selectionStart===0) passes
+        if (key === 'ArrowUp') promptEl.selectionStart = promptEl.selectionEnd = 0;
+        var opts = {key: key, bubbles: true, cancelable: true};
+        if (e.data.shiftKey) opts.shiftKey = true;
+        if (e.data.ctrlKey) opts.ctrlKey = true;
+        if (e.data.altKey) opts.altKey = true;
+        promptEl.dispatchEvent(new KeyboardEvent('keydown', opts));
+        if (key.length === 1) {
             promptEl.value += key;
             promptEl.dispatchEvent(new Event('input', {bubbles: true}));
         }
-        promptEl.focus();
     }
 });
 
@@ -348,6 +389,14 @@ const contextRing = document.getElementById('context-ring');
 const contextIndicator = document.getElementById('context-indicator');
 const MAX_CONTEXT = 1000000; // 1M tokens (Opus)
 let totalTokens = 0;
+
+// Prevent toolbar buttons (send, mode, etc.) from stealing focus from the textarea.
+// On touch devices, tapping a button blurs the textarea → keyboard hides → focus() reshows → viewport jump.
+document.getElementById('input-toolbar').addEventListener('pointerdown', function(e) {
+    if (e.target.closest('#attach-btn') || e.target === promptEl) return;
+    e.preventDefault();
+});
+
 const _chevron = '<span class="chevron" style="display:inline-block;transition:transform 0.15s;font-size:10px;">\u25B6</span>';
 function _addChevron(details) {
     details.addEventListener('toggle', () => {
@@ -370,7 +419,11 @@ function updateContextRing(usage) {
     const cacheCreate = Number(usage.cache_creation_input_tokens || 0);
     // Context = input + cache_read + cache_creation (all input the model sees).
     // Output tokens are the model's response, not context.
-    totalTokens = input + cacheRead + cacheCreate;
+    const newTotal = input + cacheRead + cacheCreate;
+    // Skip zero-usage updates — keeps the last known value visible
+    // instead of misleadingly showing 0K during compact or internal SDK calls.
+    if (newTotal === 0 && totalTokens > 0) return;
+    totalTokens = newTotal;
     const cache = cacheRead + cacheCreate;
     // Accumulate session stats
     _stats.totalInput += input;
@@ -736,6 +789,7 @@ function renderEvent(event) {
     // Question was answered (by us or another client) — clear pending + dismiss modal
     if (etype === 'question_answered') {
         _pendingQuestion = null;
+        _pendingPlanReview = null;
         if (!_replayingHistory) {
             var modal = document.getElementById('question-modal');
             if (modal) {
@@ -810,6 +864,24 @@ function renderEvent(event) {
                 setBusy(true);
             });
         }
+        // Show pending plan review if backend reports one (late-joining client)
+        if (event.pending_plan_review && !_replayingHistory) {
+            setBusy(false);
+            showPlanModal(event.pending_plan_review.plan || '(empty plan)', function(answer) {
+                if (answer.startsWith('feedback:')) {
+                    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type: 'answer', text: answer.slice(9)}));
+                    setBusy(true);
+                } else if (answer === 'approved') {
+                    modeIdx = 0; updateModeUI();
+                    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type: 'answer', text: 'approved'}));
+                    setBusy(true);
+                } else if (answer === 'rejected') {
+                    modeIdx = 0; updateModeUI();
+                    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type: 'answer', text: 'rejected'}));
+                    setBusy(true);
+                }
+            });
+        }
         return;
     }
     if (etype === 'models') {
@@ -829,6 +901,7 @@ function renderEvent(event) {
     if (etype === 'btw_end') {
         _btwActive = false;
         if (_btwResponseText.trim()) _btwShowResponse(_btwResponseText.trim());
+        else if (event.error) _btwShowResponse('Error: ' + event.error);
         else _btwShowResponse('(no response)');
         return;
     }
@@ -859,12 +932,27 @@ function renderEvent(event) {
         const div = document.createElement('div');
         div.className = 'msg msg-user';
         const isQueued = !!event._queued;
+        // Build attachment thumbnails if present
+        var attHtml = '';
+        var atts = event.attachments || [];
+        atts.forEach(function(a, ai) {
+            if (a.type && a.type.startsWith('image/') && a.data) {
+                attHtml += '<img src="data:' + escHtml(a.type) + ';base64,' + a.data + '" style="max-width:200px;max-height:150px;border-radius:6px;margin-top:6px;cursor:pointer;display:block;" data-att-idx="' + ai + '">';
+            }
+        });
         if (isQueued) {
-            div.innerHTML = `<div style="padding:10px 14px;background:var(--user-bg);border-radius:8px;border-left:3px solid var(--accent);white-space:pre-wrap;line-height:1.5;opacity:0.6;"><span style="float:right;font-size:10px;color:var(--accent);">queued</span>${escHtml(content)}</div>`;
+            div.innerHTML = `<div style="padding:10px 14px;background:var(--user-bg);border-radius:8px;border-left:3px solid var(--accent);white-space:pre-wrap;line-height:1.5;opacity:0.6;"><span style="float:right;font-size:10px;color:var(--accent);">queued</span>${escHtml(content)}${attHtml}</div>`;
             div.setAttribute('data-queued', '1');
         } else {
-            div.innerHTML = `<div style="padding:10px 14px;background:var(--user-bg);border-radius:8px;border-left:3px solid var(--accent);white-space:pre-wrap;line-height:1.5;">${escHtml(content)}</div>`;
+            div.innerHTML = `<div style="padding:10px 14px;background:var(--user-bg);border-radius:8px;border-left:3px solid var(--accent);white-space:pre-wrap;line-height:1.5;">${escHtml(content)}${attHtml}</div>`;
         }
+        // Click image → full-size preview
+        div.querySelectorAll('img[data-att-idx]').forEach(function(imgEl) {
+            imgEl.addEventListener('click', function() {
+                var a = atts[parseInt(imgEl.dataset.attIdx)];
+                if (a) _showAttachmentPreview(a);
+            });
+        });
         messagesEl.appendChild(div);
         // Scroll once to show the new user message, then stay put
         if (!isQueued && !_replayingHistory) div.scrollIntoView({block: 'start', behavior: 'smooth'});
@@ -897,19 +985,15 @@ function renderEvent(event) {
 
     } else if (etype === 'assistant_message') {
         _pendingQuestion = null;  // agent continued → question was answered
+        _pendingPlanReview = null;
         if (!busy) setBusy(true);
         if (event.usage) updateContextRing(event.usage);
         const blocks = event.content || [];
         const _hiddenTools = new Set(['ToolSearch', 'TodoWrite']);
 
-        // Handle AskUserQuestion modals (trigger before rendering)
-        for (const block of blocks) {
-            if (block.type === 'tool_use' && block.tool === 'AskUserQuestion' && !_replayingHistory) {
-                (block.input.questions || [block.input]).forEach(q => {
-                    showQuestionModal(q, (answer) => { promptEl.value = answer; sendPrompt(); });
-                });
-            }
-        }
+        // AskUserQuestion modals are shown by the 'question' event handler,
+        // which sends the answer via {type:'answer'} so the backend hook unblocks.
+        // Do NOT show modals here — the tool_use block is just rendered in the timeline.
 
         // Find target turn group
         var targetGroup = document.getElementById('current-group') || messagesEl;
@@ -1045,19 +1129,28 @@ function renderEvent(event) {
         if (permMatch) {
             var toolName = permMatch[1];
             var cmd = permMatch[2].trim();
-            var shortCmd = cmd.length > 80 ? cmd.slice(0,80) + '\u2026' : cmd;
-            var det = document.createElement('details');
-            det.style.cssText = 'margin:0;border:1px solid #30363d;border-radius:6px;overflow:hidden;';
-            var sum = document.createElement('summary');
-            sum.style.cssText = 'padding:6px 10px;background:var(--tool-header);color:var(--fg);font-size:12px;cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px;list-style:none;';
-            sum.innerHTML = _chevron + ' <span style="color:#c084fc;">&#9432;</span> <strong style="color:#c084fc;">Allow ' + escHtml(toolName) + '</strong> <span style="color:var(--muted);font-weight:400;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escHtml(shortCmd) + '</span>';
-            _addChevron(det);
-            var cnt = document.createElement('div');
-            cnt.style.cssText = 'padding:8px 12px;background:var(--tool-bg);white-space:pre-wrap;font-size:12px;color:var(--muted);line-height:1.4;max-height:200px;overflow-y:auto;';
-            cnt.textContent = cmd;
-            det.appendChild(sum);
-            det.appendChild(cnt);
-            qBlock.appendChild(det);
+            // For AskUserQuestion, just show a compact one-liner — the question
+            // is already rendered as a nice block from the tool_use event above.
+            if (toolName === 'AskUserQuestion') {
+                var qm = cmd.match(/'question':\s*'([^']+)'/);
+                var label = qm ? qm[1] : 'Question';
+                if (label.length > 80) label = label.slice(0, 80) + '\u2026';
+                qBlock.innerHTML = '<div style="padding:6px 10px;background:var(--tool-header);border-radius:6px;font-size:12px;display:flex;align-items:center;gap:6px;"><span style="color:#c084fc;">&#9432;</span> <strong style="color:#c084fc;">Allow Question</strong> <span style="color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escHtml(label) + '</span></div>';
+            } else {
+                var shortCmd = cmd.length > 80 ? cmd.slice(0,80) + '\u2026' : cmd;
+                var det = document.createElement('details');
+                det.style.cssText = 'margin:0;border:1px solid #30363d;border-radius:6px;overflow:hidden;';
+                var sum = document.createElement('summary');
+                sum.style.cssText = 'padding:6px 10px;background:var(--tool-header);color:var(--fg);font-size:12px;cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px;list-style:none;';
+                sum.innerHTML = _chevron + ' <span style="color:#c084fc;">&#9432;</span> <strong style="color:#c084fc;">Allow ' + escHtml(toolName) + '</strong> <span style="color:var(--muted);font-weight:400;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escHtml(shortCmd) + '</span>';
+                _addChevron(det);
+                var cnt = document.createElement('div');
+                cnt.style.cssText = 'padding:8px 12px;background:var(--tool-bg);white-space:pre-wrap;font-size:12px;color:var(--muted);line-height:1.4;max-height:200px;overflow-y:auto;';
+                cnt.textContent = cmd;
+                det.appendChild(sum);
+                det.appendChild(cnt);
+                qBlock.appendChild(det);
+            }
         } else {
             qBlock.innerHTML = '<div style="padding:10px 14px;background:#1a1a2e;border-radius:8px;border-left:3px solid #c084fc;line-height:1.5;"><div style="font-size:11px;color:#c084fc;font-weight:600;margin-bottom:4px;">Question</div>' + _mdToHtml(qText) + '</div>';
         }
@@ -1085,18 +1178,42 @@ function renderEvent(event) {
         planEl.style.setProperty('--dot-top', 'calc(10px + 0.4em)');
         var planContent = event.plan || '(empty plan)';
 
+        // Build plan block with View + Copy buttons
+        var planMaxH = _replayingHistory ? '400px' : '60vh';
+        var planWrap = document.createElement('div');
+        planWrap.style.cssText = 'padding:12px 16px;background:#1a1a2e;border-radius:8px;border-left:3px solid #c084fc;line-height:1.5;';
+        planWrap.innerHTML = '<div style="font-size:11px;color:#c084fc;font-weight:600;margin-bottom:8px;">Plan</div>' +
+            '<div style="max-height:' + planMaxH + ';overflow-y:auto;">' + _mdToHtml(planContent) + '</div>';
+        // Action buttons
+        var planBtnRow = document.createElement('div');
+        planBtnRow.style.cssText = 'display:flex;gap:4px;margin-top:8px;';
+        var planViewBtn = document.createElement('button');
+        planViewBtn.style.cssText = 'background:var(--code-bg);border:1px solid var(--border);border-radius:4px;padding:3px 8px;cursor:pointer;color:var(--muted);font-size:11px;display:flex;align-items:center;gap:4px;';
+        planViewBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="10" rx="1"/><path d="M5 13v1M11 13v1M4 14h8"/></svg>View';
+        planViewBtn.addEventListener('click', function(e) { e.stopPropagation(); _openStudyMode(planContent); });
+        var planCopyBtn = document.createElement('button');
+        planCopyBtn.style.cssText = 'background:var(--code-bg);border:1px solid var(--border);border-radius:4px;padding:3px 8px;cursor:pointer;color:var(--muted);font-size:11px;display:flex;align-items:center;gap:4px;';
+        planCopyBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="5" width="8" height="8" rx="1"/><path d="M5 11H4a1 1 0 01-1-1V4a1 1 0 011-1h6a1 1 0 011 1v1"/></svg>Copy';
+        planCopyBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            navigator.clipboard.writeText(planContent).then(function() {
+                planCopyBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#3fb950" stroke-width="2"><path d="M3 8l3 3 7-7"/></svg>Copied';
+                setTimeout(function() { planCopyBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="5" width="8" height="8" rx="1"/><path d="M5 11H4a1 1 0 01-1-1V4a1 1 0 011-1h6a1 1 0 011 1v1"/></svg>Copy'; }, 1500);
+            });
+        });
+        planBtnRow.appendChild(planViewBtn);
+        planBtnRow.appendChild(planCopyBtn);
+        planWrap.appendChild(planBtnRow);
+        planEl.appendChild(planWrap);
+        planGroup.appendChild(planEl);
+
+        // Track as pending (cleared by question_answered)
+        _pendingPlanReview = event;
+
         if (_replayingHistory) {
-            // During replay: show plan inline (no modal)
-            planEl.innerHTML = '<div style="padding:12px 16px;background:#1a1a2e;border-radius:8px;border-left:3px solid #c084fc;line-height:1.5;">' +
-                '<div style="font-size:11px;color:#c084fc;font-weight:600;margin-bottom:8px;">Plan Review</div>' +
-                '<div style="max-height:400px;overflow-y:auto;">' + _mdToHtml(planContent) + '</div></div>';
-            planGroup.appendChild(planEl);
+            // During replay: plan shown inline, no modal
         } else {
-            // Live: show full plan inline + approval modal in input area
-            planEl.innerHTML = '<div style="padding:12px 16px;background:#1a1a2e;border-radius:8px;border-left:3px solid #c084fc;line-height:1.5;">' +
-                '<div style="font-size:11px;color:#c084fc;font-weight:600;margin-bottom:8px;">Plan Review</div>' +
-                '<div style="max-height:60vh;overflow-y:auto;">' + _mdToHtml(planContent) + '</div></div>';
-            planGroup.appendChild(planEl);
+            // Live: also show approval modal in input area
             setBusy(false);
 
             showPlanModal(planContent, function(answer) {
@@ -1108,11 +1225,17 @@ function renderEvent(event) {
                     }
                     setBusy(true);
                 } else if (answer === 'approved') {
+                    // Agent exits plan mode — switch UI to Ask mode
+                    modeIdx = 0;
+                    updateModeUI();
                     if (ws && ws.readyState === WebSocket.OPEN) {
                         ws.send(JSON.stringify({type: 'answer', text: 'approved'}));
                     }
                     setBusy(true);
                 } else if (answer === 'rejected') {
+                    // Plan rejected — agent leaves plan mode
+                    modeIdx = 0;
+                    updateModeUI();
                     if (ws && ws.readyState === WebSocket.OPEN) {
                         ws.send(JSON.stringify({type: 'answer', text: 'rejected'}));
                     }
@@ -1124,6 +1247,7 @@ function renderEvent(event) {
 
     } else if (etype === 'result') {
         _importantEvent = true;
+        _compacting = false;
         if (event.usage) updateContextRing(event.usage);
         _stats.turns += (event.num_turns || 1);
         if (event.total_cost_usd) _stats.totalCost += Number(event.total_cost_usd);
@@ -1627,11 +1751,13 @@ function showQuestionModal(q, onAnswer) {
 let spinnerEl = null;
 let busyStartTime = 0;
 let spinnerInterval = null;
+var _compacting = false;  // true while /compact is in progress
 let _localSeqCounter = 0;     // monotonic counter for user message groups
 var _currentModel = 'default';
 var _thinkingEnabled = false;
 var _planPendingApproval = false;
 var _pendingQuestion = null;  // last unanswered question event
+var _pendingPlanReview = null;  // last unanswered plan_review event
 var _pendingQuestionCount = 0; // how many questions without answers
 var _activeTasks = {};  // task_id → {description, activity, status, type}
 
@@ -1672,7 +1798,7 @@ var _btwResponseText = '';
 function _openBtwPanel(question) {
     _btwPanel.innerHTML = '<div class="btw-header"><span class="btw-label">BTW</span><button class="btw-close" id="btw-close-btn">&times;</button></div>'
         + '<div class="btw-question">' + escHtml(question) + '</div>'
-        + '<div class="btw-waiting"><span class="agent-spinner"></span> Waiting for response...</div>';
+        + '<div class="btw-waiting"><span class="agent-spinner"></span> <span class="spinner-verb">Waiting for response</span>...</div>';
     _btwPanel.classList.add('open');
     document.getElementById('btw-close-btn').addEventListener('click', _closeBtwPanel);
 }
@@ -1706,7 +1832,7 @@ function setBusy(b) {
     ];
     if (b) {
         busyStartTime = Date.now();
-        var _nextVerbChange = Date.now() + 4000 + Math.random() * 5000;
+        var _nextVerbChange = Date.now() + 2000 + Math.random() * 3000;
         if (!spinnerEl) {
             spinnerEl = document.createElement('div');
             spinnerEl.style.cssText = 'padding:8px 0;color:var(--muted);font-size:13px;display:flex;align-items:center;gap:8px;';
@@ -1727,17 +1853,18 @@ function setBusy(b) {
         const updateSpinner = () => {
             if (!spinnerEl) return;
             const s = Math.round((Date.now() - busyStartTime) / 1000);
-            const verb = _verbs[verbIdx % _verbs.length];
+            const verb = _compacting ? 'Compacting' : _verbs[verbIdx % _verbs.length];
             spinnerEl.querySelector('.spinner-verb').textContent = verb + '...';
             spinnerEl.querySelector('.spinner-time').textContent = _formatDuration(s);
         };
         updateSpinner();
+        if (spinnerInterval) clearInterval(spinnerInterval);
         spinnerInterval = setInterval(() => {
             // Change verb at natural intervals (4-9s)
-            if (!_nextVerbChange) _nextVerbChange = Date.now() + 4000 + Math.random() * 5000;
+            if (!_nextVerbChange) _nextVerbChange = Date.now() + 2000 + Math.random() * 3000;
             if (Date.now() >= _nextVerbChange) {
                 verbIdx++;
-                _nextVerbChange = Date.now() + 4000 + Math.random() * 5000;
+                _nextVerbChange = Date.now() + 2000 + Math.random() * 3000;
             }
             updateSpinner();
         }, 1000);
@@ -1891,7 +2018,7 @@ function connect() {
         if (ph) ph.remove();
         // Don't hide loading here — wait for history or first live event.
         // For empty sessions, settings message hides it.
-        promptEl.focus();
+        promptEl.focus({ preventScroll: true });
         // Fetch session info for cwd
         const httpBase = WS_BASE.replace('ws://', 'http://').replace('wss://', 'https://');
         fetch(`${httpBase}/sessions/${SESSION_ID}`).then(r => r.json()).then(info => {
@@ -1930,7 +2057,7 @@ function connect() {
                     if (inner) lastUserText = inner.textContent || '';
                 });
                 if (lastUserEl && lastUserText) _updateLastMsgBar(lastUserEl, lastUserText);
-                // Show pending question modal
+                // Show pending question or plan review modal
                 if (_pendingQuestion) {
                     setBusy(false);
                     showQuestionModal(_pendingQuestion, (answer) => {
@@ -1938,6 +2065,23 @@ function connect() {
                             ws.send(JSON.stringify({type: 'answer', text: answer}));
                         }
                         setBusy(true);
+                    });
+                } else if (_pendingPlanReview) {
+                    var _pc = _pendingPlanReview.plan || '(empty plan)';
+                    setBusy(false);
+                    showPlanModal(_pc, function(answer) {
+                        if (answer.startsWith('feedback:')) {
+                            if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type: 'answer', text: answer.slice(9)}));
+                            setBusy(true);
+                        } else if (answer === 'approved') {
+                            modeIdx = 0; updateModeUI();
+                            if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type: 'answer', text: 'approved'}));
+                            setBusy(true);
+                        } else if (answer === 'rejected') {
+                            modeIdx = 0; updateModeUI();
+                            if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type: 'answer', text: 'rejected'}));
+                            setBusy(true);
+                        }
                     });
                 }
             } else if (msg.type === 'ping') {
@@ -2041,8 +2185,6 @@ function sendPrompt() {
     if (text) { _inputHistory.push(text); _historyIdx = -1; _historyDraft = ''; }
     _stopNavBlink();
     _userDismissedQuestion = true;
-    // Save scroll position before textarea clear (prevents Chrome scroll-anchor jump)
-    var _savedScroll = messagesEl.scrollTop;
     // Plan approval feedback — send as answer, not prompt
     if (_planPendingApproval && text) {
         _planPendingApproval = false;
@@ -2053,7 +2195,7 @@ function sendPrompt() {
             ws.send(JSON.stringify({type: 'answer', text: text}));
         }
         setBusy(true);
-        promptEl.focus();
+        promptEl.focus({ preventScroll: true });
         return;
     }
     // Handle slash commands
@@ -2072,7 +2214,7 @@ function sendPrompt() {
         if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({type: 'prompt', text: btwText, btw: true}));
         }
-        promptEl.focus();
+        promptEl.focus({ preventScroll: true });
         return;
     }
     // Build message before clearing
@@ -2080,10 +2222,7 @@ function sendPrompt() {
     if (pendingAttachments.length) {
         msg.attachments = pendingAttachments.map(function(a) { return {name: a.name, type: a.type, data: a.data}; });
     }
-    // Clear input — batch changes and restore scroll to prevent Chrome anchor jump
-    var _ia = document.getElementById('input-area');
-    var _iaH = _ia ? _ia.offsetHeight : 0;
-    if (_ia) _ia.style.minHeight = _iaH + 'px';
+    // Clear input
     promptEl.value = '';
     promptEl.style.height = '38px';
     inputArea.style.height = '';
@@ -2092,19 +2231,19 @@ function sendPrompt() {
     pendingAttachments.length = 0;
     refreshAttachmentPreview();
     closeSlashPopup();
-    messagesEl.scrollTop = _savedScroll;
-    requestAnimationFrame(function() { if (_ia) _ia.style.minHeight = ''; });
     if (ws && ws.readyState !== WebSocket.OPEN) {
         renderEvent({type: 'error', error: 'Not connected to agent'});
-        promptEl.focus();
+        promptEl.focus({ preventScroll: true });
         return;
     }
+    // Track /compact for spinner text
+    _compacting = (text === '/compact');
     // Always send to backend — it decides whether to queue or process immediately.
     // Don't render the user_message here — the backend will emit either
     // user_message (immediate) or queued_message (busy) to all clients.
     ws.send(JSON.stringify(msg));
     if (!busy) setBusy(true);
-    promptEl.focus();
+    promptEl.focus({ preventScroll: true });
 }
 
 // --- Input handlers ---
@@ -2204,7 +2343,7 @@ sendBtn.addEventListener('click', () => {
     } else if (hasText) {
         sendPrompt();
     }
-    promptEl.focus(); // keep keyboard open
+    promptEl.focus({ preventScroll: true }); // keep keyboard open
 });
 
 // --- Attachments ---
@@ -2239,11 +2378,12 @@ function refreshAttachmentPreview() {
         const nameSpan = document.createElement('span');
         nameSpan.textContent = att.name;
         nameSpan.style.cursor = 'pointer';
-        nameSpan.addEventListener('click', () => _showAttachmentPreview(att));
+        var isImage = att.type && att.type.startsWith('image/');
+        nameSpan.addEventListener('click', () => isImage ? _openAnnotator(idx) : _showAttachmentPreview(att));
         item.appendChild(nameSpan);
         if (att.preview) {
             item.querySelector('img').style.cursor = 'pointer';
-            item.querySelector('img').addEventListener('click', () => _showAttachmentPreview(att));
+            item.querySelector('img').addEventListener('click', () => _openAnnotator(idx));
         }
         const removeBtn = document.createElement('button');
         removeBtn.className = 'remove-btn';
@@ -2289,7 +2429,13 @@ function _showAttachmentPreview(att) {
 
     // Content
     var isImage = att.type && att.type.startsWith('image/');
-    if (isImage && att.data) {
+    if (isImage && att._url) {
+        // Server-hosted image (e.g., from file link click)
+        var img = document.createElement('img');
+        img.src = att._url;
+        img.style.cssText = 'max-width:100%;max-height:70vh;border-radius:6px;';
+        container.appendChild(img);
+    } else if (isImage && att.data) {
         var img = document.createElement('img');
         img.src = 'data:' + att.type + ';base64,' + att.data;
         img.style.cssText = 'max-width:100%;max-height:70vh;border-radius:6px;';
@@ -2319,11 +2465,263 @@ function _showAttachmentPreview(att) {
     document.body.appendChild(overlay);
 }
 
+// --- Image Annotation Editor ---
+function _openAnnotator(attIdx) {
+    var att = pendingAttachments[attIdx];
+    if (!att || !att.preview) return;
+
+    var shapes = [];
+    var currentTool = 'arrow';
+    var currentColor = '#ff3333';
+    var nextNumber = 1;
+    var drawing = false, startX = 0, startY = 0;
+    var scale = 1; // ratio: natural pixels / displayed pixels
+
+    var COLORS = ['#ff3333', '#33ff33', '#3399ff', '#ffdd00', '#ffffff', '#000000'];
+    var TOOLS = [
+        {id: 'arrow', label: '\u2197 Arrow'},
+        {id: 'line', label: '\u2014 Line'},
+        {id: 'circle', label: '\u25cb Circle'},
+        {id: 'rect', label: '\u25a1 Rect'},
+        {id: 'number', label: '# Number'},
+    ];
+
+    // Build overlay
+    var overlay = document.createElement('div');
+    overlay.className = 'annotate-overlay';
+
+    // Toolbar
+    var toolbar = document.createElement('div');
+    toolbar.className = 'annotate-toolbar';
+
+    // Tool buttons
+    TOOLS.forEach(function(t) {
+        var btn = document.createElement('button');
+        btn.textContent = t.label;
+        btn.className = t.id === currentTool ? 'active' : '';
+        btn.addEventListener('click', function() {
+            currentTool = t.id;
+            toolbar.querySelectorAll('button').forEach(function(b) { b.classList.remove('active'); });
+            btn.classList.add('active');
+        });
+        toolbar.appendChild(btn);
+    });
+
+    // Separator
+    var sep1 = document.createElement('div'); sep1.className = 'sep'; toolbar.appendChild(sep1);
+
+    // Color dots
+    COLORS.forEach(function(c) {
+        var dot = document.createElement('div');
+        dot.className = 'color-dot' + (c === currentColor ? ' active' : '');
+        dot.style.background = c;
+        dot.addEventListener('click', function() {
+            currentColor = c;
+            toolbar.querySelectorAll('.color-dot').forEach(function(d) { d.classList.remove('active'); });
+            dot.classList.add('active');
+        });
+        toolbar.appendChild(dot);
+    });
+
+    var sep2 = document.createElement('div'); sep2.className = 'sep'; toolbar.appendChild(sep2);
+
+    // Undo
+    var undoBtn = document.createElement('button');
+    undoBtn.textContent = '\u21a9 Undo';
+    undoBtn.addEventListener('click', function() {
+        if (!shapes.length) return;
+        var removed = shapes.pop();
+        if (removed.type === 'number') nextNumber = Math.max(1, nextNumber - 1);
+        redraw();
+    });
+    toolbar.appendChild(undoBtn);
+
+    // Clear
+    var clearBtn = document.createElement('button');
+    clearBtn.textContent = '\u2715 Clear';
+    clearBtn.addEventListener('click', function() { shapes = []; nextNumber = 1; redraw(); });
+    toolbar.appendChild(clearBtn);
+
+    // Spacer
+    var spacer = document.createElement('div'); spacer.style.flex = '1'; toolbar.appendChild(spacer);
+
+    // Save
+    var saveBtn = document.createElement('button');
+    saveBtn.textContent = '\u2713 Save';
+    saveBtn.style.cssText = 'background:#1a3a1a;border-color:#3fb950;color:#3fb950;';
+    saveBtn.addEventListener('click', function() { saveAndClose(); });
+    toolbar.appendChild(saveBtn);
+
+    // Cancel
+    var cancelBtn = document.createElement('button');
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.addEventListener('click', function() { closeOverlay(); });
+    toolbar.appendChild(cancelBtn);
+
+    overlay.appendChild(toolbar);
+
+    // Canvas wrapper
+    var wrap = document.createElement('div');
+    wrap.className = 'annotate-canvas-wrap';
+
+    // Image canvas (background)
+    var imgCanvas = document.createElement('canvas');
+    // Draw canvas (annotations, layered on top)
+    var drawCanvas = document.createElement('canvas');
+    drawCanvas.style.zIndex = '1';
+
+    wrap.appendChild(imgCanvas);
+    wrap.appendChild(drawCanvas);
+    overlay.appendChild(wrap);
+
+    // Load image
+    var img = new Image();
+    img.onload = function() {
+        var natW = img.naturalWidth, natH = img.naturalHeight;
+        // Fit within the available space
+        var maxW = wrap.clientWidth - 32, maxH = wrap.clientHeight - 32;
+        if (maxW <= 0 || maxH <= 0) { maxW = window.innerWidth - 32; maxH = window.innerHeight - 100; }
+        var fitW = natW, fitH = natH;
+        if (fitW > maxW) { fitH = fitH * maxW / fitW; fitW = maxW; }
+        if (fitH > maxH) { fitW = fitW * maxH / fitH; fitH = maxH; }
+        fitW = Math.round(fitW); fitH = Math.round(fitH);
+        scale = natW / fitW;
+
+        imgCanvas.width = fitW; imgCanvas.height = fitH;
+        drawCanvas.width = fitW; drawCanvas.height = fitH;
+        imgCanvas.style.width = fitW + 'px'; imgCanvas.style.height = fitH + 'px';
+        drawCanvas.style.width = fitW + 'px'; drawCanvas.style.height = fitH + 'px';
+
+        var ictx = imgCanvas.getContext('2d');
+        ictx.drawImage(img, 0, 0, fitW, fitH);
+    };
+    img.src = att.preview;
+
+    // Drawing helpers
+    function _drawArrow(ctx, x1, y1, x2, y2, color) {
+        var headLen = 14, dx = x2 - x1, dy = y2 - y1, angle = Math.atan2(dy, dx);
+        ctx.strokeStyle = color; ctx.lineWidth = 3; ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+        ctx.fillStyle = color; ctx.beginPath();
+        ctx.moveTo(x2, y2);
+        ctx.lineTo(x2 - headLen * Math.cos(angle - 0.4), y2 - headLen * Math.sin(angle - 0.4));
+        ctx.lineTo(x2 - headLen * Math.cos(angle + 0.4), y2 - headLen * Math.sin(angle + 0.4));
+        ctx.closePath(); ctx.fill();
+    }
+    function _drawLine(ctx, x1, y1, x2, y2, color) {
+        ctx.strokeStyle = color; ctx.lineWidth = 3; ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+    }
+    function _drawCircleShape(ctx, cx, cy, rx, ry, color) {
+        ctx.strokeStyle = color; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.ellipse(cx, cy, Math.abs(rx), Math.abs(ry), 0, 0, Math.PI * 2); ctx.stroke();
+    }
+    function _drawRect(ctx, x1, y1, x2, y2, color) {
+        ctx.strokeStyle = color; ctx.lineWidth = 3;
+        ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+    }
+    function _drawNumber(ctx, x, y, num, color) {
+        var r = 14;
+        ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#000'; ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(String(num), x, y);
+    }
+
+    function drawShape(ctx, s) {
+        if (s.type === 'arrow') _drawArrow(ctx, s.x1, s.y1, s.x2, s.y2, s.color);
+        else if (s.type === 'line') _drawLine(ctx, s.x1, s.y1, s.x2, s.y2, s.color);
+        else if (s.type === 'circle') _drawCircleShape(ctx, s.x1, s.y1, Math.abs(s.x2 - s.x1), Math.abs(s.y2 - s.y1), s.color);
+        else if (s.type === 'rect') _drawRect(ctx, s.x1, s.y1, s.x2, s.y2, s.color);
+        else if (s.type === 'number') _drawNumber(ctx, s.x1, s.y1, s.num, s.color);
+    }
+
+    function redraw(preview) {
+        var ctx = drawCanvas.getContext('2d');
+        ctx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+        shapes.forEach(function(s) { drawShape(ctx, s); });
+        if (preview) drawShape(ctx, preview);
+    }
+
+    // Pointer events — drag to draw (touch + mouse)
+    function getPos(e) {
+        var rect = drawCanvas.getBoundingClientRect();
+        return {x: e.clientX - rect.left, y: e.clientY - rect.top};
+    }
+
+    // Prevent browser touch gestures on the drawing canvas
+    drawCanvas.style.touchAction = 'none';
+
+    drawCanvas.addEventListener('pointerdown', function(e) {
+        e.preventDefault();
+        var p = getPos(e);
+        if (currentTool === 'number') {
+            shapes.push({type: 'number', x1: p.x, y1: p.y, color: currentColor, num: nextNumber++});
+            redraw();
+            return;
+        }
+        drawing = true; startX = p.x; startY = p.y;
+        drawCanvas.setPointerCapture(e.pointerId);
+    });
+
+    drawCanvas.addEventListener('pointermove', function(e) {
+        if (!drawing) return;
+        var p = getPos(e);
+        var preview = {type: currentTool, x1: startX, y1: startY, x2: p.x, y2: p.y, color: currentColor};
+        redraw(preview);
+    });
+
+    drawCanvas.addEventListener('pointerup', function(e) {
+        if (!drawing) return;
+        drawing = false;
+        var p = getPos(e);
+        if (Math.abs(p.x - startX) < 3 && Math.abs(p.y - startY) < 3) { redraw(); return; }
+        shapes.push({type: currentTool, x1: startX, y1: startY, x2: p.x, y2: p.y, color: currentColor});
+        redraw();
+    });
+
+    // Save: composite image + annotations at natural resolution
+    function saveAndClose() {
+        var natW = img.naturalWidth, natH = img.naturalHeight;
+        var out = document.createElement('canvas');
+        out.width = natW; out.height = natH;
+        var octx = out.getContext('2d');
+        octx.drawImage(img, 0, 0, natW, natH);
+        // Draw shapes scaled to natural resolution
+        octx.save();
+        octx.scale(scale, scale);
+        shapes.forEach(function(s) { drawShape(octx, s); });
+        octx.restore();
+        // Replace attachment data
+        var dataUrl = out.toDataURL('image/png');
+        pendingAttachments[attIdx].data = dataUrl.split(',')[1];
+        pendingAttachments[attIdx].preview = dataUrl;
+        pendingAttachments[attIdx].type = 'image/png';
+        refreshAttachmentPreview();
+        closeOverlay();
+    }
+
+    function closeOverlay() {
+        overlay.remove();
+        document.removeEventListener('keydown', escHandler);
+    }
+
+    var escHandler = function(e) {
+        if (e.key === 'Escape' || e.key === 'Esc' || e.keyCode === 27) closeOverlay();
+    };
+    document.addEventListener('keydown', escHandler);
+    document.body.appendChild(overlay);
+
+    // Trigger image load after DOM is ready
+    requestAnimationFrame(function() {
+        if (img.complete && img.naturalWidth) img.onload();
+    });
+}
+
 document.getElementById('slash-btn').addEventListener('click', function(e) {
     e.stopPropagation();
-    if (_slashOpen) { closeSlashPopup(); promptEl.value = ''; promptEl.focus(); return; }
+    if (_slashOpen) { closeSlashPopup(); promptEl.value = ''; promptEl.focus({ preventScroll: true }); return; }
     promptEl.value = '/';
-    promptEl.focus();
+    promptEl.focus({ preventScroll: true });
     updateSlashPopup();
 });
 
@@ -2795,6 +3193,10 @@ function _getSlashItems() {
         }},
         {cmd: '/clear', label: 'Clear conversation', action: function() { messagesEl.innerHTML = ''; }},
         {cmd: '/stats', label: 'Session statistics', desc: 'Token usage, cost, duration', action: function() { _showStatsPopup(); }},
+        {cmd: '/btw', label: 'Ask a side question', desc: 'Quick question while agent works', action: function() {
+            promptEl.value = '/btw ';
+            promptEl.dispatchEvent(new Event('input', {bubbles: true}));
+        }},
         {cmd: '/tasks', label: 'Show active tasks', desc: 'Sub-agents and background work', action: function() {
             var panel = document.getElementById('task-panel');
             if (panel) panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
@@ -2967,7 +3369,8 @@ function _renderSlashPopup() {
         var cls = itemIdx === _slashIdx ? 'slash-item selected' : 'slash-item';
         var idx = itemIdx++;
         var right = c.right ? '<span style="margin-left:auto;color:var(--muted);font-size:12px;">' + escHtml(c.right) + '</span>' : '';
-        return '<div class="' + cls + '" data-idx="' + idx + '">' + escHtml(c.label) + right + '</div>';
+        var desc = c.desc ? '<span style="color:var(--muted);font-size:11px;margin-left:6px;">' + escHtml(c.desc) + '</span>' : '';
+        return '<div class="' + cls + '" data-idx="' + idx + '">' + escHtml(c.label) + desc + right + '</div>';
     }).join('');
     _slashPopupEl.innerHTML = html;
     // Bind click on action items
