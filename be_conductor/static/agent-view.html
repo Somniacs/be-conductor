@@ -1738,12 +1738,14 @@ function updateSendBtn() {
     // Reset inline styles before setting state-specific ones
     sendBtn.style.background = '';
     sendBtn.style.color = '';
+    var isAutoEdit = MODES[modeIdx].value === 'acceptEdits';
     if (busy && !hasText) {
-        // Busy, no text → stop button
+        // Busy, no text → stop button (mode-colored)
         sendBtn.innerHTML = STOP_ICON;
         sendBtn.className = 'send-btn busy';
         sendBtn.title = 'Stop (Esc)';
-        sendBtn.style.color = 'white';
+        if (isAutoEdit) { sendBtn.style.background = '#ffffff'; sendBtn.style.color = '#000'; }
+        else { sendBtn.style.color = 'white'; }
     } else if (busy && hasText) {
         // Busy, has text → send (queue) button, orange to indicate queued
         sendBtn.innerHTML = SEND_ICON;
