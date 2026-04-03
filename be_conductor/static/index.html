@@ -5186,8 +5186,7 @@
 
             // Agent sessions: dispatch key to the agent iframe via postMessage
             if (panel._sessionType === 'agent') {
-                var iframe = document.getElementById('panel-' + panel.id)
-                    ?.querySelector('iframe');
+                var iframe = panel._agentIframe;
                 if (iframe && iframe.contentWindow) {
                     iframe.contentWindow.postMessage({type: 'extraKey', key: key}, '*');
                 }
