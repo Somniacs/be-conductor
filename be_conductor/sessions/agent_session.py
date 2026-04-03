@@ -178,15 +178,20 @@ class AgentSession:
         # Queue for receiving answers to AskUserQuestion from the UI
         self._question_answer_queue: asyncio.Queue[str] = asyncio.Queue()
 
-        # Hook to intercept AskUserQuestion — emit to UI and wait for answer
-        async def _ask_user_hook(tool_input, tool_use_id=None, **kwargs):
+        # Hook to intercept AskUserQuestion — emit to UI and wait for answer.
+        # SDK hook signature: (hook_input: dict, match: str|None, context: HookContext)
+        # Returns SyncHookJSONOutput dict.
+        async def _ask_user_hook(hook_input, match=None, context=None):
+            tool_input = hook_input.get("tool_input", {})
+            tool_use_id = hook_input.get("tool_use_id", "")
             question = tool_input.get("question", tool_input.get("text", ""))
             options_list = tool_input.get("options", tool_input.get("choices", []))
 
-            # Drain stale answers and mark question as pending
-            while not self._question_answer_queue.empty():
-                try: self._question_answer_queue.get_nowait()
-                except: break
+            # Only drain if no question is pending (avoids losing a fresh answer)
+            if not self._question_pending:
+                while not self._question_answer_queue.empty():
+                    try: self._question_answer_queue.get_nowait()
+                    except: break
             self._question_pending = True
 
             self._emit_event({
@@ -204,16 +209,20 @@ class AgentSession:
             except asyncio.TimeoutError:
                 answer = "No answer provided (timeout)"
 
-            return {"content": [{"type": "text", "text": answer}]}
+            # Block the tool and deliver the answer as the reason —
+            # the model sees this as the tool's response.
+            return {"decision": "block", "reason": answer}
 
-        # Hook to intercept ExitPlanMode — show plan to user for approval
-        async def _exit_plan_hook(tool_input, tool_use_id=None, **kwargs):
+        # Hook to intercept ExitPlanMode — show plan to user for approval.
+        async def _exit_plan_hook(hook_input, match=None, context=None):
             from pathlib import Path
+            tool_input = hook_input.get("tool_input", {})
+            tool_use_id = hook_input.get("tool_use_id", "")
+
             # Read the plan file if specified
             plan_content = ""
             plan_file = tool_input.get("planFile", "")
             if not plan_file:
-                # Try to find it from context — Claude writes to a plan file
                 import glob as _glob
                 plan_files = _glob.glob(
                     str(Path.home() / ".claude/plans/*.md"))
@@ -248,16 +257,13 @@ class AgentSession:
                 answer = "rejected"
 
             if answer.lower() in ("approve", "approved", "yes", "ok"):
-                # SDK exits plan mode internally — sync our state
                 self._current_mode = "default"
                 self._agent_options["permission_mode"] = "default"
-                return None  # Allow the tool to proceed
+                return {}  # Allow the tool to proceed (no decision = continue)
             else:
-                # Rejected or feedback — SDK stays in plan mode for feedback,
-                # exits for rejection.  Reset to default either way.
                 self._current_mode = "default"
                 self._agent_options["permission_mode"] = "default"
-                return {"content": [{"type": "text", "text": answer}]}
+                return {"decision": "block", "reason": answer}
 
         # SDK permission callback — the SDK decides WHEN to ask (based on
         # permission_mode), this callback decides HOW to show the prompt.
@@ -282,10 +288,11 @@ class AgentSession:
             else:
                 prompt = str(tool_input)[:200]
 
-            # Drain stale answers and mark question as pending
-            while not self._question_answer_queue.empty():
-                try: self._question_answer_queue.get_nowait()
-                except: break
+            # Only drain if no question is pending (avoids losing a fresh answer)
+            if not self._question_pending:
+                while not self._question_answer_queue.empty():
+                    try: self._question_answer_queue.get_nowait()
+                    except: break
             self._question_pending = True
 
             self._emit_event({
@@ -487,11 +494,12 @@ class AgentSession:
             if isinstance(message, AssistantMessage):
                 formatted = self._format_assistant(message)
                 self._emit_event(formatted)
-                # Detect ExitPlanMode — SDK handles it internally so PreToolUse hook won't fire.
-                # Read the plan file and emit plan_review so the frontend can show approval UI.
+                # Detect ExitPlanMode — emit plan_review if the PreToolUse hook
+                # didn't already handle it (hook sets _question_pending).
                 for _blk in formatted.get("content", []):
                     if _blk.get("type") == "tool_use" and _blk.get("tool") == "ExitPlanMode":
-                        self._emit_plan_review()
+                        if not getattr(self, '_question_pending', False):
+                            self._emit_plan_review()
                         break
             elif isinstance(message, ResultMessage):
                 self._emit_event({

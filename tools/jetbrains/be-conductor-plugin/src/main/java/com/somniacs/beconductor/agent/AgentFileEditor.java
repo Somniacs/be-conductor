@@ -46,7 +46,14 @@ public class AgentFileEditor extends UserDataHolderBase implements FileEditor {
                 try {
                     JsonObject json = JsonParser.parseString(request).getAsJsonObject();
                     String type = json.has("type") ? json.get("type").getAsString() : "";
-                    if ("openFile".equals(type)) {
+                    if ("closeTab".equals(type)) {
+                        // Agent session ended — close this editor tab
+                        ApplicationManager.getApplication().invokeLater(() -> {
+                            if (file != null && project != null && !project.isDisposed()) {
+                                FileEditorManager.getInstance(project).closeFile(file);
+                            }
+                        });
+                    } else if ("openFile".equals(type)) {
                         String path = json.get("path").getAsString();
                         int line = json.has("line") ? json.get("line").getAsInt() : 0;
                         ApplicationManager.getApplication().invokeLater(() -> {

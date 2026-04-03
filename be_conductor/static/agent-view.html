@@ -15,7 +15,7 @@
     --error: #f85149;
     --muted: #8b949e;
     --code-bg: #0d1117;
-    --user-bg: #161b30;
+    --user-bg: #1c2240;
     --tool-bg: #0d1117;
     --tool-header: #161b22;
     --success-bg: #0d1a0d;
@@ -940,11 +940,44 @@ function renderEvent(event) {
                 attHtml += '<img src="data:' + escHtml(a.type) + ';base64,' + a.data + '" style="max-width:200px;max-height:150px;border-radius:6px;margin-top:6px;cursor:pointer;display:block;" data-att-idx="' + ai + '">';
             }
         });
+        var lineCount = (content.match(/\n/g) || []).length + 1;
+        var isLong = lineCount > 4 || content.length > 300;
+        var baseStyle = 'padding:10px 14px;background:var(--user-bg);border-radius:8px;border-left:3px solid var(--accent);white-space:pre-wrap;line-height:1.5;';
         if (isQueued) {
-            div.innerHTML = `<div style="padding:10px 14px;background:var(--user-bg);border-radius:8px;border-left:3px solid var(--accent);white-space:pre-wrap;line-height:1.5;opacity:0.6;"><span style="float:right;font-size:10px;color:var(--accent);">queued</span>${escHtml(content)}${attHtml}</div>`;
+            div.innerHTML = `<div style="${baseStyle}opacity:0.6;"><span style="float:right;font-size:10px;color:var(--accent);">queued</span>${escHtml(content)}${attHtml}</div>`;
             div.setAttribute('data-queued', '1');
+        } else if (isLong) {
+            var firstLine = content.split('\n')[0];
+            if (firstLine.length > 80) firstLine = firstLine.slice(0, 80);
+            div.innerHTML = '<div style="' + baseStyle + '">' +
+                '<div class="user-msg-preview" style="cursor:pointer;">' + escHtml(firstLine) + '<span style="color:var(--muted);"> \u2026</span></div>' +
+                '<div class="user-msg-body" style="display:none;margin-top:6px;">' + escHtml(content) +
+                '<div class="user-msg-btns" style="position:sticky;bottom:8px;display:flex;gap:4px;margin-top:6px;z-index:5;">' +
+                '<button class="user-msg-view" style="background:var(--code-bg);border:1px solid var(--border);border-radius:4px;padding:3px 6px;cursor:pointer;color:var(--muted);font-size:11px;display:flex;align-items:center;gap:4px;"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="10" rx="1"/><path d="M5 13v1M11 13v1M4 14h8"/></svg>View</button>' +
+                '<button class="user-msg-copy" style="background:var(--code-bg);border:1px solid var(--border);border-radius:4px;padding:3px 6px;cursor:pointer;color:var(--muted);font-size:11px;display:flex;align-items:center;gap:4px;"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="5" width="8" height="8" rx="1"/><path d="M5 11H4a1 1 0 01-1-1V4a1 1 0 011-1h6a1 1 0 011 1v1"/></svg>Copy</button>' +
+                '</div></div>' + attHtml + '</div>';
+            var preview = div.querySelector('.user-msg-preview');
+            var body = div.querySelector('.user-msg-body');
+            preview.addEventListener('click', function() {
+                body.style.display = 'block';
+                preview.style.display = 'none';
+            });
+            body.addEventListener('click', function(e) {
+                if (e.target.closest('.user-msg-view') || e.target.closest('.user-msg-copy')) return;
+                body.style.display = 'none';
+                preview.style.display = 'block';
+            });
+            div.querySelector('.user-msg-view').addEventListener('click', function(e) { e.stopPropagation(); _openStudyMode(content); });
+            div.querySelector('.user-msg-copy').addEventListener('click', function(e) {
+                e.stopPropagation();
+                var btn = e.currentTarget;
+                navigator.clipboard.writeText(content).then(function() {
+                    btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#3fb950" stroke-width="2"><path d="M3 8l3 3 7-7"/></svg>Copied';
+                    setTimeout(function() { btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="5" width="8" height="8" rx="1"/><path d="M5 11H4a1 1 0 01-1-1V4a1 1 0 011-1h6a1 1 0 011 1v1"/></svg>Copy'; }, 1500);
+                });
+            });
         } else {
-            div.innerHTML = `<div style="padding:10px 14px;background:var(--user-bg);border-radius:8px;border-left:3px solid var(--accent);white-space:pre-wrap;line-height:1.5;">${escHtml(content)}${attHtml}</div>`;
+            div.innerHTML = `<div style="${baseStyle}">${escHtml(content)}${attHtml}</div>`;
         }
         // Click image → full-size preview
         div.querySelectorAll('img[data-att-idx]').forEach(function(imgEl) {
@@ -1268,6 +1301,12 @@ function renderEvent(event) {
         setBusy(false);
         _importantEvent = true;
         _showSessionEnded(event.resumable, event.message);
+        // In JetBrains JCEF: close the editor tab when session ends (non-resumable)
+        if (!event.resumable && typeof window.cefQuery === 'function') {
+            setTimeout(function() {
+                window.cefQuery({request: JSON.stringify({type: 'closeTab'})});
+            }, 2000); // 2s delay so user sees the "ended" banner
+        }
     }
 
     autoScroll();
@@ -1877,33 +1916,32 @@ function setBusy(b) {
 
 function updateSendBtn() {
     const hasText = promptEl.value.trim().length > 0;
-    // Reset inline styles before setting state-specific ones
     sendBtn.style.background = '';
     sendBtn.style.color = '';
-    var isAutoEdit = false;
-    try { isAutoEdit = MODES[modeIdx].value === 'acceptEdits'; } catch(e) {}
+    // Mode colors: ask=orange btn/white icon, autoEdit=white btn/black icon, plan=blue btn/white icon
+    var mode = 'default';
+    try { mode = MODES[modeIdx].value; } catch(e) {}
+    var modeBg = mode === 'acceptEdits' ? '#ffffff' : mode === 'plan' ? '#4a6cf7' : '#e67e22';
+    var modeIc = mode === 'acceptEdits' ? '#000' : '#fff';
     if (busy && !hasText) {
-        // Busy, no text → stop button (mode-colored)
         sendBtn.innerHTML = STOP_ICON;
         sendBtn.className = 'send-btn busy';
         sendBtn.title = 'Stop (Esc)';
-        if (isAutoEdit) { sendBtn.style.background = '#ffffff'; sendBtn.style.color = '#000'; }
-        else { sendBtn.style.color = 'white'; }
+        sendBtn.style.background = modeBg;
+        sendBtn.style.color = modeIc;
     } else if (busy && hasText) {
-        // Busy, has text → send (queue) button, orange to indicate queued
         sendBtn.innerHTML = SEND_ICON;
-        sendBtn.className = 'send-btn queued';
+        sendBtn.className = 'send-btn';
         sendBtn.title = 'Send (queued)';
-        sendBtn.style.color = 'white';
+        sendBtn.style.background = modeBg;
+        sendBtn.style.color = modeIc;
     } else if (!busy && hasText) {
-        // Idle, has text → send button in mode color
         sendBtn.innerHTML = SEND_ICON;
         sendBtn.className = 'send-btn';
         sendBtn.title = 'Send (Enter)';
-        sendBtn.style.background = 'var(--mode-color, #2563eb)';
-        try { sendBtn.style.color = (MODES[modeIdx].value === 'acceptEdits') ? '#000' : '#fff'; } catch(e) { sendBtn.style.color = '#fff'; }
+        sendBtn.style.background = modeBg;
+        sendBtn.style.color = modeIc;
     } else {
-        // Idle, no text → disabled
         sendBtn.innerHTML = SEND_ICON;
         sendBtn.className = 'send-btn disabled';
         sendBtn.title = '';

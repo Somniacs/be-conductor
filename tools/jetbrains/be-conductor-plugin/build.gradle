@@ -34,6 +34,7 @@ java {
 }
 
 patchPluginXml {
+    version = serverVersion
     sinceBuild = '241'
     untilBuild = ''
 }

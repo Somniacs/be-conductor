@@ -7,8 +7,13 @@ const { createSessionFlow, attachSession, setWorkspaceState, getTrackedSessions,
 const { SessionTreeProvider, registerSessionCommands } = require('./src/sessionTree');
 const { WorktreeTreeProvider, DiffContentProvider, registerWorktreeCommands } = require('./src/worktreeTree');
 const { ServerTreeProvider, registerServerCommands } = require('./src/serverTree');
+const { checkForUpdate } = require('./src/updateCheck');
 
 function activate(context) {
+    // ── Auto-update check (best-effort, non-blocking) ───────────────────
+    const extVersion = context.extension.packageJSON.version || '0.0.0';
+    checkForUpdate(extVersion);
+
     // ── Server registry + session persistence ────────────────────────────
     registry.init(context.workspaceState);
     setWorkspaceState(context.workspaceState);

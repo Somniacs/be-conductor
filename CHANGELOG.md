@@ -2,18 +2,32 @@
 
 All notable changes to be-conductor are documented here.
 
+## v0.3.44
+
+### New
+
+- **Auto-update for both IDE plugins** — VS Code checks GitHub on activation and offers one-click update. JetBrains checks via a custom plugin repository (one-time setup)
+- **JetBrains auto-close on session end** — agent editor tabs automatically close 2 seconds after a non-resumable session ends
+- **Collapsible long user messages** — messages with more than 4 lines collapse to the first line with "..." — click to expand, with View and Copy buttons when open
+
+### Fixed
+
+- **AskUserQuestion and ExitPlanMode hooks actually fire** — the SDK hooks had the wrong function signature, so they silently failed. Questions were auto-answered without showing a modal, and plans were approved without waiting. Now both hooks block until you answer
+- **Send button colors consistent** — stop, send, and queued buttons now all follow the mode color: orange for Ask, white for Auto Edit, blue for Plan
+- **Question answer queue race fix** — answering a question no longer risks the answer being drained by the next hook
+
 ## v0.3.43
 
 ### New
 
+- **Image annotation editor** — click an attached image to open a full-screen annotation tool. Draw arrows, lines, circles, rectangles, and numbered markers in 6 colors (red, green, blue, yellow, white, black). Annotations are composited onto the image before sending so the AI sees exactly what you're pointing at. Works on touch and desktop
+- **Images visible in chat history** — attached images now appear as thumbnails in your sent messages. Click to view full-size
+- **Image file links open as images** — clicking an image path in tool results (e.g., `image.png` in a Read block) now shows the image in a proper viewer instead of trying to open it as code
 - **Shimmer animation on spinner** — the thinking verb text has a subtle brightness sweep that glides back and forth
 - **`/btw` in slash menu** — typing `/` now shows `/btw` (side question) in the command popup, easy to discover and use
 - **Slash command descriptions** — the `/` popup now shows short descriptions next to each command
 - **Plan blocks have View and Copy buttons** — plans are easy to read in full-screen study mode and copy to clipboard
 - **Compact shows "Compacting..."** — the spinner displays a clear status instead of random verbs while compacting
-- **Image annotation editor** — click an attached image to open a full-screen annotation tool. Draw arrows, lines, circles, rectangles, and numbered markers in 6 colors (red, green, blue, yellow, white, black). Annotations are composited onto the image before sending so the AI sees exactly what you're pointing at. Works on touch and desktop
-- **Images visible in chat history** — attached images now appear as thumbnails in your sent messages. Click to view full-size
-- **Image file links open as images** — clicking an image path in tool results (e.g., `image.png` in a Read block) now shows the image in a proper viewer instead of trying to open it as code
 
 ### Fixed
 
