@@ -315,19 +315,22 @@ if (typeof acquireVsCodeApi !== 'undefined') {
 // --- Mobile keyboard resize ---
 // Use visualViewport to resize the agent view when mobile keyboard opens.
 // The dashboard handles its own layout — we only resize within our iframe.
+// Mobile keyboard handling — keep the input area visible and avoid gaps.
+// On Android, the browser resizes the viewport when the keyboard opens.
+// We track visualViewport.height to set body height precisely.
 if (window.visualViewport) {
-    var _resizeTimer = null;
-    const onResize = () => {
-        // Debounce to avoid jump when keyboard opens/closes during send
-        clearTimeout(_resizeTimer);
-        _resizeTimer = setTimeout(() => {
-            document.body.style.height = window.visualViewport.height + 'px';
-        }, 100);
+    var _lastVPHeight = window.visualViewport.height;
+    const onViewportChange = () => {
+        var h = window.visualViewport.height;
+        // Only update if the change is significant (>50px = keyboard open/close)
+        // Small changes (scrollbar, address bar) are ignored
+        if (Math.abs(h - _lastVPHeight) > 50 || !document.body.style.height) {
+            document.body.style.height = h + 'px';
+            _lastVPHeight = h;
+        }
     };
-    window.visualViewport.addEventListener('resize', onResize);
-    window.visualViewport.addEventListener('scroll', () => {
-        document.body.style.height = window.visualViewport.height + 'px';
-    });
+    window.visualViewport.addEventListener('resize', onViewportChange);
+    onViewportChange();
 }
 
 // --- DOM refs ---
