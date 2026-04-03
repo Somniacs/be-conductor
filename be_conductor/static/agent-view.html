@@ -2170,11 +2170,13 @@ document.addEventListener('paste', (e) => {
     }
 });
 
+// Prevent send button tap from blurring textarea (which dismisses mobile keyboard)
+sendBtn.addEventListener('touchstart', (e) => { e.preventDefault(); }, {passive: false});
+sendBtn.addEventListener('mousedown', (e) => { e.preventDefault(); });
 sendBtn.addEventListener('click', () => {
     const hasText = promptEl.value.trim().length > 0;
-    if (!busy && !hasText) return; // disabled state — do nothing
+    if (!busy && !hasText) return;
     if (busy && !hasText) {
-        // Stop
         if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({type: 'interrupt'}));
         }
