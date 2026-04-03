@@ -26,7 +26,8 @@
 *, *::before, *::after { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 14px; height: 100vh; height: 100dvh; overflow: hidden; display: flex; flex-direction: column; }
 @supports (height: 100dvh) { body { height: 100dvh; } }
-#messages { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 12px 16px 12px 16px; min-height: 0; position: relative; scroll-behavior: smooth; word-wrap: break-word; overflow-wrap: break-word; }
+#messages { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 12px 16px 12px 16px; min-height: 0; position: relative; scroll-behavior: smooth; word-wrap: break-word; overflow-wrap: break-word; overflow-anchor: none; }
+#input-area { overflow-anchor: none; }
 #last-msg-bar:hover { background: #7a8294 !important; }
 #msg-nav { display: flex; gap: 2px; padding: 4px; }
 @keyframes nav-blink { 0%,100% { opacity:0.4; } 50% { opacity:1; background:var(--accent); color:white; border-radius:5px; } }
@@ -2040,8 +2041,8 @@ function sendPrompt() {
     if (text) { _inputHistory.push(text); _historyIdx = -1; _historyDraft = ''; }
     _stopNavBlink();
     _userDismissedQuestion = true;
-    // Lock window scroll to prevent mobile keyboard-related jumps
-    window.scrollTo(0, 0);
+    // Save scroll position before textarea clear (prevents Chrome scroll-anchor jump)
+    var _savedScroll = messagesEl.scrollTop;
     // Plan approval feedback — send as answer, not prompt
     if (_planPendingApproval && text) {
         _planPendingApproval = false;
@@ -2079,7 +2080,10 @@ function sendPrompt() {
     if (pendingAttachments.length) {
         msg.attachments = pendingAttachments.map(function(a) { return {name: a.name, type: a.type, data: a.data}; });
     }
-    // Clear input
+    // Clear input — batch changes and restore scroll to prevent Chrome anchor jump
+    var _ia = document.getElementById('input-area');
+    var _iaH = _ia ? _ia.offsetHeight : 0;
+    if (_ia) _ia.style.minHeight = _iaH + 'px';
     promptEl.value = '';
     promptEl.style.height = '38px';
     inputArea.style.height = '';
@@ -2088,6 +2092,8 @@ function sendPrompt() {
     pendingAttachments.length = 0;
     refreshAttachmentPreview();
     closeSlashPopup();
+    messagesEl.scrollTop = _savedScroll;
+    requestAnimationFrame(function() { if (_ia) _ia.style.minHeight = ''; });
     if (ws && ws.readyState !== WebSocket.OPEN) {
         renderEvent({type: 'error', error: 'Not connected to agent'});
         promptEl.focus();
