@@ -1739,7 +1739,8 @@ function updateSendBtn() {
     // Reset inline styles before setting state-specific ones
     sendBtn.style.background = '';
     sendBtn.style.color = '';
-    var isAutoEdit = MODES[modeIdx].value === 'acceptEdits';
+    var isAutoEdit = false;
+    try { isAutoEdit = MODES[modeIdx].value === 'acceptEdits'; } catch(e) {}
     if (busy && !hasText) {
         // Busy, no text → stop button (mode-colored)
         sendBtn.innerHTML = STOP_ICON;
@@ -1759,7 +1760,7 @@ function updateSendBtn() {
         sendBtn.className = 'send-btn';
         sendBtn.title = 'Send (Enter)';
         sendBtn.style.background = 'var(--mode-color, #2563eb)';
-        sendBtn.style.color = (MODES[modeIdx].value === 'acceptEdits') ? '#000' : '#fff';
+        try { sendBtn.style.color = (MODES[modeIdx].value === 'acceptEdits') ? '#000' : '#fff'; } catch(e) { sendBtn.style.color = '#fff'; }
     } else {
         // Idle, no text → disabled
         sendBtn.innerHTML = SEND_ICON;
