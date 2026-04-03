@@ -2040,6 +2040,8 @@ function sendPrompt() {
     if (text) { _inputHistory.push(text); _historyIdx = -1; _historyDraft = ''; }
     _stopNavBlink();
     _userDismissedQuestion = true;
+    // Lock window scroll to prevent mobile keyboard-related jumps
+    window.scrollTo(0, 0);
     // Plan approval feedback — send as answer, not prompt
     if (_planPendingApproval && text) {
         _planPendingApproval = false;
@@ -2161,9 +2163,9 @@ promptEl.addEventListener('keydown', (e) => {
     }
     if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
+        e.stopPropagation();
         const hasText = promptEl.value.trim().length > 0;
         if (busy && !hasText) {
-            // Enter with empty input while busy = stop
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({type: 'interrupt'}));
             }
@@ -2186,9 +2188,6 @@ document.addEventListener('paste', (e) => {
     }
 });
 
-// Prevent send button tap from blurring textarea (which dismisses mobile keyboard)
-sendBtn.addEventListener('touchstart', (e) => { e.preventDefault(); }, {passive: false});
-sendBtn.addEventListener('mousedown', (e) => { e.preventDefault(); });
 sendBtn.addEventListener('click', () => {
     const hasText = promptEl.value.trim().length > 0;
     if (!busy && !hasText) return;
@@ -2199,6 +2198,7 @@ sendBtn.addEventListener('click', () => {
     } else if (hasText) {
         sendPrompt();
     }
+    promptEl.focus(); // keep keyboard open
 });
 
 // --- Attachments ---
