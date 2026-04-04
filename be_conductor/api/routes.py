@@ -2056,6 +2056,14 @@ async def _stream_agent(ws: WebSocket, session: Any):
                                     await ws.send_json({"type": "models", "models": models})
                                 except Exception:
                                     pass
+                        elif msg_type == "get_context_usage":
+                            if hasattr(session, "get_context_usage"):
+                                ctx = await session.get_context_usage()
+                                if ctx:
+                                    try:
+                                        await ws.send_json({"type": "context_usage", "data": ctx})
+                                    except Exception:
+                                        pass
                         elif msg_type == "interrupt":
                             session.interrupt()
                     except (json.JSONDecodeError, TypeError):

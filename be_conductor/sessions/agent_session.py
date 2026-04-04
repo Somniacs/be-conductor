@@ -332,12 +332,36 @@ class AgentSession:
             # can see what they want changed and act on it.
             return PermissionResultDeny(message=answer)
 
+        # Catch-all hook: keeps stream open while can_use_tool waits for
+        # the user to click Allow/Deny.  Without this the SDK may close
+        # the stream before the permission callback completes.
+        async def _continue_hook(hook_input, match=None, context=None):
+            return {"continue_": True}
+
+        # PreCompact hook: emits event to UI when compaction is about to
+        # happen — more reliable than waiting for compact_boundary.
+        async def _pre_compact_hook(hook_input, match=None, context=None):
+            trigger = hook_input.get("trigger", "auto")
+            self._broadcast_event({
+                "type": "system",
+                "subtype": "pre_compact",
+                "data": {"trigger": trigger},
+            })
+            return {}
+
+        # Stop hook: notifies UI when agent execution ends.
+        async def _stop_hook(hook_input, match=None, context=None):
+            return {}
+
         try:
             hooks_config = {
                 "PreToolUse": [
                     {"matcher": "AskUserQuestion", "hooks": [_ask_user_hook]},
                     {"matcher": "ExitPlanMode", "hooks": [_exit_plan_hook]},
-                ]
+                    {"matcher": None, "hooks": [_continue_hook]},
+                ],
+                "PreCompact": [{"matcher": None, "hooks": [_pre_compact_hook]}],
+                "Stop": [{"matcher": None, "hooks": [_stop_hook]}],
             }
         except Exception:
             hooks_config = None
@@ -348,19 +372,27 @@ class AgentSession:
         # callback — the SDK's built-in modes skip the callback for tools
         # it considers "safe" and falls back to interactive CLI prompts
         # that don't work in the GUI.
-        options = ClaudeAgentOptions(
-            cwd=self.cwd or ".",
-            allowed_tools=self._agent_options.get("allowed_tools"),
-            permission_mode="default",
-            can_use_tool=_can_use_tool,
-            system_prompt=self._agent_options.get("system_prompt"),
-            max_turns=self._agent_options.get("max_turns"),
-            model=self._agent_options.get("model"),
-            resume=resume_id,
-            continue_conversation=bool(resume_id),
-            include_partial_messages=True,
-            setting_sources=["user", "project"],
-        )
+        # All other options (effort, thinking, max_budget_usd) are left at
+        # CLI defaults unless explicitly overridden via agent_options.
+        opts_kwargs: dict = {
+            "cwd": self.cwd or ".",
+            "allowed_tools": self._agent_options.get("allowed_tools"),
+            "permission_mode": "default",
+            "can_use_tool": _can_use_tool,
+            "system_prompt": self._agent_options.get("system_prompt"),
+            "max_turns": self._agent_options.get("max_turns"),
+            "model": self._agent_options.get("model"),
+            "resume": resume_id,
+            "continue_conversation": bool(resume_id),
+            "include_partial_messages": True,
+            "setting_sources": ["user", "project"],
+        }
+        # Only pass these if explicitly set — let the CLI use its own defaults
+        for key in ("effort", "thinking", "max_budget_usd"):
+            val = self._agent_options.get(key)
+            if val is not None:
+                opts_kwargs[key] = val
+        options = ClaudeAgentOptions(**opts_kwargs)
         # Try to add hooks (SDK version may not support them)
         if hooks_config:
             try:
@@ -482,6 +514,7 @@ class AgentSession:
             AssistantMessage,
             ResultMessage,
             SystemMessage,
+            StreamEvent,
             RateLimitEvent,
         )
 
@@ -506,15 +539,18 @@ class AgentSession:
                             self._emit_plan_review()
                         break
             elif isinstance(message, ResultMessage):
+                subtype = getattr(message, "subtype", None)
                 self._emit_event({
                     "type": "result",
                     "result": message.result,
+                    "subtype": subtype,
                     "is_error": message.is_error,
                     "stop_reason": getattr(message, "stop_reason", None),
                     "duration_ms": message.duration_ms,
                     "num_turns": message.num_turns,
                     "total_cost_usd": getattr(message, "total_cost_usd", None),
                     "usage": getattr(message, "usage", None),
+                    "model_usage": getattr(message, "model_usage", None),
                     "session_id": message.session_id,
                 })
                 self.resume_id = message.session_id
@@ -544,6 +580,38 @@ class AgentSession:
                     sid = message.data.get("session_id")
                     if sid:
                         self.resume_id = sid
+            elif isinstance(message, StreamEvent):
+                # Real-time text/thinking deltas for live UI rendering.
+                # Ephemeral — not saved to history (AssistantMessage has final content).
+                event = getattr(message, "event", {})
+                etype = event.get("type", "")
+                if etype == "content_block_delta":
+                    delta = event.get("delta", {})
+                    dtype = delta.get("type", "")
+                    if dtype == "text_delta":
+                        self._broadcast_event({
+                            "type": "stream_delta",
+                            "delta_type": "text",
+                            "text": delta.get("text", ""),
+                        })
+                    elif dtype == "thinking_delta":
+                        self._broadcast_event({
+                            "type": "stream_delta",
+                            "delta_type": "thinking",
+                            "thinking": delta.get("thinking", ""),
+                        })
+                elif etype == "content_block_start":
+                    cb = event.get("content_block", {})
+                    self._broadcast_event({
+                        "type": "stream_start",
+                        "block_type": cb.get("type", ""),
+                        "index": event.get("index", 0),
+                    })
+                elif etype == "content_block_stop":
+                    self._broadcast_event({
+                        "type": "stream_stop",
+                        "index": event.get("index", 0),
+                    })
             elif isinstance(message, RateLimitEvent):
                 rli = getattr(message, "rate_limit_info", None)
                 if rli:
@@ -983,6 +1051,7 @@ class AgentSession:
         """
         import asyncio
         self._current_effort = effort
+        self._agent_options["effort"] = effort  # persist for resume
         if self._client is None:
             self._broadcast_settings()
             return
@@ -1009,6 +1078,15 @@ class AgentSession:
         except Exception:
             pass
         self._broadcast_settings()
+
+    async def get_context_usage(self) -> dict | None:
+        """Get context window usage breakdown from the SDK."""
+        if self._client is not None:
+            try:
+                return await self._client.get_context_usage()
+            except Exception:
+                pass
+        return None
 
     async def get_models(self) -> list:
         """Get available models from the SDK."""

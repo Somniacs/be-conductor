@@ -456,7 +456,8 @@ function updateContextRing(usage) {
             contextIndicator.addEventListener('mouseenter', () => { tooltip.style.display = 'block'; });
             contextIndicator.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
         }
-        tooltip.textContent = `${k}K / ${(MAX_CONTEXT/1000)}K tokens (${pctStr}%)` + (cache ? ` · Cache: ${(cache/1000).toFixed(0)}K` : '');
+        var costStr = _stats.totalCost > 0 ? ` · Cost: $${_stats.totalCost.toFixed(2)}` : '';
+        tooltip.textContent = `${k}K / ${(MAX_CONTEXT/1000)}K tokens (${pctStr}%)` + (cache ? ` · Cache: ${(cache/1000).toFixed(0)}K` : '') + costStr;
         const label = document.getElementById('context-label');
         if (label) {
             const color = pct < 0.5 ? 'var(--muted)' : pct < 0.8 ? '#c4a000' : pct < 0.95 ? '#f0a020' : 'var(--error)';
@@ -526,6 +527,11 @@ if (contextIndicator) {
         }));
         _ctxPopup.appendChild(_ctxMenuItem('Statistics', 'Token usage, cost, duration', () => {
             _showStatsPopup();
+        }));
+        _ctxPopup.appendChild(_ctxMenuItem('Context breakdown', 'What\u2019s using context (SDK)', () => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({type: 'get_context_usage'}));
+            }
         }));
 
         // Usage limits — disabled until data arrives
@@ -790,6 +796,25 @@ function renderEvent(event) {
     // Skip internal events
     if (etype === 'system') {
         if (event.subtype === 'debug') console.log('[DEBUG]', JSON.stringify(event.data));
+        if (event.subtype === 'pre_compact') {
+            // About to compact — update spinner text
+            if (!_replayingHistory) _compacting = true;
+            return;
+        }
+        if (event.subtype === 'compact_boundary') {
+            // SDK auto-compacted — show indicator and reset auto-compact state
+            _compacting = false;
+            _autoCompactPending = false;
+            if (!_replayingHistory) {
+                var cdiv = document.createElement('div');
+                cdiv.className = 'system-notice';
+                cdiv.style.cssText = 'text-align:center;padding:8px 0;color:var(--muted);font-size:12px;border-top:1px dashed var(--border);border-bottom:1px dashed var(--border);margin:8px 0;';
+                cdiv.textContent = '\u2193 Context compacted \u2014 older messages summarized \u2193';
+                messagesEl.appendChild(cdiv);
+                autoScroll();
+            }
+            return;
+        }
         var d = event.data || {};
         if (event.subtype === 'task_started') {
             _activeTasks[d.task_id] = {description: d.description || '', activity: '', status: 'active', type: d.task_type || ''};
@@ -927,6 +952,71 @@ function renderEvent(event) {
         if (event.models && event.models.length) { _availableModels = event.models; if (typeof _updateModelSelect === 'function') _updateModelSelect(); }
         return;
     }
+    if (etype === 'context_usage') {
+        var d = event.data || {};
+        var cats = d.categories || [];
+        var total = d.totalTokens || 0;
+        var max = d.maxTokens || MAX_CONTEXT;
+        var pct = d.percentage != null ? d.percentage.toFixed(1) : (total / max * 100).toFixed(1);
+        var autoCompact = d.isAutoCompactEnabled ? 'on' : 'off';
+        var oldP = document.getElementById('context-usage-popup');
+        if (oldP) oldP.remove();
+        var popup = document.createElement('div');
+        popup.id = 'context-usage-popup';
+        popup.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:20px 24px;min-width:340px;max-width:420px;z-index:9999;box-shadow:0 8px 32px rgba(0,0,0,0.6);';
+        var closeBtn = document.createElement('button');
+        closeBtn.innerHTML = '&times;';
+        closeBtn.style.cssText = 'position:absolute;top:10px;right:14px;background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;';
+        var esc = function(e) { if (e.key === 'Escape') { popup.remove(); document.removeEventListener('keydown', esc); } };
+        closeBtn.addEventListener('click', function() { popup.remove(); document.removeEventListener('keydown', esc); });
+        document.addEventListener('keydown', esc);
+        popup.appendChild(closeBtn);
+        var h = document.createElement('div');
+        h.style.cssText = 'font-size:15px;font-weight:600;color:var(--fg);margin-bottom:4px;';
+        h.textContent = 'Context breakdown';
+        popup.appendChild(h);
+        var sub = document.createElement('div');
+        sub.style.cssText = 'font-size:12px;color:var(--muted);margin-bottom:12px;';
+        sub.textContent = (total/1000).toFixed(0) + 'K / ' + (max/1000).toFixed(0) + 'K tokens (' + pct + '%) \u2022 Auto-compact: ' + autoCompact + (d.autoCompactThreshold ? ' (at ' + (d.autoCompactThreshold/1000).toFixed(0) + 'K)' : '');
+        popup.appendChild(sub);
+        for (var ci = 0; ci < cats.length; ci++) {
+            var c = cats[ci];
+            var tk = (c.tokens/1000).toFixed(1);
+            var bar = Math.min(100, c.tokens / max * 100);
+            var row = document.createElement('div');
+            row.style.cssText = 'margin:4px 0;display:flex;align-items:center;gap:8px;font-size:12px;';
+            row.innerHTML = '<span style="width:130px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + escHtml(c.name) + '</span><div style="flex:1;height:6px;background:var(--border);border-radius:3px;"><div style="width:' + bar + '%;height:100%;background:' + (c.color || 'var(--accent)') + ';border-radius:3px;"></div></div><span style="width:45px;text-align:right;color:var(--muted);">' + tk + 'K</span>';
+            popup.appendChild(row);
+        }
+        document.body.appendChild(popup);
+        return;
+    }
+
+    // Real-time text streaming from StreamEvent deltas
+    if (etype === 'stream_start' || etype === 'stream_delta' || etype === 'stream_stop') {
+        if (_replayingHistory) return;
+        if (etype === 'stream_start' && event.block_type === 'text') {
+            // Create a streaming bubble for live text
+            if (!document.getElementById('stream-bubble')) {
+                var sb = document.createElement('div');
+                sb.id = 'stream-bubble';
+                sb.className = 'msg msg-assistant';
+                sb.innerHTML = '<div class="msg-content" style="padding:10px 14px;line-height:1.6;white-space:pre-wrap;"></div>';
+                var group = document.getElementById('current-group') || messagesEl;
+                group.appendChild(sb);
+            }
+        } else if (etype === 'stream_delta' && event.delta_type === 'text') {
+            var bubble = document.getElementById('stream-bubble');
+            if (bubble) {
+                var content = bubble.querySelector('.msg-content');
+                if (content) content.textContent += event.text;
+                autoScroll();
+            }
+        } else if (etype === 'stream_stop') {
+            // Will be replaced by the full AssistantMessage shortly
+        }
+        return;
+    }
 
     // BTW lifecycle — btw_start opens panel, btw responses tagged with btw:true
     if (etype === 'btw_start') {
@@ -1056,6 +1146,10 @@ function renderEvent(event) {
         messagesEl.appendChild(group);
 
     } else if (etype === 'assistant_message') {
+        // Remove streaming bubble — full message replaces it
+        var _sb = document.getElementById('stream-bubble');
+        if (_sb) _sb.remove();
+
         _pendingQuestion = null;  // agent continued → question was answered
         _pendingPlanReview = null;
         if (!busy) setBusy(true);
@@ -1323,6 +1417,21 @@ function renderEvent(event) {
         if (event.usage) updateContextRing(event.usage);
         _stats.turns += (event.num_turns || 1);
         if (event.total_cost_usd) _stats.totalCost += Number(event.total_cost_usd);
+        // Budget exceeded — show clear message
+        if (event.subtype === 'error_max_budget_usd') {
+            var budgetDiv = document.createElement('div');
+            budgetDiv.className = 'msg';
+            budgetDiv.innerHTML = '<div style="padding:10px 14px;background:#3a2a00;border:1px solid #c4a000;border-radius:8px;color:#f0c040;font-size:13px;">' +
+                '<strong>Budget limit reached</strong> &mdash; session cost $' + (_stats.totalCost || 0).toFixed(2) +
+                '. Send another message to continue (budget resets per turn).</div>';
+            messagesEl.appendChild(budgetDiv);
+        } else if (event.subtype === 'error_max_turns') {
+            var turnsDiv = document.createElement('div');
+            turnsDiv.className = 'msg';
+            turnsDiv.innerHTML = '<div style="padding:10px 14px;background:#3a2a00;border:1px solid #c4a000;border-radius:8px;color:#f0c040;font-size:13px;">' +
+                '<strong>Turn limit reached</strong> &mdash; send another message to continue.</div>';
+            messagesEl.appendChild(turnsDiv);
+        }
         // Clear all tasks — turn is done
         _activeTasks = {};
         _renderTaskPanel();

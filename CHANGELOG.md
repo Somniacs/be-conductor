@@ -2,6 +2,28 @@
 
 All notable changes to be-conductor are documented here.
 
+## v0.3.45
+
+### New
+
+- **Live text streaming** — responses now appear word-by-word as they're generated, instead of waiting for the full response to complete. Matches the CLI experience
+- **Context breakdown popup** — click the context ring → "Context breakdown" to see what's using your context window: per-category token counts, auto-compact status and threshold. Same data as `/context` in the CLI
+- **Compaction indicator** — when the agent auto-compacts the conversation, a "Context compacted" divider appears in the timeline so you know it happened
+- **Running cost in tooltip** — hover the context ring to see the session cost so far
+- **Budget and turn limit warnings** — clear amber messages when a session hits its cost cap or turn limit
+
+### Changed
+
+- **Upgraded Agent SDK to v0.1.56** (CLI v2.1.92) — fixes auto-compact thrash loops, CLAUDE.md re-injection bloat, prompt cache misses in long sessions, and duplicate file reads. Major improvement for long-running sessions
+- **No more overriding CLI defaults** — effort, thinking, and budget settings are left at CLI defaults unless you explicitly change them. The GUI agent now behaves identically to terminal Claude
+- **Stream continuity hook** — permission prompts no longer risk closing the response stream. A catch-all hook keeps the connection alive while you decide
+
+### Fixed
+
+- **Pre-compact hook fires** — compaction events are now detected via SDK hook, not just from system messages that may not arrive
+- **Effort persists across resume** — changing effort mid-session now saves to agent options so it survives stop/resume
+- **Result subtype forwarded** — budget and turn limit stops are now properly identified in the UI
+
 ## v0.3.44
 
 ### New
