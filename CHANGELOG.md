@@ -16,6 +16,7 @@ All notable changes to be-conductor are documented here.
 
 - **Upgraded Agent SDK to v0.1.56** (CLI v2.1.92) — fixes auto-compact thrash loops, CLAUDE.md re-injection bloat, prompt cache misses in long sessions, and duplicate file reads. Major improvement for long-running sessions
 - **No more overriding CLI defaults** — effort, thinking, and budget settings are left at CLI defaults unless you explicitly change them. The GUI agent now behaves identically to terminal Claude
+- **Removed redundant auto-compact** — the GUI was sending `/compact` at 80% context, but the CLI already auto-compacts internally. Removed to avoid double-compaction. Manual compact via the context menu still works
 - **Stream continuity hook** — permission prompts no longer risk closing the response stream. A catch-all hook keeps the connection alive while you decide
 
 ### Fixed
