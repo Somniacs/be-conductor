@@ -421,11 +421,6 @@ function updateContextRing(usage) {
     // instead of misleadingly showing 0K during compact or internal SDK calls.
     if (newTotal === 0 && totalTokens > 0) return;
     totalTokens = newTotal;
-    // Auto-compact: flag for compact after turn ends when context exceeds 80%
-    var pctCheck = newTotal / MAX_CONTEXT;
-    if (pctCheck > 0.8 && !_autoCompactPending && !_compacting) {
-        _autoCompactPending = true;
-    }
     const cache = cacheRead + cacheCreate;
     // Accumulate session stats
     _stats.totalInput += input;
@@ -802,9 +797,8 @@ function renderEvent(event) {
             return;
         }
         if (event.subtype === 'compact_boundary') {
-            // SDK auto-compacted — show indicator and reset auto-compact state
+            // SDK auto-compacted — show indicator
             _compacting = false;
-            _autoCompactPending = false;
             if (!_replayingHistory) {
                 var cdiv = document.createElement('div');
                 cdiv.className = 'system-notice';
@@ -1436,15 +1430,6 @@ function renderEvent(event) {
         _activeTasks = {};
         _renderTaskPanel();
         setBusy(false);
-        // Auto-compact: if context is over 90%, compact now
-        if (_autoCompactPending && !_compacting && !_replayingHistory) {
-            _autoCompactPending = false;
-            _compacting = true;
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({type: 'prompt', text: '/compact'}));
-                setBusy(true);
-            }
-        }
 
     } else if (etype === 'error') {
         setBusy(false);
@@ -1947,8 +1932,7 @@ function showQuestionModal(q, onAnswer) {
 let spinnerEl = null;
 let busyStartTime = 0;
 let spinnerInterval = null;
-var _compacting = false;  // true while /compact is in progress
-var _autoCompactPending = false;  // true when context > 80%, triggers compact after turn
+var _compacting = false;  // true while manual /compact is in progress
 var _rateLimitInfo = {};  // rate limit info keyed by type, e.g. {five_hour: {...}, seven_day: {...}}
 try {
     var _rlStored = JSON.parse(localStorage.getItem('agent-view-ratelimit'));
