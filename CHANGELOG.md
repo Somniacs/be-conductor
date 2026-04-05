@@ -2,6 +2,13 @@
 
 All notable changes to be-conductor are documented here.
 
+## v0.3.46
+
+### Fixed
+
+- **VS Code extension update prompt no longer loops** — the VSIX attached to each release was being packaged with a stale version from `package.json`, so after "Update Now" the plugin would still look out-of-date and prompt again on every start. The release workflow now syncs the version before packaging
+- **JetBrains plugin now ships with each release** — the release job was failing in detached-HEAD state when pushing the version bump for `updatePlugins.xml`, so `be-conductor-jetbrains.zip` never got uploaded. Fixed by pushing explicitly to `master`
+
 ## v0.3.45
 
 ### New
