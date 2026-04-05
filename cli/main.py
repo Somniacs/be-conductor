@@ -1138,7 +1138,7 @@ def _warn_active_sessions() -> bool:
         return True
 
     count = len(running)
-    click.echo(f"\n  ⚠ {count} active session{'s' if count != 1 else ''} will be killed:")
+    click.echo(f"\n  ⚠ {count} active session{'s' if count != 1 else ''} will be stopped (can be resumed after restart):")
     for s in running:
         label = s.get("name", s.get("id", "?"))
         cmd = s.get("command", "")

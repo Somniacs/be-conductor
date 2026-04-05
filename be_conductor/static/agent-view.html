@@ -1988,6 +1988,8 @@ var _btwActive = false;
 var _btwResponseText = '';
 
 function _openBtwPanel(question) {
+    _btwResponseText = '';  // clear any stale response from previous btw
+    _btwActive = false;     // wait for btw_start from backend before capturing
     _btwPanel.innerHTML = '<div class="btw-header"><span class="btw-label">BTW</span><button class="btw-close" id="btw-close-btn">&times;</button></div>'
         + '<div class="btw-question">' + escHtml(question) + '</div>'
         + '<div class="btw-waiting"><span class="agent-spinner"></span> <span class="spinner-verb">Waiting for response</span>...</div>';

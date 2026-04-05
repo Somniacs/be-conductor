@@ -461,7 +461,7 @@ class AgentSession:
                             await client.query(prompt_with_files)
                         else:
                             await client.query(text)
-                        await self._stream_response(client)
+                        await self._stream_response(client, is_btw=is_btw)
                         self._processing = False
                         # Apply deferred mode change (from yes_all inside can_use_tool)
                         if getattr(self, '_pending_mode_change', None):
@@ -509,8 +509,14 @@ class AgentSession:
             if self._on_exit:
                 await self._on_exit(self.id)
 
-    async def _stream_response(self, client: Any) -> None:
-        """Stream all messages from one query() call."""
+    async def _stream_response(self, client: Any, is_btw: bool = False) -> None:
+        """Stream all messages from one query() call.
+
+        is_btw: if True, tag all emitted events with btw=true so the
+        frontend routes responses to the btw panel, not the main chat.
+        This is captured here at call time — NOT read from shared state —
+        to prevent races when a new turn starts before btw streaming finishes.
+        """
         from claude_agent_sdk import (
             AssistantMessage,
             ResultMessage,
@@ -519,10 +525,21 @@ class AgentSession:
             RateLimitEvent,
         )
 
+        # Local emit that unconditionally tags with is_btw captured at call time.
+        # This prevents races with shared _current_turn_btw state.
+        def _emit(ev: dict) -> None:
+            if is_btw:
+                ev['btw'] = True
+            self._emit_event(ev)
+        def _bcast(ev: dict) -> None:
+            if is_btw:
+                ev['btw'] = True
+            self._broadcast_event(ev)
+
         try:
             response_iter = client.receive_response()
         except Exception as e:
-            self._emit_event({
+            _emit({
                 "type": "error",
                 "error": f"Response stream failed: {e}",
             })
@@ -531,7 +548,7 @@ class AgentSession:
         async for message in response_iter:
             if isinstance(message, AssistantMessage):
                 formatted = self._format_assistant(message)
-                self._emit_event(formatted)
+                _emit(formatted)
                 # Detect ExitPlanMode — emit plan_review if the PreToolUse hook
                 # didn't already handle it (hook sets _question_pending).
                 for _blk in formatted.get("content", []):
@@ -541,7 +558,7 @@ class AgentSession:
                         break
             elif isinstance(message, ResultMessage):
                 subtype = getattr(message, "subtype", None)
-                self._emit_event({
+                _emit({
                     "type": "result",
                     "result": message.result,
                     "subtype": subtype,
@@ -566,7 +583,7 @@ class AgentSession:
                     except Exception:
                         pass
             elif isinstance(message, SystemMessage):
-                self._emit_event({
+                _emit({
                     "type": "system",
                     "subtype": message.subtype,
                     "data": message.data,
@@ -598,33 +615,33 @@ class AgentSession:
                     delta = event.get("delta", {})
                     dtype = delta.get("type", "")
                     if dtype == "text_delta":
-                        self._broadcast_event({
+                        _bcast({
                             "type": "stream_delta",
                             "delta_type": "text",
                             "text": delta.get("text", ""),
                         })
                     elif dtype == "thinking_delta":
-                        self._broadcast_event({
+                        _bcast({
                             "type": "stream_delta",
                             "delta_type": "thinking",
                             "thinking": delta.get("thinking", ""),
                         })
                 elif etype == "content_block_start":
                     cb = event.get("content_block", {})
-                    self._broadcast_event({
+                    _bcast({
                         "type": "stream_start",
                         "block_type": cb.get("type", ""),
                         "index": event.get("index", 0),
                     })
                 elif etype == "content_block_stop":
-                    self._broadcast_event({
+                    _bcast({
                         "type": "stream_stop",
                         "index": event.get("index", 0),
                     })
             elif isinstance(message, RateLimitEvent):
                 rli = getattr(message, "rate_limit_info", None)
                 if rli:
-                    self._broadcast_event({
+                    _bcast({
                         "type": "rate_limit",
                         "status": getattr(rli, "status", None),
                         "utilization": getattr(rli, "utilization", None),
