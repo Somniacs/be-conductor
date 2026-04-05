@@ -716,11 +716,14 @@ class SessionRegistry:
         path.write_text(json.dumps(meta, indent=2))
 
     def _delete_metadata(self, session_id: str):
+        # If a history file exists, this is an agent session — NEVER delete.
+        # History is too expensive to rebuild (can be 100K+ tokens of context).
+        history_path = SESSIONS_DIR / f"{session_id}.history.json"
+        if history_path.exists():
+            log.warning("Refusing to delete agent session metadata: %s (history exists)", session_id)
+            return
         path = SESSIONS_DIR / f"{session_id}.json"
         path.unlink(missing_ok=True)
-        # Also delete agent message history if it exists
-        history_path = SESSIONS_DIR / f"{session_id}.history.json"
-        history_path.unlink(missing_ok=True)
 
     async def cleanup_all(self):
         """Gracefully stop all sessions, preserving resume tokens.
