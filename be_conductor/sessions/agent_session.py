@@ -126,6 +126,7 @@ class AgentSession:
         self._input_queue: asyncio.Queue[dict | str] = asyncio.Queue()
         self._processing = False  # True while agent is processing a turn
         self._pending_prompts: list[dict] = []  # server-side message queue
+        self._question_pending = False  # True while a permission question is shown
 
         # Client tracking
         self._attached_sources: dict[str, str] = {}

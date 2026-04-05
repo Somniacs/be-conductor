@@ -2,6 +2,12 @@
 
 All notable changes to be-conductor are documented here.
 
+## v0.3.47
+
+### Fixed
+
+- **GUI sessions no longer crash on Windows when running shell commands** — permission prompts for cmd.exe/powershell commands hit an uninitialized state and crashed with an AttributeError, breaking any `.bat` file or Windows shell interaction
+
 ## v0.3.46
 
 ### Fixed
