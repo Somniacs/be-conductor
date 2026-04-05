@@ -581,6 +581,14 @@ class AgentSession:
                     sid = message.data.get("session_id")
                     if sid:
                         self.resume_id = sid
+                        # Persist IMMEDIATELY — belt and suspenders for crash recovery
+                        try:
+                            from be_conductor.utils.config import SESSIONS_DIR
+                            import json as _json
+                            path = SESSIONS_DIR / f"{self.id}.json"
+                            path.write_text(_json.dumps(self.to_dict(), indent=2))
+                        except Exception:
+                            pass
             elif isinstance(message, StreamEvent):
                 # Real-time text/thinking deltas for live UI rendering.
                 # Ephemeral — not saved to history (AssistantMessage has final content).

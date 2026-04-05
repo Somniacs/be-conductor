@@ -260,7 +260,9 @@ class SessionRegistry:
             return
 
         # "Forget" mode: delete everything without saving resume data.
-        if getattr(session, '_forget', False):
+        # EXCEPTION: never delete agent session history — too expensive to rebuild.
+        is_agent = getattr(session, 'session_type', 'pty') == 'agent'
+        if getattr(session, '_forget', False) and not is_agent:
             self._delete_metadata(session_id)
             return
 
