@@ -10,6 +10,7 @@ All notable changes to be-conductor are documented here.
 - **Context breakdown popup** — click the context ring → "Context breakdown" to see what's using your context window: per-category token counts, auto-compact status and threshold. Same data as `/context` in the CLI
 - **Compaction indicator** — when the agent auto-compacts the conversation, a "Context compacted" divider appears in the timeline so you know it happened
 - **Running cost in tooltip** — hover the context ring to see the session cost so far
+- **Context percentage next to ring** — the context label now shows both token count and percentage (e.g. `13K · 1%`) for at-a-glance awareness
 - **Budget and turn limit warnings** — clear amber messages when a session hits its cost cap or turn limit
 
 ### Changed

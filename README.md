@@ -69,7 +69,7 @@ Two session types run side-by-side. **PTY sessions** wrap terminal processes in 
 ## Features
 
 - **Two session types** — **Terminal (PTY)** for the full Claude Code TUI experience, and **Agent (SDK)** for a rich structured UI with markdown, code blocks, tool panels, and interactive questions. Both work side-by-side.
-- **Agent SDK sessions** — powered by the Claude Agent SDK. Renders responses as rich HTML with markdown, syntax-highlighted code blocks, collapsible tool calls, tables, and thinking blocks. Interactive question modals with radio-button options. Smart send/stop button, mode selector (Default / Plan / Auto-accept), effort toggle, and animated status spinner.
+- **Agent SDK sessions** — powered by the Claude Agent SDK. Renders responses as rich HTML with markdown, syntax-highlighted code blocks, collapsible tool calls, tables, and thinking blocks. Live text streaming as the agent responds. Interactive question modals with radio-button options. Smart send/stop button, mode selector (Default / Plan / Auto-accept), effort toggle, and animated status spinner. Context window tracking with token count and percentage, running cost display, context breakdown popup showing per-category usage, and compaction indicators.
 - **Shared agent view** — one `agent-view.html` rendering engine used identically across the web dashboard, JetBrains (dockable JCEF tool window), and VSCode (webview panel). Change it once, works everywhere.
 - **Run any terminal process** — AI coding agents, training jobs, builds, or any interactive command that runs in a terminal.
 - **Web dashboard** — full terminal rendering in the browser with split view, color themes, font controls, and keyboard input. Agent sessions render as rich structured UI in the same dashboard.

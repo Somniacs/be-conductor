@@ -456,7 +456,7 @@ function updateContextRing(usage) {
         const label = document.getElementById('context-label');
         if (label) {
             const color = pct < 0.5 ? 'var(--muted)' : pct < 0.8 ? '#c4a000' : pct < 0.95 ? '#f0a020' : 'var(--error)';
-            label.textContent = k + 'K';
+            label.textContent = k + 'K · ' + pctStr + '%';
             label.style.color = color;
         }
     }
