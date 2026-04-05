@@ -110,26 +110,13 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--fo
 /* Message layout */
 .msg { margin: 0; }
 .msg-user { margin-top: 16px; }
-.msg-group { position: relative; margin-left: 8px; padding-left: 20px; padding-top: 2px; }
+.msg-group { position: relative; margin-left: 8px; padding-left: 20px; padding-top: 4px; }
 .msg-group:empty { display: none; }
-.msg-group::before { content: ''; position: absolute; left: 3px; top: var(--line-top, 10px); height: var(--line-height, 0); width: 1px; background: var(--muted); opacity: 0.35; }
+.msg-group::before { content: ''; position: absolute; left: 3px; top: var(--line-top, 14px); height: var(--line-height, 0); width: 1px; background: var(--muted); opacity: 0.35; }
 .msg-group.single-dot::before { display: none; }
-.msg-claude { padding-top: 1px; padding-bottom: 1px; }
+.msg-claude { padding-top: 4px; padding-bottom: 4px; }
 .msg-claude-dot { position: relative; }
-.msg-claude-dot::before { content: ''; position: absolute; left: -20px; top: var(--dot-top, calc(2px + 0.42em)); width: 6px; height: 6px; border-radius: 50%; background: var(--muted); opacity: 0.7; z-index: 1; box-shadow: 0 0 0 3px var(--bg); }
-.tool-inline { display: flex; align-items: center; gap: 6px; padding: 2px 0; font-size: 12px; cursor: pointer; line-height: 1.4; overflow: hidden; }
-.tool-inline:hover { color: var(--fg); }
-.tool-inline .tool-icon { color: var(--muted); flex-shrink: 0; display: flex; align-items: center; }
-.tool-inline .tool-name { color: var(--accent); font-weight: 600; flex-shrink: 0; }
-.tool-inline .tool-summary { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.tool-expanded { display: none; margin: 2px 0 4px 16px; padding: 6px 10px; background: var(--tool-bg); border-radius: 4px; }
-.tool-expanded.open { display: block; }
-.tool-expanded pre { margin: 0; font-size: 11px; color: var(--muted); white-space: pre-wrap; line-height: 1.4; }
-.thinking-inline { display: flex; align-items: center; gap: 4px; padding: 2px 0; font-size: 12px; cursor: pointer; color: var(--muted); }
-.thinking-inline:hover { color: var(--fg); }
-.thinking-expanded { display: none; margin: 2px 0 4px 16px; padding: 6px 10px; background: #12121f; border-radius: 4px; max-height: 300px; overflow-y: auto; }
-.thinking-expanded.open { display: block; }
-.thinking-expanded pre { margin: 0; font-size: 11px; color: #a0a0c0; white-space: pre-wrap; line-height: 1.4; }
+.msg-claude-dot::before { content: ''; position: absolute; left: -20px; top: var(--dot-top, calc(0.8em - 1px)); width: 7px; height: 7px; border-radius: 50%; background: var(--muted); opacity: 0.7; z-index: 1; box-shadow: 0 0 0 3px var(--bg); }
 summary[style*="list-style:none"]::-webkit-details-marker { display: none; }
 .msg-group[data-queued-group] { opacity: 0.4; }
 .msg-group[data-queued-group]::before { display: none; }
@@ -556,7 +543,7 @@ if (contextIndicator) {
 
     contextIndicator.addEventListener('click', (e) => {
         e.stopPropagation();
-        var wasOpen = window.getComputedStyle(_ctxPopup).display !== 'none';
+        var wasOpen = _ctxPopup.style.display !== 'none';
         _closeAllPopups();
         if (!wasOpen) {
             _buildCtxPopup();
@@ -1223,22 +1210,23 @@ function renderEvent(event) {
                 if (!thinkText) continue;
                 const el = document.createElement('div');
                 el.className = 'msg msg-claude msg-claude-dot';
+                el.style.setProperty('--dot-top', 'calc(6px + 0.42em)');
+                const details = document.createElement('details');
+                details.style.cssText = 'margin:0;border:1px solid #2d333b;border-radius:6px;overflow:hidden;';
+                const summary = document.createElement('summary');
+                summary.style.cssText = 'padding:5px 10px;background:#1a1a2e;color:var(--muted);font-size:12px;cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px;list-style:none;';
                 const preview = thinkText.length > 80 ? thinkText.slice(0, 80).replace(/\n/g, ' ') + '\u2026' : thinkText.replace(/\n/g, ' ');
-                const thinkRow = document.createElement('div');
-                thinkRow.className = 'thinking-inline';
-                thinkRow.innerHTML = '<span style="color:var(--muted);opacity:0.6;">\u25b8</span><strong style="color:#a0a0c0;">Thoughts</strong><span style="opacity:0.7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;">' + escHtml(preview) + '</span>';
-                const thinkExp = document.createElement('div');
-                thinkExp.className = 'thinking-expanded';
-                const thinkPre = document.createElement('pre');
-                thinkPre.textContent = thinkText;
-                thinkExp.appendChild(thinkPre);
-                thinkRow.addEventListener('click', function() {
-                    thinkExp.classList.toggle('open');
-                    var arrow = thinkRow.querySelector('span');
-                    if (arrow) arrow.textContent = thinkExp.classList.contains('open') ? '\u25be' : '\u25b8';
-                });
-                el.appendChild(thinkRow);
-                el.appendChild(thinkExp);
+                summary.innerHTML = _chevron + ' <strong style="color:#a0a0c0;">Thoughts</strong><span style="color:var(--muted);font-size:11px;opacity:0.7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escHtml(preview) + '</span>';
+                _addChevron(details);
+                const content = document.createElement('div');
+                content.style.cssText = 'padding:10px 12px;background:#12121f;max-height:300px;overflow-y:auto;';
+                const pre = document.createElement('pre');
+                pre.style.cssText = 'margin:0;font-size:12px;color:#a0a0c0;white-space:pre-wrap;line-height:1.5;';
+                pre.textContent = thinkText;
+                content.appendChild(pre);
+                details.appendChild(summary);
+                details.appendChild(content);
+                el.appendChild(details);
                 targetGroup.appendChild(el);
 
             } else if (block.type === 'tool_use' && _hiddenTools.has(block.tool)) {
@@ -1250,7 +1238,7 @@ function renderEvent(event) {
                     const el = document.createElement('div');
                     el.className = 'msg msg-claude msg-claude-dot';
                     el.style.setProperty('--dot-top', 'calc(10px + 0.4em)');
-                    el.innerHTML = '<div style="padding:8px 12px;background:#1a1a2e;border-radius:6px;border-left:3px solid #c084fc;line-height:1.5;"><div style="font-size:11px;color:#c084fc;font-weight:600;margin-bottom:4px;">Question</div>' + _mdToHtml(q.question || q.text || '') + (q.options && q.options.length ? '<div style="margin-top:6px;font-size:12px;color:var(--muted);">' + q.options.map(o => '<div style="padding:2px 0;">\u2022 ' + escHtml(typeof o === 'string' ? o : (o.label || o.value || String(o))) + '</div>').join('') + '</div>' : '') + '</div>';
+                    el.innerHTML = '<div style="padding:10px 14px;background:#1a1a2e;border-radius:8px;border-left:3px solid #c084fc;line-height:1.5;"><div style="font-size:11px;color:#c084fc;font-weight:600;margin-bottom:4px;">Question</div>' + _mdToHtml(q.question || q.text || '') + (q.options && q.options.length ? '<div style="margin-top:6px;font-size:12px;color:var(--muted);">' + q.options.map(o => '<div style="padding:2px 0;">\u2022 ' + escHtml(typeof o === 'string' ? o : (o.label || o.value || String(o))) + '</div>').join('') + '</div>' : '') + '</div>';
                     targetGroup.appendChild(el);
                 }
 
@@ -1262,28 +1250,29 @@ function renderEvent(event) {
             } else if (block.type === 'tool_use') {
                 const el = document.createElement('div');
                 el.className = 'msg msg-claude msg-claude-dot';
+                el.style.setProperty('--dot-top', 'calc(7px + 0.42em)');
+                const details = document.createElement('details');
+                details.style.cssText = 'margin:0;border:1px solid #30363d;border-radius:6px;overflow:hidden;';
+                const summary = document.createElement('summary');
+                summary.style.cssText = 'padding:6px 10px;background:var(--tool-header);color:var(--fg);font-size:12px;cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px;list-style:none;';
                 const toolName = block.tool || 'tool';
                 const inputSummary = _toolInputSummary(toolName, block.input);
-                const inlineRow = document.createElement('div');
-                inlineRow.className = 'tool-inline';
-                inlineRow.innerHTML = '<span class="tool-icon">' + _toolIcon(toolName) + '</span><span class="tool-name">' + escHtml(toolName) + '</span><span class="tool-summary">' + makeFileLinksClickable(escHtml(inputSummary)) + '</span>';
-                const expanded = document.createElement('div');
-                expanded.className = 'tool-expanded';
-                expanded.innerHTML = _formatToolInput(toolName, block.input);
-                inlineRow.addEventListener('click', function(e) {
-                    // don't toggle if clicking an internal file link
-                    if (e.target.closest('.file-link')) return;
-                    expanded.classList.toggle('open');
-                });
-                el.appendChild(inlineRow);
-                el.appendChild(expanded);
+                summary.innerHTML = _chevron + ` <span>${_toolIcon(toolName)}</span><strong style="color:var(--accent);">${escHtml(toolName)}</strong><span style="color:var(--muted);font-weight:400;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${makeFileLinksClickable(escHtml(inputSummary))}</span>`;
+                _addChevron(details);
+                const content = document.createElement('div');
+                content.style.cssText = 'padding:8px 12px;background:var(--tool-bg);';
+                content.innerHTML = _formatToolInput(toolName, block.input);
+                details.appendChild(summary);
+                details.appendChild(content);
+                el.appendChild(details);
                 targetGroup.appendChild(el);
 
             } else if (block.type === 'tool_result') {
                 if (block.is_error) {
                     const el = document.createElement('div');
                     el.className = 'msg msg-claude msg-claude-dot';
-                    el.innerHTML = '<div style="padding:4px 8px;background:var(--error-bg);border-radius:4px;border-left:2px solid var(--error);font-size:12px;color:var(--error);max-height:200px;overflow-y:auto;white-space:pre-wrap;">' + escHtml(block.content || 'Tool error') + '</div>';
+                    el.style.setProperty('--dot-top', 'calc(8px + 0.42em)');
+                    el.innerHTML = '<div style="padding:8px 12px;background:var(--error-bg);border-radius:6px;border:1px solid var(--error);font-size:12px;color:var(--error);max-height:200px;overflow-y:auto;white-space:pre-wrap;">' + escHtml(block.content || 'Tool error') + '</div>';
                     targetGroup.appendChild(el);
                 }
             }
@@ -3268,8 +3257,7 @@ updateModeUI();
 
 modeBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    var computed = window.getComputedStyle(modePopup).display;
-    var wasOpen = computed !== 'none';
+    var wasOpen = modePopup.style.display !== 'none';
     _closeAllPopups();
     if (!wasOpen) modePopup.style.display = 'block';
 });
@@ -3368,7 +3356,7 @@ function _buildSettingsPopup() {
 
 _settingsBtn.addEventListener('click', function(e) {
     e.stopPropagation();
-    var wasOpen = window.getComputedStyle(_settingsPopup).display !== 'none';
+    var wasOpen = _settingsPopup.style.display !== 'none';
     _closeAllPopups();
     if (!wasOpen) {
         _buildSettingsPopup();
