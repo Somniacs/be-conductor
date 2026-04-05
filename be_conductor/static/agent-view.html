@@ -1951,6 +1951,20 @@ var _planPendingApproval = false;
 var _pendingQuestion = null;  // last unanswered question event
 var _pendingPlanReview = null;  // last unanswered plan_review event
 var _pendingQuestionCount = 0; // how many questions without answers
+
+// Safety: poll every 2s — if there's a pending question but no visible modal, re-show it.
+setInterval(function() {
+    if (_pendingQuestion && !_replayingHistory && !document.getElementById('question-modal')) {
+        var pq = _pendingQuestion;
+        setBusy(false);
+        showQuestionModal(pq, function(answer) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({type: 'answer', text: answer}));
+            }
+            setBusy(true);
+        });
+    }
+}, 2000);
 var _activeTasks = {};  // task_id → {description, activity, status, type}
 
 function _renderTaskPanel() {
@@ -2414,7 +2428,8 @@ function sendPrompt() {
     if (!text && !pendingAttachments.length) return;
     if (text) { _inputHistory.push(text); _historyIdx = -1; _historyDraft = ''; }
     _stopNavBlink();
-    _userDismissedQuestion = true;
+    // Only mark as dismissed if there IS an open question modal being answered
+    _userDismissedQuestion = !!document.getElementById('question-modal');
     // Plan approval feedback — send as answer, not prompt
     if (_planPendingApproval && text) {
         _planPendingApproval = false;
