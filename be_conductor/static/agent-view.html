@@ -646,6 +646,17 @@ function _mdToHtml(text) {
         var line = parts[1] || 0;
         return '<a class="file-link" href="#" onclick="ideBridge.openFile(\'' + cleanPath + '\', ' + line + '); return false;">' + text + '</a>';
     });
+    // Recover escaped <a> tags from model output (href links only, no scripts).
+    // After escaping, <a href="//url" ...>text</a> becomes:
+    //   &lt;a href="//url" ...&gt;text&lt;/a&gt;
+    // Match generously: everything between &lt;a and &gt; as attributes,
+    // extract href, keep link text.
+    h = h.replace(/&lt;a\b[\s\S]*?href=(["'])((?:https?:)?\/\/.*?)\1[\s\S]*?&gt;([\s\S]*?)&lt;\/a&gt;/gi, function(m, q, url, text) {
+        var safeUrl = url.replace(/^\/\//, 'https://');
+        return '<a href="' + safeUrl + '" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;">' + text + '</a>';
+    });
+    // Make bare URLs clickable (not already inside a tag)
+    h = h.replace(/(?<![="'])(\bhttps?:\/\/[^\s<>&]+)/g, '<a href="$1" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;">$1</a>');
     // Paragraphs
     h = h.replace(/\n\n/g, '<div style="height:8px;"></div>');
     h = h.replace(/\n/g, '<br>');
@@ -1951,7 +1962,7 @@ function showQuestionModal(q, onAnswer) {
     // Build modal as the input area content
     const modal = document.createElement('div');
     modal.id = 'question-modal';
-    modal.style.cssText = 'padding:14px 16px;overflow-y:auto;max-height:50vh;border-top:2px solid var(--accent);position:relative;';
+    modal.style.cssText = 'padding:14px 16px;overflow-y:auto;overflow-x:hidden;max-height:50vh;border-top:2px solid var(--accent);position:relative;box-sizing:border-box;';
 
     // Close button (top-right X)
     const closeBtn = document.createElement('button');
