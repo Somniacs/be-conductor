@@ -408,8 +408,12 @@ var _stats = {
     totalCost: 0, turns: 0, startTime: Date.now(), lastUsage: null,
 };
 
+var _hasContextUsageEvent = false;  // true after first context_usage event
 function updateContextRing(usage) {
     if (!usage) return;
+    // If we have real context_usage data from the SDK, don't let
+    // per-turn usage override it (per-turn double-counts cache reads)
+    if (_hasContextUsageEvent) return;
     const input = Number(usage.input_tokens || usage.inputTokens || 0);
     const output = Number(usage.output_tokens || usage.outputTokens || 0);
     const cacheRead = Number(usage.cache_read_input_tokens || usage.cacheReadInputTokens || 0);
@@ -951,6 +955,23 @@ function renderEvent(event) {
         var cats = d.categories || [];
         var total = d.totalTokens || 0;
         var max = d.maxTokens || MAX_CONTEXT;
+        // Update the ring/label with the REAL context data from SDK
+        _hasContextUsageEvent = true;
+        totalTokens = total;
+        MAX_CONTEXT = max;
+        var realPct = Math.min(1, total / max);
+        var circumference = 37.7;
+        if (contextRing) {
+            contextRing.style.strokeDashoffset = circumference * (1 - realPct);
+            contextRing.style.stroke = realPct < 0.5 ? 'var(--success)' : realPct < 0.8 ? '#c4a000' : realPct < 0.95 ? '#f0a020' : 'var(--error)';
+        }
+        var kStr = (total / 1000).toFixed(0);
+        var pctLabel = (realPct * 100).toFixed(0);
+        var label = document.getElementById('context-label');
+        if (label) {
+            label.textContent = kStr + 'K \u00b7 ' + pctLabel + '%';
+            label.style.color = realPct < 0.5 ? 'var(--muted)' : realPct < 0.8 ? '#c4a000' : realPct < 0.95 ? '#f0a020' : 'var(--error)';
+        }
         var pct = d.percentage != null ? d.percentage.toFixed(1) : (total / max * 100).toFixed(1);
         var autoCompact = d.isAutoCompactEnabled ? 'on' : 'off';
         var oldP = document.getElementById('context-usage-popup');
@@ -989,56 +1010,26 @@ function renderEvent(event) {
     // Real-time text streaming from StreamEvent deltas
     if (etype === 'stream_start' || etype === 'stream_delta' || etype === 'stream_stop') {
         if (_replayingHistory) return;
-        // Find the group for this turn (matches assistant_message routing)
-        function _findStreamGroup() {
-            var group = null;
-            if (event.turn_id) {
-                group = document.querySelector('[data-turn="' + event.turn_id + '"]');
-            }
-            if (!group) {
-                group = document.getElementById('current-group') || messagesEl;
-                // If current-group has no turn_id yet, assign this one
-                if (event.turn_id && group !== messagesEl && !group.getAttribute('data-turn')) {
-                    group.setAttribute('data-turn', event.turn_id);
-                }
-            }
-            return group;
-        }
         if (etype === 'stream_start' && event.block_type === 'text') {
-            // Remove any stale stream-bubble (from a different turn)
             var existing = document.getElementById('stream-bubble');
-            if (existing && existing.getAttribute('data-stream-turn') !== (event.turn_id || '')) {
-                existing.remove();
-                existing = null;
-            }
-            if (!existing) {
-                var sb = document.createElement('div');
-                sb.id = 'stream-bubble';
-                sb.className = 'msg msg-assistant';
-                sb.setAttribute('data-stream-turn', event.turn_id || '');
-                sb.innerHTML = '<div class="msg-content" style="padding:10px 14px;line-height:1.6;white-space:pre-wrap;"></div>';
-                _findStreamGroup().appendChild(sb);
-            }
+            if (existing) existing.remove();
+            var sb = document.createElement('div');
+            sb.id = 'stream-bubble';
+            sb.className = 'msg msg-assistant';
+            sb.innerHTML = '<div class="msg-content" style="padding:10px 14px;line-height:1.6;white-space:pre-wrap;"></div>';
+            messagesEl.appendChild(sb);
         } else if (etype === 'stream_delta' && event.delta_type === 'text') {
             var bubble = document.getElementById('stream-bubble');
-            // If bubble belongs to a different turn, remove it and create fresh one
-            if (bubble && bubble.getAttribute('data-stream-turn') !== (event.turn_id || '')) {
-                bubble.remove();
-                bubble = null;
-            }
             if (!bubble) {
                 bubble = document.createElement('div');
                 bubble.id = 'stream-bubble';
                 bubble.className = 'msg msg-assistant';
-                bubble.setAttribute('data-stream-turn', event.turn_id || '');
                 bubble.innerHTML = '<div class="msg-content" style="padding:10px 14px;line-height:1.6;white-space:pre-wrap;"></div>';
-                _findStreamGroup().appendChild(bubble);
+                messagesEl.appendChild(bubble);
             }
             var content = bubble.querySelector('.msg-content');
             if (content) content.textContent += event.text;
             autoScroll();
-        } else if (etype === 'stream_stop') {
-            // Will be replaced by the full AssistantMessage shortly
         }
         return;
     }
@@ -1160,21 +1151,7 @@ function renderEvent(event) {
             var inner = m.querySelector('div');
             if (inner) inner.style.boxShadow = i === _navIdx ? 'inset 0 0 0 2px var(--accent)' : '';
         });
-        // Always create a group — for queued messages too, so replies land in the right place
-        var turnId = event.turn_id || '';
-        var localSeq = event._localSeq || (++_localSeqCounter);
-        // Only non-queued messages take over current-group; queued ones sit dormant
-        if (!isQueued) {
-            const oldGroup = document.getElementById('current-group');
-            if (oldGroup) oldGroup.removeAttribute('id');
-        }
-        const group = document.createElement('div');
-        group.className = 'msg-group';
-        if (!isQueued) group.id = 'current-group';
-        if (turnId) group.setAttribute('data-turn', turnId);
-        group.setAttribute('data-local-seq', localSeq);
-        if (isQueued) group.setAttribute('data-queued-group', '1');
-        messagesEl.appendChild(group);
+        // No groups — linear append. Everything goes to messagesEl in order.
 
     } else if (etype === 'assistant_message') {
         // Remove streaming bubble — full message replaces it
@@ -1190,36 +1167,8 @@ function renderEvent(event) {
         const blocks = event.content || [];
         const _hiddenTools = new Set(['ToolSearch', 'TodoWrite']);
 
-        // AskUserQuestion modals are shown by the 'question' event handler,
-        // which sends the answer via {type:'answer'} so the backend hook unblocks.
-        // Do NOT show modals here — the tool_use block is just rendered in the timeline.
-
-        // Find target turn group by turn_id. If not found AND current-group has
-        // no turn_id yet, assign it. If current-group has a DIFFERENT turn_id,
-        // the event is orphaned — render into messagesEl directly (chronological).
-        var targetGroup = document.getElementById('current-group') || messagesEl;
-        if (event.turn_id) {
-            var byTurn = document.querySelector('[data-turn="' + event.turn_id + '"]');
-            if (byTurn) {
-                targetGroup = byTurn;
-            } else if (targetGroup !== messagesEl) {
-                var existingTurn = targetGroup.getAttribute('data-turn');
-                if (!existingTurn) {
-                    targetGroup.setAttribute('data-turn', event.turn_id);
-                } else if (existingTurn !== event.turn_id) {
-                    // Event belongs to a different (likely prior) turn.
-                    // Insert it as a new group BEFORE the current user message.
-                    var userMsgs = messagesEl.querySelectorAll('.msg-user');
-                    var lastUser = userMsgs[userMsgs.length - 1];
-                    var newGroup = document.createElement('div');
-                    newGroup.className = 'msg-group';
-                    newGroup.setAttribute('data-turn', event.turn_id);
-                    if (lastUser) messagesEl.insertBefore(newGroup, lastUser);
-                    else messagesEl.appendChild(newGroup);
-                    targetGroup = newGroup;
-                }
-            }
-        }
+        // Linear append — everything goes to messagesEl in chronological order.
+        var targetGroup = messagesEl;
 
         // Render each block as its own element in the turn group — all get dots
 
@@ -1376,7 +1325,7 @@ function renderEvent(event) {
         } else {
             qBlock.innerHTML = '<div style="padding:10px 14px;background:#1a1a2e;border-radius:8px;border-left:3px solid #c084fc;line-height:1.5;"><div style="font-size:11px;color:#c084fc;font-weight:600;margin-bottom:4px;">Question</div>' + _mdToHtml(qText) + '</div>';
         }
-        var qGroup = document.getElementById('current-group') || messagesEl;
+        var qGroup = messagesEl;
         qGroup.appendChild(qBlock);
 
         // Track as pending (cleared by question_answered)
@@ -1394,7 +1343,7 @@ function renderEvent(event) {
 
     } else if (etype === 'plan_review') {
         // Show plan marker in timeline
-        var planGroup = document.getElementById('current-group') || messagesEl;
+        var planGroup = messagesEl;
         var planEl = document.createElement('div');
         planEl.className = 'msg msg-claude msg-claude-dot';
         planEl.style.setProperty('--dot-top', 'calc(10px + 0.4em)');
@@ -1473,6 +1422,10 @@ function renderEvent(event) {
         if (event.usage) updateContextRing(event.usage);
         _stats.turns += (event.num_turns || 1);
         if (event.total_cost_usd) _stats.totalCost += Number(event.total_cost_usd);
+        // Request real context usage from SDK to update ring accurately
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({type: 'get_context_usage'}));
+        }
         // Budget exceeded — show clear message
         if (event.subtype === 'error_max_budget_usd') {
             var budgetDiv = document.createElement('div');
@@ -1498,7 +1451,7 @@ function renderEvent(event) {
         const div = document.createElement('div');
         div.className = 'msg';
         div.innerHTML = `<div style="padding:10px 14px;background:var(--error-bg);border:1px solid var(--error);border-radius:8px;color:var(--error);font-size:13px;"><strong>Error</strong> &mdash; ${escHtml(event.error || 'Unknown error')}</div>`;
-        const errGroup = document.getElementById('current-group') || messagesEl;
+        const errGroup = messagesEl;
         errGroup.appendChild(div);
 
     } else if (etype === 'session_end') {
@@ -2101,13 +2054,8 @@ function setBusy(b) {
             spinnerEl.style.cssText = 'padding:8px 0;color:var(--muted);font-size:13px;display:flex;align-items:center;gap:8px;';
             spinnerEl.innerHTML = '<span class="agent-spinner"></span><span class="spinner-verb" style="min-width:120px;"></span><span class="spinner-time" style="color:var(--muted);opacity:0.7;"></span>';
         }
-        // Always place spinner in the current active group
-        var grp = document.getElementById('current-group');
-        if (grp && spinnerEl.parentNode !== grp) {
-            grp.appendChild(spinnerEl);
-        } else if (!grp && spinnerEl.parentNode !== messagesEl) {
-            messagesEl.appendChild(spinnerEl);
-        }
+        // Always at the bottom of messages
+        messagesEl.appendChild(spinnerEl);
         let verbIdx = Math.floor(Math.random() * _verbs.length);
         function _formatDuration(totalSec) {
             if (totalSec < 60) return totalSec + 's';
