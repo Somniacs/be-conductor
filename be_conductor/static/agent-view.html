@@ -3624,10 +3624,11 @@ function _showStatsPopup() {
         html += row('Est. API cost', '$'+_stats.totalCost.toFixed(2));
         html += '</div>';
 
-        var cumIn = _stats.totalInput + _stats.totalCacheRead + _stats.totalCacheCreate;
         html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">';
-        html += row('Total input', fk(cumIn));
-        html += row('Total output', fk(_stats.totalOutput));
+        html += row('Context now', fk(totalTokens));
+        html += row('Fresh input', fk(_stats.totalInput));
+        html += row('Cache reads', fk(_stats.totalCacheRead));
+        html += row('Output', fk(_stats.totalOutput));
         html += '</div>';
 
         // === Resume ID ===
