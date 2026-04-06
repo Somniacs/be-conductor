@@ -1276,7 +1276,14 @@ function renderEvent(event) {
                 details.appendChild(summary);
                 details.appendChild(content);
                 el.appendChild(details);
-                targetGroup.appendChild(el);
+                // Insert thinking at TOP of group (before other content)
+                // so it always appears first, even if text/tools arrived earlier
+                var firstChild = targetGroup.querySelector('.msg-claude');
+                if (firstChild) {
+                    targetGroup.insertBefore(el, firstChild);
+                } else {
+                    targetGroup.appendChild(el);
+                }
 
             } else if (block.type === 'tool_use' && _hiddenTools.has(block.tool)) {
                 // Hidden internal tools
@@ -2087,9 +2094,13 @@ function setBusy(b) {
             spinnerEl = document.createElement('div');
             spinnerEl.style.cssText = 'padding:8px 0;color:var(--muted);font-size:13px;display:flex;align-items:center;gap:8px;';
             spinnerEl.innerHTML = '<span class="agent-spinner"></span><span class="spinner-verb" style="min-width:120px;"></span><span class="spinner-time" style="color:var(--muted);opacity:0.7;"></span>';
-            // Place spinner inside the current group
-            var grp = document.getElementById('current-group');
-            (grp || messagesEl).appendChild(spinnerEl);
+        }
+        // Always place spinner in the current active group
+        var grp = document.getElementById('current-group');
+        if (grp && spinnerEl.parentNode !== grp) {
+            grp.appendChild(spinnerEl);
+        } else if (!grp && spinnerEl.parentNode !== messagesEl) {
+            messagesEl.appendChild(spinnerEl);
         }
         let verbIdx = Math.floor(Math.random() * _verbs.length);
         function _formatDuration(totalSec) {
