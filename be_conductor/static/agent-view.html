@@ -1007,28 +1007,30 @@ function renderEvent(event) {
         return;
     }
 
-    // Real-time text streaming from StreamEvent deltas
+    // Real-time text streaming from StreamEvent deltas — render markdown live
     if (etype === 'stream_start' || etype === 'stream_delta' || etype === 'stream_stop') {
         if (_replayingHistory) return;
         if (etype === 'stream_start' && event.block_type === 'text') {
             var existing = document.getElementById('stream-bubble');
             if (existing) existing.remove();
+            _streamBubbleRaw = '';
             var sb = document.createElement('div');
             sb.id = 'stream-bubble';
-            sb.className = 'msg msg-assistant';
-            sb.innerHTML = '<div class="msg-content" style="padding:10px 14px;line-height:1.6;white-space:pre-wrap;"></div>';
+            sb.className = 'msg msg-claude msg-claude-dot';
+            sb.style.cssText = 'line-height:1.6;color:#e0e0e0;';
             messagesEl.appendChild(sb);
         } else if (etype === 'stream_delta' && event.delta_type === 'text') {
             var bubble = document.getElementById('stream-bubble');
             if (!bubble) {
+                _streamBubbleRaw = '';
                 bubble = document.createElement('div');
                 bubble.id = 'stream-bubble';
-                bubble.className = 'msg msg-assistant';
-                bubble.innerHTML = '<div class="msg-content" style="padding:10px 14px;line-height:1.6;white-space:pre-wrap;"></div>';
+                bubble.className = 'msg msg-claude msg-claude-dot';
+                bubble.style.cssText = 'line-height:1.6;color:#e0e0e0;';
                 messagesEl.appendChild(bubble);
             }
-            var content = bubble.querySelector('.msg-content');
-            if (content) content.textContent += event.text;
+            _streamBubbleRaw += event.text;
+            bubble.innerHTML = _mdToHtml(_streamBubbleRaw);
             autoScroll();
         }
         return;
@@ -2507,6 +2509,7 @@ var _manualResize = false;
 var _slashOpen = false, _slashIdx = 0, _slashFiltered = [];
 var _inputHistory = [], _historyIdx = -1, _historyDraft = '';
 var _lastOptimisticContent = null;  // skip backend echo of optimistic user_message
+var _streamBubbleRaw = '';  // accumulated raw text for live markdown rendering
 promptEl.addEventListener('input', () => {
     if (!_manualResize) {
         promptEl.style.height = '38px';
