@@ -787,6 +787,19 @@ function makeFileLinksClickable(html) {
     });
 }
 
+// Keep all thinking elements + spinner at the very bottom of the message list.
+function _ensureThinkingLast() {
+    // Move finalized thinking blocks (from assistant_message)
+    messagesEl.querySelectorAll('.msg-thinking').forEach(function(t) {
+        messagesEl.appendChild(t);
+    });
+    // Move live streaming thinking
+    var think = document.getElementById('stream-thinking');
+    if (think && think.parentNode === messagesEl) messagesEl.appendChild(think);
+    // Spinner always last
+    if (spinnerEl && spinnerEl.parentNode === messagesEl) messagesEl.appendChild(spinnerEl);
+}
+
 // --- Event renderer (pixel-identical to dashboard) ---
 function renderEvent(event) {
     const ph = messagesEl.querySelector('[data-placeholder]');
@@ -863,6 +876,7 @@ function renderEvent(event) {
     // Question was answered (by us or another client) — clear pending + dismiss modal
     if (etype === 'question_answered') {
         _pendingQuestion = null;
+        _hideQuestionBanner();
         // Don't clear _pendingPlanReview here — it's a separate flow
         if (!_replayingHistory) {
             var modal = document.getElementById('question-modal');
@@ -1027,19 +1041,12 @@ function renderEvent(event) {
             var existing = document.getElementById('stream-bubble');
             if (existing) existing.remove();
             _streamBubbleRaw = '';
-            // Insert text bubble BEFORE the thinking element (so thinking stays at bottom)
-            var thinkingBelow = document.getElementById('stream-thinking');
             var sb = document.createElement('div');
             sb.id = 'stream-bubble';
             sb.className = 'msg msg-claude msg-claude-dot';
             sb.style.cssText = 'line-height:1.6;color:#e0e0e0;';
-            if (thinkingBelow) {
-                messagesEl.insertBefore(sb, thinkingBelow);
-            } else {
-                messagesEl.appendChild(sb);
-            }
-            // Keep spinner at the very bottom
-            if (spinnerEl && spinnerEl.parentNode === messagesEl) messagesEl.appendChild(spinnerEl);
+            messagesEl.appendChild(sb);
+            _ensureThinkingLast();
         } else if (etype === 'stream_start' && event.block_type === 'thinking') {
             _streamBlockType = 'thinking';
             // Start live thinking block during streaming
@@ -1056,12 +1063,8 @@ function renderEvent(event) {
                 '<div style="padding:10px 12px;background:#12121f;max-height:300px;overflow-y:auto;">' +
                 '<pre class="stream-think-content" style="margin:0;font-size:12px;color:#a0a0c0;white-space:pre-wrap;line-height:1.5;"></pre></div></details>';
             _addChevron(st.querySelector('details'));
-            // Insert before spinner (so thinking stays above spinner but below other content)
-            if (spinnerEl && spinnerEl.parentNode === messagesEl) {
-                messagesEl.insertBefore(st, spinnerEl);
-            } else {
-                messagesEl.appendChild(st);
-            }
+            messagesEl.appendChild(st);
+            _ensureThinkingLast();
         } else if (etype === 'stream_delta' && event.delta_type === 'text') {
             var bubble = document.getElementById('stream-bubble');
             if (!bubble) {
@@ -1070,14 +1073,8 @@ function renderEvent(event) {
                 bubble.id = 'stream-bubble';
                 bubble.className = 'msg msg-claude msg-claude-dot';
                 bubble.style.cssText = 'line-height:1.6;color:#e0e0e0;';
-                // Insert before thinking element so thinking stays at bottom
-                var thinkBelow = document.getElementById('stream-thinking');
-                if (thinkBelow) {
-                    messagesEl.insertBefore(bubble, thinkBelow);
-                } else {
-                    messagesEl.appendChild(bubble);
-                }
-                if (spinnerEl && spinnerEl.parentNode === messagesEl) messagesEl.appendChild(spinnerEl);
+                messagesEl.appendChild(bubble);
+                _ensureThinkingLast();
             }
             _streamBubbleRaw += event.text;
             bubble.innerHTML = _mdToHtml(_streamBubbleRaw);
@@ -1097,12 +1094,8 @@ function renderEvent(event) {
                     '<div style="padding:10px 12px;background:#12121f;max-height:300px;overflow-y:auto;">' +
                     '<pre class="stream-think-content" style="margin:0;font-size:12px;color:#a0a0c0;white-space:pre-wrap;line-height:1.5;"></pre></div></details>';
                 _addChevron(thinkEl.querySelector('details'));
-                // Insert before spinner
-                if (spinnerEl && spinnerEl.parentNode === messagesEl) {
-                    messagesEl.insertBefore(thinkEl, spinnerEl);
-                } else {
-                    messagesEl.appendChild(thinkEl);
-                }
+                messagesEl.appendChild(thinkEl);
+                _ensureThinkingLast();
             }
             _streamThinkingRaw += (event.thinking || '');
             var thinkPre = thinkEl.querySelector('.stream-think-content');
@@ -1246,7 +1239,7 @@ function renderEvent(event) {
         });
         // No groups — linear append. Everything goes to messagesEl in order.
         // Keep spinner below user messages
-        if (spinnerEl && spinnerEl.parentNode === messagesEl) messagesEl.appendChild(spinnerEl);
+        _ensureThinkingLast();
 
     } else if (etype === 'assistant_message') {
         // Remove streaming elements — full message replaces them
@@ -1266,17 +1259,6 @@ function renderEvent(event) {
 
         // Linear append — everything goes to messagesEl in chronological order.
         var targetGroup = messagesEl;
-
-        // Render each block as its own element in the turn group — all get dots
-        // If this message has non-thinking content, move any existing thinking
-        // blocks to the end so they always stay at the bottom of the turn.
-        var _hasNonThinking = blocks.some(b => b.type !== 'thinking');
-        if (_hasNonThinking) {
-            var existingThinks = messagesEl.querySelectorAll('.msg-thinking');
-            existingThinks.forEach(function(t) { t.remove(); });
-            // They'll be re-appended (or new ones added) after all non-thinking content
-            var _savedThinkEls = Array.from(existingThinks);
-        }
 
         for (const block of blocks) {
             if (block.type === 'text') {
@@ -1392,57 +1374,67 @@ function renderEvent(event) {
                 }
             }
         }
-        // Re-append any previously saved thinking elements at the bottom
-        if (_hasNonThinking && _savedThinkEls) {
-            _savedThinkEls.forEach(function(t) {
-                if (spinnerEl && spinnerEl.parentNode === messagesEl) {
-                    messagesEl.insertBefore(t, spinnerEl);
-                } else {
-                    messagesEl.appendChild(t);
-                }
-            });
-        }
-        // Keep spinner at the very bottom after appending content
-        if (spinnerEl && spinnerEl.parentNode === messagesEl) messagesEl.appendChild(spinnerEl);
+        _ensureThinkingLast();
 
     } else if (etype === 'question') {
-        // Render the question in the timeline with a dot
+        var qText = event.question || '';
+        var qOpts = event.options || [];
+
+        // Classify: permission prompt vs. AskUserQuestion
+        var permMatch = qText.match(/^Allow \*\*(\w+)\*\*:\s*`?([\s\S]*?)`?\s*\??\s*$/);
+        var isPermission = permMatch && permMatch[1] !== 'AskUserQuestion';
+        var isAskUser = permMatch && permMatch[1] === 'AskUserQuestion';
+
+        // Extract clean question text for AskUserQuestion
+        var cleanQuestion = qText;
+        if (isAskUser) {
+            // The SDK wraps it as: Allow **AskUserQuestion**: `{'question': '...', ...}`
+            // Extract the actual question from the tool_input
+            var qm = permMatch[2].match(/'question':\s*'([^']+)'/);
+            cleanQuestion = qm ? qm[1] : permMatch[2];
+        }
+
+        // Render in timeline
         var qBlock = document.createElement('div');
         qBlock.className = 'msg msg-claude msg-claude-dot';
         qBlock.style.setProperty('--dot-top', 'calc(7px + 0.42em)');
-        var qText = event.question || '';
-        // Permission prompts ("Allow **Bash**: ...") → compact collapsible
-        var permMatch = qText.match(/^Allow \*\*(\w+)\*\*:\s*`?([\s\S]*?)`?\s*\??\s*$/);
-        if (permMatch) {
+
+        if (isPermission) {
+            // Permission prompt → compact collapsible
             var toolName = permMatch[1];
             var cmd = permMatch[2].trim();
-            // For AskUserQuestion, just show a compact one-liner — the question
-            // is already rendered as a nice block from the tool_use event above.
-            if (toolName === 'AskUserQuestion') {
-                var qm = cmd.match(/'question':\s*'([^']+)'/);
-                var label = qm ? qm[1] : 'Question';
-                if (label.length > 80) label = label.slice(0, 80) + '\u2026';
-                qBlock.innerHTML = '<div style="padding:6px 10px;background:var(--tool-header);border-radius:6px;font-size:12px;display:flex;align-items:center;gap:6px;"><span style="color:#c084fc;">&#9432;</span> <strong style="color:#c084fc;">Allow Question</strong> <span style="color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escHtml(label) + '</span></div>';
-            } else {
-                var shortCmd = cmd.length > 80 ? cmd.slice(0,80) + '\u2026' : cmd;
-                var det = document.createElement('details');
-                det.style.cssText = 'margin:0;border:1px solid #30363d;border-radius:6px;overflow:hidden;';
-                var sum = document.createElement('summary');
-                sum.style.cssText = 'padding:6px 10px;background:var(--tool-header);color:var(--fg);font-size:12px;cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px;list-style:none;';
-                sum.innerHTML = _chevron + ' <span style="color:#c084fc;">&#9432;</span> <strong style="color:#c084fc;">Allow ' + escHtml(toolName) + '</strong> <span style="color:var(--muted);font-weight:400;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escHtml(shortCmd) + '</span>';
-                _addChevron(det);
-                var cnt = document.createElement('div');
-                cnt.style.cssText = 'padding:8px 12px;background:var(--tool-bg);white-space:pre-wrap;font-size:12px;color:var(--muted);line-height:1.4;max-height:200px;overflow-y:auto;';
-                cnt.textContent = cmd;
-                det.appendChild(sum);
-                det.appendChild(cnt);
-                qBlock.appendChild(det);
-            }
+            var shortCmd = cmd.length > 80 ? cmd.slice(0,80) + '\u2026' : cmd;
+            var det = document.createElement('details');
+            det.style.cssText = 'margin:0;border:1px solid #30363d;border-radius:6px;overflow:hidden;';
+            var sum = document.createElement('summary');
+            sum.style.cssText = 'padding:6px 10px;background:var(--tool-header);color:var(--fg);font-size:12px;cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px;list-style:none;';
+            sum.innerHTML = _chevron + ' <span style="color:#c084fc;">&#9432;</span> <strong style="color:#c084fc;">Allow ' + escHtml(toolName) + '</strong> <span style="color:var(--muted);font-weight:400;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escHtml(shortCmd) + '</span>';
+            _addChevron(det);
+            var cnt = document.createElement('div');
+            cnt.style.cssText = 'padding:8px 12px;background:var(--tool-bg);white-space:pre-wrap;font-size:12px;color:var(--muted);line-height:1.4;max-height:200px;overflow-y:auto;';
+            cnt.textContent = cmd;
+            det.appendChild(sum);
+            det.appendChild(cnt);
+            qBlock.appendChild(det);
         } else {
-            qBlock.innerHTML = '<div style="padding:10px 14px;background:#1a1a2e;border-radius:8px;border-left:3px solid #c084fc;line-height:1.5;"><div style="font-size:11px;color:#c084fc;font-weight:600;margin-bottom:4px;">Question</div>' + _mdToHtml(qText) + '</div>';
+            // AskUserQuestion or plain question → render the actual question nicely
+            var optHtml = '';
+            if (qOpts.length) {
+                optHtml = '<div style="margin-top:6px;font-size:12px;color:var(--muted);">' + qOpts.map(function(o) {
+                    var label = typeof o === 'string' ? o : (o.label || o.value || String(o));
+                    return '<div style="padding:2px 0;">\u2022 ' + escHtml(label) + '</div>';
+                }).join('') + '</div>';
+            }
+            qBlock.innerHTML = '<div style="padding:10px 14px;background:#1a1a2e;border-radius:8px;border-left:3px solid #c084fc;line-height:1.5;">'
+                + '<div style="font-size:11px;color:#c084fc;font-weight:600;margin-bottom:4px;">Question</div>'
+                + _mdToHtml(cleanQuestion) + optHtml + '</div>';
         }
-        var qGroup = messagesEl;
-        qGroup.appendChild(qBlock);
+        messagesEl.appendChild(qBlock);
+
+        // Show top banner for non-permission questions
+        if (!isPermission && !_replayingHistory) {
+            _showQuestionBanner(cleanQuestion);
+        }
 
         // Track as pending (cleared by question_answered)
         _pendingQuestion = event;
@@ -1450,7 +1442,10 @@ function renderEvent(event) {
 
         if (_replayingHistory) return;
         setBusy(false);
-        showQuestionModal(event, (answer) => {
+        // For AskUserQuestion: pass cleaned question text to the modal
+        var modalEvent = isAskUser ? Object.assign({}, event, {question: cleanQuestion}) : event;
+        showQuestionModal(modalEvent, (answer) => {
+            _hideQuestionBanner();
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({type: 'answer', text: answer}));
             }
@@ -2083,6 +2078,27 @@ function showQuestionModal(q, onAnswer) {
 
     inputArea.appendChild(modal);
     if (freeInput) freeInput.focus();
+}
+
+// --- Question banner (sticky top) ---
+function _showQuestionBanner(text) {
+    _hideQuestionBanner();
+    var banner = document.createElement('div');
+    banner.id = 'question-banner';
+    banner.style.cssText = 'position:sticky;top:0;z-index:150;background:#1a1a2e;border-bottom:2px solid #c084fc;padding:8px 14px;display:flex;align-items:center;gap:8px;font-size:13px;color:var(--fg);cursor:pointer;';
+    banner.innerHTML = '<span style="color:#c084fc;flex-shrink:0;font-size:15px;">&#9432;</span>'
+        + '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escHtml(text.length > 120 ? text.slice(0, 120) + '\u2026' : text) + '</span>'
+        + '<span style="color:var(--muted);font-size:11px;flex-shrink:0;">Answer below \u2193</span>';
+    banner.addEventListener('click', function() {
+        var modal = document.getElementById('question-modal');
+        if (modal) modal.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        else messagesEl.scrollTop = messagesEl.scrollHeight;
+    });
+    messagesEl.parentNode.insertBefore(banner, messagesEl);
+}
+function _hideQuestionBanner() {
+    var old = document.getElementById('question-banner');
+    if (old) old.remove();
 }
 
 // --- Busy state ---

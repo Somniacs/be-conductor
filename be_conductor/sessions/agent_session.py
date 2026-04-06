@@ -257,13 +257,14 @@ class AgentSession:
             except asyncio.TimeoutError:
                 answer = "rejected"
 
+            # Exit plan mode → switch back to default
+            self._current_mode = "default"
+            self._agent_options["permission_mode"] = "default"
+            self._pending_mode_change = "default"
+            self._broadcast_settings()
             if answer.lower() in ("approve", "approved", "yes", "ok"):
-                self._current_mode = "default"
-                self._agent_options["permission_mode"] = "default"
                 return {}  # Allow the tool to proceed (no decision = continue)
             else:
-                self._current_mode = "default"
-                self._agent_options["permission_mode"] = "default"
                 return {"decision": "block", "reason": answer}
 
         # SDK permission callback — the SDK decides WHEN to ask (based on
