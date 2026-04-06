@@ -385,11 +385,20 @@ class AgentSession:
             "model": self._agent_options.get("model"),
             # Use resume (specific session ID) only — never continue_conversation
             # which picks "most recent session in cwd" and can cross-contaminate.
+            # For new sessions, pass a fresh session_id to prevent the SDK from
+            # silently picking up a recent session from the same cwd.
             "resume": resume_id,
             "continue_conversation": False,
             "include_partial_messages": True,
             "setting_sources": ["user", "project"],
         }
+        # Force a fresh session_id for new sessions to prevent the SDK from
+        # picking up a recent session from the same cwd.
+        if not resume_id:
+            import uuid as _uuid
+            fresh_sid = str(_uuid.uuid4())
+            opts_kwargs["session_id"] = fresh_sid
+            log.info("New agent session %s: forcing session_id=%s", self.id, fresh_sid)
         # Only pass these if explicitly set — let the CLI use its own defaults
         for key in ("effort", "thinking", "max_budget_usd"):
             val = self._agent_options.get(key)
@@ -774,12 +783,6 @@ class AgentSession:
                     self._message_history = data
                     for event in data:
                         self._append_console(event)
-                    # Recover resume_id from history if not already set
-                    if not self.resume_id:
-                        for evt in reversed(data):
-                            if evt.get("type") == "result" and evt.get("session_id"):
-                                self.resume_id = evt["session_id"]
-                                break
             except Exception:
                 pass
 

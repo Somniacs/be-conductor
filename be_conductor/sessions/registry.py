@@ -19,6 +19,7 @@ import logging
 import re
 import shlex
 import time
+import uuid as _uuid
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -184,6 +185,8 @@ class SessionRegistry:
         """
         import re as _re
         for path in SESSIONS_DIR.glob("*.json"):
+            if path.name.endswith(".history.json"):
+                continue
             try:
                 meta = json.loads(path.read_text())
                 status = meta.get("status", "")
@@ -197,20 +200,6 @@ class SessionRegistry:
                         meta["resume_id"] = m.group(1).strip('"').strip("'")
                     meta["status"] = "exited"
                     path.write_text(json.dumps(meta))
-
-                # Agent sessions: recover resume_id from history file if missing
-                if not meta.get("resume_id") and meta.get("session_type") == "agent":
-                    history_path = SESSIONS_DIR / f"{meta['id']}.history.json"
-                    if history_path.exists():
-                        try:
-                            history = json.loads(history_path.read_text(encoding="utf-8"))
-                            for evt in reversed(history):
-                                if evt.get("type") == "result" and evt.get("session_id"):
-                                    meta["resume_id"] = evt["session_id"]
-                                    path.write_text(json.dumps(meta))
-                                    break
-                        except Exception:
-                            pass
 
                 # PTY sessions: if resume_id is a name (not UUID), look up
                 # the real UUID from Claude's session storage.
@@ -260,10 +249,16 @@ class SessionRegistry:
             return
 
         # "Forget" mode: delete everything without saving resume data.
-        # EXCEPTION: never delete agent session history — too expensive to rebuild.
         is_agent = getattr(session, 'session_type', 'pty') == 'agent'
-        if getattr(session, '_forget', False) and not is_agent:
-            self._delete_metadata(session_id)
+        if getattr(session, '_forget', False):
+            if is_agent:
+                # Agent sessions: delete both metadata and history
+                meta_path = SESSIONS_DIR / f"{session_id}.json"
+                meta_path.unlink(missing_ok=True)
+                history_path = SESSIONS_DIR / f"{session_id}.history.json"
+                history_path.unlink(missing_ok=True)
+            else:
+                self._delete_metadata(session_id)
             return
 
         # Worktree stays active on exit — user must explicitly finalize.
@@ -288,15 +283,30 @@ class SessionRegistry:
                      worktree: bool = False,
                      session_type: str = "pty",
                      agent_options: dict | None = None) -> Session:
-        if name in self.sessions:
+        # Agent sessions get a unique UUID; PTY sessions keep name as ID
+        # for backwards compatibility.
+        if session_type == "agent":
+            session_id = str(_uuid.uuid4())
+        else:
+            session_id = name
+
+        # PTY sessions: check for name collision (PTY id == name)
+        if session_type != "agent" and name in self.sessions:
             existing = self.sessions[name]
             if existing.status == "running":
                 raise ValueError(f"Session '{name}' already exists and is running")
             else:
                 await self.remove(name)
 
-        # If resuming over an old resumable entry with the same name, clear it.
-        self.resumable.pop(name, None)
+        # Agent sessions: check for running session with the same name
+        if session_type == "agent":
+            for sid, s in list(self.sessions.items()):
+                if s.name == name and s.status == "running":
+                    raise ValueError(f"Session '{name}' already exists and is running")
+
+        # PTY: clear old resumable entry with the same name
+        if session_type != "agent":
+            self.resumable.pop(name, None)
 
         agent_cfg = self._agent_config_for(command)
 
@@ -307,7 +317,7 @@ class SessionRegistry:
             try:
                 wt_info = self.worktree_manager.create(
                     session_name=name,
-                    session_id=name,
+                    session_id=session_id,
                     repo_path=cwd,
                 )
                 worktree_info = wt_info.to_dict()
@@ -324,7 +334,7 @@ class SessionRegistry:
             notif_patterns = None  # use defaults
 
         notifier = SessionNotifier(
-            session_id=name,
+            session_id=session_id,
             session_name=name,
             manager=self.notification_manager,
             patterns=notif_patterns,
@@ -334,8 +344,8 @@ class SessionRegistry:
             from be_conductor.sessions.agent_session import AgentSession
             session = AgentSession(
                 name=name,
-                prompt=command,  # "command" = initial prompt for agent sessions
-                session_id=name,
+                prompt=command,
+                session_id=session_id,
                 cwd=session_cwd,
                 on_exit=self._on_session_exit,
                 env=env,
@@ -347,7 +357,7 @@ class SessionRegistry:
             session = Session(
                 name=name,
                 command=command,
-                session_id=name,
+                session_id=session_id,
                 cwd=session_cwd,
                 on_exit=self._on_session_exit,
                 env=env,
@@ -363,7 +373,7 @@ class SessionRegistry:
         # Record initial size so the web client knows the PTY dimensions.
         if rows and cols and source == "cli":
             session.resize(rows, cols, source="cli")
-        self.sessions[name] = session
+        self.sessions[session.id] = session
         self._save_metadata(session)
         return session
 
@@ -467,8 +477,21 @@ class SessionRegistry:
         # Carry forward resume_id so fork works immediately
         if has_resume_id:
             session.resume_id = meta["resume_id"]
+
+        # Clean up old resumable entry
         self.resumable.pop(session_id, None)
-        self._delete_metadata(session_id)
+        # For agent sessions: rename old history file to new session ID
+        # so the resumed session has the full conversation for UI replay.
+        if st == "agent" and session.id != session_id:
+            old_history = SESSIONS_DIR / f"{session_id}.history.json"
+            new_history = SESSIONS_DIR / f"{session.id}.history.json"
+            if old_history.exists() and not new_history.exists():
+                old_history.rename(new_history)
+        # Delete old metadata (and old history if rename failed or not agent)
+        meta_path = SESSIONS_DIR / f"{session_id}.json"
+        meta_path.unlink(missing_ok=True)
+        old_hist = SESSIONS_DIR / f"{session_id}.history.json"
+        old_hist.unlink(missing_ok=True)
 
         # Re-attach the worktree info
         if worktree_data:
@@ -502,7 +525,7 @@ class SessionRegistry:
         The new session receives a short prompt pointing it at the
         context file once its agent has initialised.
         """
-        parent = self.sessions.get(parent_id)
+        parent = self.get(parent_id)
         if not parent or parent.status != "running":
             raise ValueError("Source session not found or not running")
 
@@ -613,7 +636,16 @@ class SessionRegistry:
         return session
 
     def get(self, session_id: str) -> Optional[Session]:
-        return self.sessions.get(session_id)
+        """Look up a session by ID (primary) or name (fallback)."""
+        session = self.sessions.get(session_id)
+        if session:
+            return session
+        # Fallback: search by name (needed for PTY sessions where id == name,
+        # and for any callers still passing a name for agent sessions).
+        for s in self.sessions.values():
+            if s.name == session_id:
+                return s
+        return None
 
     def list_all(self) -> list[dict]:
         # Detect dead agent sessions: _run_task finished but session still
@@ -652,6 +684,13 @@ class SessionRegistry:
 
     async def remove(self, session_id: str):
         session = self.sessions.pop(session_id, None)
+        if not session:
+            # Fallback: find by name (PTY compat)
+            for sid, s in list(self.sessions.items()):
+                if s.name == session_id:
+                    session = self.sessions.pop(sid, None)
+                    session_id = sid
+                    break
         if session:
             await session.kill()
             await session.cleanup()
@@ -674,7 +713,7 @@ class SessionRegistry:
         terminal buffer, and call ``_on_session_exit`` which moves the
         session to ``self.resumable`` if a resume ID was found.
         """
-        session = self.sessions.get(session_id)
+        session = self.get(session_id)
         if session and session.status in ("running", "starting"):
             session.status = "stopping"
             session.interrupt(timeout=cfg.GRACEFUL_STOP_TIMEOUT)
@@ -686,15 +725,23 @@ class SessionRegistry:
         but marks the session so that ``_on_session_exit`` deletes all
         metadata instead of saving it as resumable.
         """
-        session = self.sessions.get(session_id)
+        session = self.get(session_id)
         if session and session.status in ("running", "starting"):
             session._forget = True
             session.interrupt(timeout=cfg.GRACEFUL_STOP_TIMEOUT)
 
     def dismiss_resumable(self, session_id: str):
-        """Remove a resumable entry without resuming it."""
+        """Remove a resumable entry without resuming it.
+
+        Unlike ``_delete_metadata`` (which protects history files for
+        internal callers), this is an explicit user action — delete
+        everything: metadata JSON *and* history file.
+        """
         self.resumable.pop(session_id, None)
-        self._delete_metadata(session_id)
+        meta_path = SESSIONS_DIR / f"{session_id}.json"
+        meta_path.unlink(missing_ok=True)
+        history_path = SESSIONS_DIR / f"{session_id}.history.json"
+        history_path.unlink(missing_ok=True)
 
     def clear_all_resumable(self) -> int:
         """Remove all resumable entries that have no worktree. Returns count removed."""
@@ -703,8 +750,7 @@ class SessionRegistry:
             if not meta.get("worktree")
         ]
         for sid in to_remove:
-            self.resumable.pop(sid, None)
-            self._delete_metadata(sid)
+            self.dismiss_resumable(sid)
         return len(to_remove)
 
     def _save_metadata(self, session: Session):

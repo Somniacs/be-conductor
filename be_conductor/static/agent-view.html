@@ -184,7 +184,7 @@ summary[style*="list-style:none"]::-webkit-details-marker { display: none; }
 <script>
 // --- Configuration ---
 const params = new URLSearchParams(location.search);
-const SESSION_ID = params.get('session') || window.__SESSION_ID || '';
+let SESSION_ID = params.get('session') || window.__SESSION_ID || '';
 const WS_BASE = params.get('ws') || window.__WS_BASE || location.origin.replace(/^http/, 'ws');
 
 // --- Theme ---
@@ -1819,13 +1819,30 @@ function _showSessionEnded(resumable, message) {
             fetch(baseUrl + '/sessions/' + encodeURIComponent(sid) + '/resume', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'})
                 .then(function(r) {
                     if (r.ok) {
-                        // Reload to reconnect
-                        endPanel.remove();
-                        if (inputBox) inputBox.style.display = '';
-                        if (handle) handle.style.display = '';
-                        _sessionEnded = false;
-                        retryCount = 0;
-                        connect();
+                        return r.json().then(function(resumed) {
+                            // Update session ID to the new one from the resumed session
+                            var newUrl = new URL(window.location);
+                            newUrl.searchParams.set('session', resumed.id);
+                            window.history.replaceState(null, '', newUrl);
+                            // Notify parent frame of the new session ID
+                            if (window.parent && window.parent !== window) {
+                                window.parent.postMessage({
+                                    type: 'session-resumed',
+                                    oldId: sid,
+                                    newId: resumed.id,
+                                    name: resumed.name,
+                                    sessionType: resumed.session_type
+                                }, '*');
+                            }
+                            // Reconnect with the new session ID
+                            SESSION_ID = resumed.id;
+                            endPanel.remove();
+                            if (inputBox) inputBox.style.display = '';
+                            if (handle) handle.style.display = '';
+                            _sessionEnded = false;
+                            retryCount = 0;
+                            connect();
+                        });
                     } else {
                         resumeBtn.textContent = 'Resume failed';
                         resumeBtn.style.background = '#f85149';

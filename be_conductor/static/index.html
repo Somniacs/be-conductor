@@ -9256,12 +9256,14 @@
                     }),
                 });
                 if (resp.ok) {
+                    const resumed = await resp.json();
                     await fetchAllSessions();
                     _suppressDrawerOpen = true;
                     while (panels.length) closePanel(panels[0].id);
                     _suppressDrawerOpen = false;
                     closeDrawer();
-                    openSession(cid, sessionId);
+                    const newCid = compoundId(server, resumed.id);
+                    openSession(newCid, resumed.name, null, resumed.session_type || 'pty');
                 } else {
                     const err = await resp.json();
                     showAlert(err.detail || 'Failed to resume session');
@@ -9872,6 +9874,18 @@
         // Handle messages from agent iframe
         window.addEventListener('message', (e) => {
             if (!e.data) return;
+            // Handle session-resumed from agent-view iframe
+            if (e.data.type === 'session-resumed') {
+                const { oldId, newId, name } = e.data;
+                const panel = panels.find(p => p.sessionId === oldId);
+                if (panel) {
+                    panel.sessionId = newId;
+                    panel.id = compoundId(panel.server, newId);
+                    if (name) panel.name = name;
+                }
+                fetchAllSessions();
+                return;
+            }
             if (e.data.type !== 'openFile') return;
             let path = e.data.path;
             if (!path) return;
