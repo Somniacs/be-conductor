@@ -1071,6 +1071,12 @@ function renderEvent(event) {
 
     if (etype === 'user_message') {
         const content = (event.content || '').trim();
+        // Skip backend echo if we already rendered this optimistically
+        if (_lastOptimisticContent && content === _lastOptimisticContent && !_replayingHistory) {
+            _lastOptimisticContent = null;
+            return;
+        }
+        _lastOptimisticContent = null;
         // Hide internal commands
         if (content === '/compact') return;
         // Dismiss question modal if user answered
@@ -2537,8 +2543,12 @@ function sendPrompt() {
     // Track /compact for spinner text
     _compacting = (text === '/compact');
     // Always send to backend — it decides whether to queue or process immediately.
-    // Don't render the user_message here — the backend will emit either
-    // user_message (immediate) or queued_message (busy) to all clients.
+    // Render user message optimistically so the spinner has a group to land in.
+    // Mark it so backend's echoed user_message can be skipped.
+    if (!busy) {
+        _lastOptimisticContent = text || '(attachment)';
+        renderEvent({type: 'user_message', content: _lastOptimisticContent});
+    }
     ws.send(JSON.stringify(msg));
     if (!busy) setBusy(true);
     promptEl.focus({ preventScroll: true });
@@ -2548,6 +2558,7 @@ function sendPrompt() {
 var _manualResize = false;
 var _slashOpen = false, _slashIdx = 0, _slashFiltered = [];
 var _inputHistory = [], _historyIdx = -1, _historyDraft = '';
+var _lastOptimisticContent = null;  // skip backend echo of optimistic user_message
 promptEl.addEventListener('input', () => {
     if (!_manualResize) {
         promptEl.style.height = '38px';
