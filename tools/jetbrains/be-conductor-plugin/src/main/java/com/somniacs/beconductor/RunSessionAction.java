@@ -103,7 +103,7 @@ public class RunSessionAction extends AnAction {
                 manager.createLocalShellWidget(cwd, tabTitle);
 
         try {
-            widget.executeCommand(cmd.toString() + " && exit");
+            widget.executeCommand(TerminalCommandUtil.exitOnSuccess(cmd.toString()));
         } catch (IOException ex) {
             LOG.warn("be-conductor: failed to execute command in terminal", ex);
         }

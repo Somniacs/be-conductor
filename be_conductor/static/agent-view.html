@@ -847,7 +847,7 @@ function renderEvent(event) {
     // Question was answered (by us or another client) — clear pending + dismiss modal
     if (etype === 'question_answered') {
         _pendingQuestion = null;
-        _pendingPlanReview = null;
+        // Don't clear _pendingPlanReview here — it's a separate flow
         if (!_replayingHistory) {
             var modal = document.getElementById('question-modal');
             if (modal) {
@@ -989,23 +989,54 @@ function renderEvent(event) {
     // Real-time text streaming from StreamEvent deltas
     if (etype === 'stream_start' || etype === 'stream_delta' || etype === 'stream_stop') {
         if (_replayingHistory) return;
+        // Find the group for this turn (matches assistant_message routing)
+        function _findStreamGroup() {
+            var group = null;
+            if (event.turn_id) {
+                group = document.querySelector('[data-turn="' + event.turn_id + '"]');
+            }
+            if (!group) {
+                group = document.getElementById('current-group') || messagesEl;
+                // If current-group has no turn_id yet, assign this one
+                if (event.turn_id && group !== messagesEl && !group.getAttribute('data-turn')) {
+                    group.setAttribute('data-turn', event.turn_id);
+                }
+            }
+            return group;
+        }
         if (etype === 'stream_start' && event.block_type === 'text') {
-            // Create a streaming bubble for live text
-            if (!document.getElementById('stream-bubble')) {
+            // Remove any stale stream-bubble (from a different turn)
+            var existing = document.getElementById('stream-bubble');
+            if (existing && existing.getAttribute('data-stream-turn') !== (event.turn_id || '')) {
+                existing.remove();
+                existing = null;
+            }
+            if (!existing) {
                 var sb = document.createElement('div');
                 sb.id = 'stream-bubble';
                 sb.className = 'msg msg-assistant';
+                sb.setAttribute('data-stream-turn', event.turn_id || '');
                 sb.innerHTML = '<div class="msg-content" style="padding:10px 14px;line-height:1.6;white-space:pre-wrap;"></div>';
-                var group = document.getElementById('current-group') || messagesEl;
-                group.appendChild(sb);
+                _findStreamGroup().appendChild(sb);
             }
         } else if (etype === 'stream_delta' && event.delta_type === 'text') {
             var bubble = document.getElementById('stream-bubble');
-            if (bubble) {
-                var content = bubble.querySelector('.msg-content');
-                if (content) content.textContent += event.text;
-                autoScroll();
+            // If bubble belongs to a different turn, remove it and create fresh one
+            if (bubble && bubble.getAttribute('data-stream-turn') !== (event.turn_id || '')) {
+                bubble.remove();
+                bubble = null;
             }
+            if (!bubble) {
+                bubble = document.createElement('div');
+                bubble.id = 'stream-bubble';
+                bubble.className = 'msg msg-assistant';
+                bubble.setAttribute('data-stream-turn', event.turn_id || '');
+                bubble.innerHTML = '<div class="msg-content" style="padding:10px 14px;line-height:1.6;white-space:pre-wrap;"></div>';
+                _findStreamGroup().appendChild(bubble);
+            }
+            var content = bubble.querySelector('.msg-content');
+            if (content) content.textContent += event.text;
+            autoScroll();
         } else if (etype === 'stream_stop') {
             // Will be replaced by the full AssistantMessage shortly
         }
@@ -1144,8 +1175,10 @@ function renderEvent(event) {
         var _sb = document.getElementById('stream-bubble');
         if (_sb) _sb.remove();
 
-        _pendingQuestion = null;  // agent continued → question was answered
-        _pendingPlanReview = null;
+        // DON'T clear _pendingQuestion here — an assistant_message arriving
+        // does NOT mean the question was answered. The question_answered event
+        // is the only reliable signal. Clearing here caused questions to
+        // disappear before the user could see/answer them.
         if (!busy) setBusy(true);
         if (event.usage) updateContextRing(event.usage);
         const blocks = event.content || [];
@@ -1155,14 +1188,30 @@ function renderEvent(event) {
         // which sends the answer via {type:'answer'} so the backend hook unblocks.
         // Do NOT show modals here — the tool_use block is just rendered in the timeline.
 
-        // Find target turn group
+        // Find target turn group by turn_id. If not found AND current-group has
+        // no turn_id yet, assign it. If current-group has a DIFFERENT turn_id,
+        // the event is orphaned — render into messagesEl directly (chronological).
         var targetGroup = document.getElementById('current-group') || messagesEl;
         if (event.turn_id) {
             var byTurn = document.querySelector('[data-turn="' + event.turn_id + '"]');
             if (byTurn) {
                 targetGroup = byTurn;
             } else if (targetGroup !== messagesEl) {
-                targetGroup.setAttribute('data-turn', event.turn_id);
+                var existingTurn = targetGroup.getAttribute('data-turn');
+                if (!existingTurn) {
+                    targetGroup.setAttribute('data-turn', event.turn_id);
+                } else if (existingTurn !== event.turn_id) {
+                    // Event belongs to a different (likely prior) turn.
+                    // Insert it as a new group BEFORE the current user message.
+                    var userMsgs = messagesEl.querySelectorAll('.msg-user');
+                    var lastUser = userMsgs[userMsgs.length - 1];
+                    var newGroup = document.createElement('div');
+                    newGroup.className = 'msg-group';
+                    newGroup.setAttribute('data-turn', event.turn_id);
+                    if (lastUser) messagesEl.insertBefore(newGroup, lastUser);
+                    else messagesEl.appendChild(newGroup);
+                    targetGroup = newGroup;
+                }
             }
         }
 
@@ -1500,16 +1549,9 @@ messagesEl.addEventListener('scroll', function() {
 });
 
 function autoScroll() {
-    // Keep spinner at the bottom of the latest active group
-    if (spinnerEl) {
-        var currentGrp = document.getElementById('current-group');
-        var target = currentGrp || messagesEl;
-        if (spinnerEl.parentNode !== target) {
-            target.appendChild(spinnerEl);
-        } else {
-            target.appendChild(spinnerEl);
-        }
-    }
+    // Spinner stays where setBusy placed it — do NOT move it here.
+    // appendChild on an already-attached node would move it to the wrong
+    // group when current-group changes (user sends new message mid-stream).
     _updateGroupLines();
     var nearBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 100;
     if (nearBottom) {

@@ -837,6 +837,99 @@ def _attach_session_unix(session_name: str, stop_on_exit: bool = False):
             click.echo("\nDetached.")
 
 
+# Map Windows console special-key scancodes (returned after \x00 or \xe0
+# prefix from msvcrt.getwch) to ANSI escape sequences that TUI apps like
+# Claude Code understand. Without this, arrow keys etc. would be sent as
+# raw scancodes and ignored by the remote agent.
+_WIN_KEY_MAP = {
+    # Arrow keys (xe0 prefix)
+    "H": "\x1b[A",  # Up
+    "P": "\x1b[B",  # Down
+    "K": "\x1b[D",  # Left
+    "M": "\x1b[C",  # Right
+    # Navigation
+    "G": "\x1b[H",  # Home
+    "O": "\x1b[F",  # End
+    "I": "\x1b[5~", # PageUp
+    "Q": "\x1b[6~", # PageDown
+    "R": "\x1b[2~", # Insert
+    "S": "\x1b[3~", # Delete
+    # Function keys (xe0 prefix for F11/F12; x00 prefix for F1-F10)
+    ";": "\x1bOP",  # F1
+    "<": "\x1bOQ",  # F2
+    "=": "\x1bOR",  # F3
+    ">": "\x1bOS",  # F4
+    "?": "\x1b[15~",# F5
+    "@": "\x1b[17~",# F6
+    "A": "\x1b[18~",# F7 (also Ctrl+Left on xe0, handled below)
+    "B": "\x1b[19~",# F8
+    "C": "\x1b[20~",# F9
+    "D": "\x1b[21~",# F10
+    "\x85": "\x1b[23~",  # F11
+    "\x86": "\x1b[24~",  # F12
+}
+
+
+def _enable_win_vt_mode():
+    """Enable ANSI escape sequence processing on the Windows console.
+
+    Sets ENABLE_VIRTUAL_TERMINAL_PROCESSING on stdout and
+    ENABLE_VIRTUAL_TERMINAL_INPUT on stdin so the console renders
+    ANSI escapes (colors, cursor moves) from the remote TUI instead
+    of printing them as literal text.
+
+    Returns a (stdout_handle, old_out_mode, stdin_handle, old_in_mode)
+    tuple for later restoration, or None if the handles aren't a console
+    (e.g. redirected to a file or running under an IDE pty that doesn't
+    expose a Win32 console).
+    """
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.windll.kernel32
+        STD_OUTPUT_HANDLE = -11
+        STD_INPUT_HANDLE = -10
+        ENABLE_VT_PROCESSING = 0x0004
+        DISABLE_NEWLINE_AUTO_RETURN = 0x0008
+
+        h_out = kernel32.GetStdHandle(STD_OUTPUT_HANDLE)
+        h_in = kernel32.GetStdHandle(STD_INPUT_HANDLE)
+        if h_out in (0, -1) or h_in in (0, -1):
+            return None
+
+        old_out = wintypes.DWORD()
+        old_in = wintypes.DWORD()
+        if not kernel32.GetConsoleMode(h_out, ctypes.byref(old_out)):
+            return None  # stdout isn't a console
+        if not kernel32.GetConsoleMode(h_in, ctypes.byref(old_in)):
+            return None
+
+        new_out = old_out.value | ENABLE_VT_PROCESSING | DISABLE_NEWLINE_AUTO_RETURN
+        kernel32.SetConsoleMode(h_out, new_out)
+        # Note: we deliberately DO NOT enable ENABLE_VT_INPUT because
+        # msvcrt.getwch() below reads cooked input via the CRT, not the
+        # console input buffer. Enabling VT_INPUT would change ReadFile
+        # behavior but msvcrt bypasses that path. Keep input mode as-is.
+        return (h_out, old_out.value, h_in, old_in.value)
+    except Exception:
+        return None
+
+
+def _restore_win_console_mode(saved):
+    """Restore console modes saved by _enable_win_vt_mode()."""
+    if not saved:
+        return
+    try:
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        h_out, old_out, h_in, old_in = saved
+        kernel32.SetConsoleMode(h_out, old_out)
+        kernel32.SetConsoleMode(h_in, old_in)
+    except Exception:
+        pass
+
+
 def _attach_session_win(session_name: str):
     """Windows attach — msvcrt-based console I/O with threading."""
     import msvcrt
@@ -846,6 +939,10 @@ def _attach_session_win(session_name: str):
     client_id = str(uuid.uuid4())
     ws_url = _ws_url(session_name, source="cli", client_id=client_id)
     stop = threading.Event()
+
+    # Enable ANSI escape processing so claude's TUI renders correctly.
+    # Without this, colors and cursor moves appear as literal garbage.
+    saved_mode = _enable_win_vt_mode()
 
     def ws_reader(ws):
         try:
@@ -878,10 +975,27 @@ def _attach_session_win(session_name: str):
                         ch = msvcrt.getwch()
                         if ch == "\x1d":  # Ctrl+]
                             break
-                        try:
-                            ws.send(ch.encode("utf-8"))
-                        except Exception:
-                            break
+                        # Special keys (arrows, F-keys, Home/End, ...) arrive
+                        # as a two-call sequence: \x00 or \xe0 prefix, then
+                        # a scancode character. Translate to ANSI escapes so
+                        # the remote TUI (claude) can interpret them.
+                        if ch in ("\x00", "\xe0"):
+                            try:
+                                code = msvcrt.getwch()
+                            except OSError:
+                                break
+                            mapped = _WIN_KEY_MAP.get(code)
+                            if mapped is None:
+                                continue  # unknown scancode — drop it
+                            try:
+                                ws.send(mapped.encode("utf-8"))
+                            except Exception:
+                                break
+                        else:
+                            try:
+                                ws.send(ch.encode("utf-8"))
+                            except Exception:
+                                break
                     else:
                         stop.wait(timeout=0.05)
                 except OSError:
@@ -897,6 +1011,7 @@ def _attach_session_win(session_name: str):
         # Restore terminal title
         sys.stdout.buffer.write(b"\x1b]2;\x07")
         sys.stdout.buffer.flush()
+        _restore_win_console_mode(saved_mode)
         click.echo("\nDetached.")
 
 

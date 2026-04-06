@@ -408,9 +408,18 @@ class AgentSession:
                 # Send initial prompt (skip if empty or just a command name)
                 initial = self.prompt.strip()
                 if initial and initial not in ("claude", "claude-agent", "Resume session"):
+                    # Assign a turn_id so all events from this turn are tagged
+                    if not hasattr(self, '_turn_prefix'):
+                        import uuid as _uuid
+                        self._turn_prefix = _uuid.uuid4().hex[:6]
+                    self._turn_counter = getattr(self, '_turn_counter', 0) + 1
+                    initial_turn_id = f"turn-{self._turn_prefix}-{self._turn_counter}"
+                    self._current_turn_id = initial_turn_id
+                    self._current_turn_btw = False
                     self._emit_event({
                         "type": "user_message",
                         "content": initial,
+                        "turn_id": initial_turn_id,
                     })
                     self._processing = True
                     await client.query(initial)
@@ -588,9 +597,13 @@ class AgentSession:
                     "subtype": message.subtype,
                     "data": message.data,
                 })
-                # Sync permission mode from SDK → our state → all clients
+                # Sync permission mode from SDK → our state → all clients.
+                # DON'T overwrite bypassPermissions — that's a user choice
+                # (via yes_all) that the SDK doesn't know about and would
+                # reset on next system message.
                 pm = message.data.get("permissionMode")
-                if pm and pm != self._agent_options.get("permission_mode"):
+                current_pm = self._agent_options.get("permission_mode")
+                if pm and pm != current_pm and current_pm != "bypassPermissions":
                     self._agent_options["permission_mode"] = pm
                     self._current_mode = pm
                     self._broadcast_settings()
@@ -787,11 +800,18 @@ class AgentSession:
         """Broadcast event to subscribers WITHOUT saving to history."""
         event = self._json_safe(event)
         event.setdefault("timestamp", time.time())
+        # Tag with current turn_id (same logic as _emit_event) so the
+        # frontend can route stream_delta/btw/etc to the correct group.
+        turn_id = getattr(self, '_current_turn_id', None)
+        if turn_id and 'turn_id' not in event:
+            event['turn_id'] = turn_id
+            if getattr(self, '_current_turn_btw', False):
+                event['btw'] = True
         for queue in list(self.subscribers):
             try:
                 queue.put_nowait(event)
             except asyncio.QueueFull:
-                pass
+                log.warning("Dropped broadcast event (queue full): %s", event.get("type"))
 
     def _emit_event(self, event: dict) -> None:
         """Broadcast a structured event and append to console buffer."""
@@ -1210,7 +1230,7 @@ class AgentSession:
         return "\n\n".join(parts)
 
     def subscribe(self) -> asyncio.Queue:
-        queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
+        queue: asyncio.Queue = asyncio.Queue(maxsize=5000)
         self.subscribers.add(queue)
         return queue
 
