@@ -383,8 +383,10 @@ class AgentSession:
             "system_prompt": self._agent_options.get("system_prompt"),
             "max_turns": self._agent_options.get("max_turns"),
             "model": self._agent_options.get("model"),
+            # Use resume (specific session ID) only — never continue_conversation
+            # which picks "most recent session in cwd" and can cross-contaminate.
             "resume": resume_id,
-            "continue_conversation": bool(resume_id),
+            "continue_conversation": False,
             "include_partial_messages": True,
             "setting_sources": ["user", "project"],
         }
@@ -616,6 +618,14 @@ class AgentSession:
                                 "(possible compaction/fork — context may have shifted)",
                                 self.id, self.resume_id, sid,
                             )
+                            _bcast({
+                                "type": "error",
+                                "error": (
+                                    "Context shift detected — the SDK switched "
+                                    "to a different conversation after compaction. "
+                                    "Responses may not match this session's history."
+                                ),
+                            })
                         self.resume_id = sid
                         # Persist IMMEDIATELY — belt and suspenders for crash recovery
                         try:
