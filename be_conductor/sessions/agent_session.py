@@ -610,6 +610,12 @@ class AgentSession:
                 if message.subtype == "init":
                     sid = message.data.get("session_id")
                     if sid:
+                        if self.resume_id and sid != self.resume_id:
+                            log.warning(
+                                "SDK session ID changed for %s: %s → %s "
+                                "(possible compaction/fork — context may have shifted)",
+                                self.id, self.resume_id, sid,
+                            )
                         self.resume_id = sid
                         # Persist IMMEDIATELY — belt and suspenders for crash recovery
                         try:

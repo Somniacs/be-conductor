@@ -115,8 +115,9 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--fo
 .msg-group::before { content: ''; position: absolute; left: 3px; top: var(--line-top, 14px); height: var(--line-height, 0); width: 1px; background: var(--muted); opacity: 0.35; }
 .msg-group.single-dot::before { display: none; }
 .msg-claude { padding-top: 4px; padding-bottom: 4px; }
-.msg-claude-dot { position: relative; }
-.msg-claude-dot::before { content: ''; position: absolute; left: -20px; top: var(--dot-top, calc(0.8em - 1px)); width: 7px; height: 7px; border-radius: 50%; background: var(--muted); opacity: 0.7; z-index: 1; box-shadow: 0 0 0 3px var(--bg); }
+.msg-claude-dot { position: relative; margin-left: 8px; padding-left: 20px; }
+.msg-claude-dot::before { content: ''; position: absolute; left: 3px; top: var(--dot-top, calc(0.8em - 1px)); width: 7px; height: 7px; border-radius: 50%; background: var(--muted); opacity: 0.7; z-index: 1; box-shadow: 0 0 0 3px var(--bg); }
+.msg-claude-dot .dot-line { position: absolute; left: 6px; width: 1px; background: var(--muted); opacity: 0.35; z-index: 0; }
 summary[style*="list-style:none"]::-webkit-details-marker { display: none; }
 .msg-group[data-queued-group] { opacity: 0.4; }
 .msg-group[data-queued-group]::before { display: none; }
@@ -1011,14 +1012,45 @@ function renderEvent(event) {
     if (etype === 'stream_start' || etype === 'stream_delta' || etype === 'stream_stop') {
         if (_replayingHistory) return;
         if (etype === 'stream_start' && event.block_type === 'text') {
+            _streamBlockType = 'text';
             var existing = document.getElementById('stream-bubble');
             if (existing) existing.remove();
             _streamBubbleRaw = '';
+            // Insert text bubble BEFORE the thinking element (so thinking stays at bottom)
+            var thinkingBelow = document.getElementById('stream-thinking');
             var sb = document.createElement('div');
             sb.id = 'stream-bubble';
             sb.className = 'msg msg-claude msg-claude-dot';
             sb.style.cssText = 'line-height:1.6;color:#e0e0e0;';
-            messagesEl.appendChild(sb);
+            if (thinkingBelow) {
+                messagesEl.insertBefore(sb, thinkingBelow);
+            } else {
+                messagesEl.appendChild(sb);
+            }
+            // Keep spinner at the very bottom
+            if (spinnerEl && spinnerEl.parentNode === messagesEl) messagesEl.appendChild(spinnerEl);
+        } else if (etype === 'stream_start' && event.block_type === 'thinking') {
+            _streamBlockType = 'thinking';
+            // Start live thinking block during streaming
+            var existingThink = document.getElementById('stream-thinking');
+            if (existingThink) existingThink.remove();
+            _streamThinkingRaw = '';
+            var st = document.createElement('div');
+            st.id = 'stream-thinking';
+            st.className = 'msg msg-claude msg-claude-dot';
+            st.style.setProperty('--dot-top', 'calc(6px + 0.42em)');
+            st.innerHTML = '<details style="margin:0;border:1px solid #2d333b;border-radius:6px;overflow:hidden;" open>' +
+                '<summary style="padding:5px 10px;background:#1a1a2e;color:var(--muted);font-size:12px;cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px;list-style:none;">' +
+                _chevron + ' <strong style="color:#a0a0c0;">Thoughts</strong><span class="stream-think-preview" style="color:var(--muted);font-size:11px;opacity:0.7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span></summary>' +
+                '<div style="padding:10px 12px;background:#12121f;max-height:300px;overflow-y:auto;">' +
+                '<pre class="stream-think-content" style="margin:0;font-size:12px;color:#a0a0c0;white-space:pre-wrap;line-height:1.5;"></pre></div></details>';
+            _addChevron(st.querySelector('details'));
+            // Insert before spinner (so thinking stays above spinner but below other content)
+            if (spinnerEl && spinnerEl.parentNode === messagesEl) {
+                messagesEl.insertBefore(st, spinnerEl);
+            } else {
+                messagesEl.appendChild(st);
+            }
         } else if (etype === 'stream_delta' && event.delta_type === 'text') {
             var bubble = document.getElementById('stream-bubble');
             if (!bubble) {
@@ -1027,11 +1059,59 @@ function renderEvent(event) {
                 bubble.id = 'stream-bubble';
                 bubble.className = 'msg msg-claude msg-claude-dot';
                 bubble.style.cssText = 'line-height:1.6;color:#e0e0e0;';
-                messagesEl.appendChild(bubble);
+                // Insert before thinking element so thinking stays at bottom
+                var thinkBelow = document.getElementById('stream-thinking');
+                if (thinkBelow) {
+                    messagesEl.insertBefore(bubble, thinkBelow);
+                } else {
+                    messagesEl.appendChild(bubble);
+                }
+                if (spinnerEl && spinnerEl.parentNode === messagesEl) messagesEl.appendChild(spinnerEl);
             }
             _streamBubbleRaw += event.text;
             bubble.innerHTML = _mdToHtml(_streamBubbleRaw);
             autoScroll();
+        } else if (etype === 'stream_delta' && event.delta_type === 'thinking') {
+            var thinkEl = document.getElementById('stream-thinking');
+            if (!thinkEl) {
+                // Create thinking element on first delta if stream_start was missed
+                _streamThinkingRaw = '';
+                thinkEl = document.createElement('div');
+                thinkEl.id = 'stream-thinking';
+                thinkEl.className = 'msg msg-claude msg-claude-dot';
+                thinkEl.style.setProperty('--dot-top', 'calc(6px + 0.42em)');
+                thinkEl.innerHTML = '<details style="margin:0;border:1px solid #2d333b;border-radius:6px;overflow:hidden;" open>' +
+                    '<summary style="padding:5px 10px;background:#1a1a2e;color:var(--muted);font-size:12px;cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px;list-style:none;">' +
+                    _chevron + ' <strong style="color:#a0a0c0;">Thoughts</strong><span class="stream-think-preview" style="color:var(--muted);font-size:11px;opacity:0.7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span></summary>' +
+                    '<div style="padding:10px 12px;background:#12121f;max-height:300px;overflow-y:auto;">' +
+                    '<pre class="stream-think-content" style="margin:0;font-size:12px;color:#a0a0c0;white-space:pre-wrap;line-height:1.5;"></pre></div></details>';
+                _addChevron(thinkEl.querySelector('details'));
+                // Insert before spinner
+                if (spinnerEl && spinnerEl.parentNode === messagesEl) {
+                    messagesEl.insertBefore(thinkEl, spinnerEl);
+                } else {
+                    messagesEl.appendChild(thinkEl);
+                }
+            }
+            _streamThinkingRaw += (event.thinking || '');
+            var thinkPre = thinkEl.querySelector('.stream-think-content');
+            if (thinkPre) thinkPre.textContent = _streamThinkingRaw;
+            var thinkPreview = thinkEl.querySelector('.stream-think-preview');
+            if (thinkPreview) {
+                var pv = _streamThinkingRaw.length > 80 ? _streamThinkingRaw.slice(0, 80).replace(/\n/g, ' ') + '\u2026' : _streamThinkingRaw.replace(/\n/g, ' ');
+                thinkPreview.textContent = pv;
+            }
+            autoScroll();
+        } else if (etype === 'stream_stop') {
+            // Collapse thinking when its block finishes streaming
+            if (_streamBlockType === 'thinking') {
+                var stEl = document.getElementById('stream-thinking');
+                if (stEl) {
+                    var det = stEl.querySelector('details');
+                    if (det) det.removeAttribute('open');
+                }
+            }
+            _streamBlockType = '';
         }
         return;
     }
@@ -1154,11 +1234,15 @@ function renderEvent(event) {
             if (inner) inner.style.boxShadow = i === _navIdx ? 'inset 0 0 0 2px var(--accent)' : '';
         });
         // No groups — linear append. Everything goes to messagesEl in order.
+        // Keep spinner below user messages
+        if (spinnerEl && spinnerEl.parentNode === messagesEl) messagesEl.appendChild(spinnerEl);
 
     } else if (etype === 'assistant_message') {
-        // Remove streaming bubble — full message replaces it
+        // Remove streaming elements — full message replaces them
         var _sb = document.getElementById('stream-bubble');
         if (_sb) _sb.remove();
+        var _st = document.getElementById('stream-thinking');
+        if (_st) _st.remove();
 
         // DON'T clear _pendingQuestion here — an assistant_message arriving
         // does NOT mean the question was answered. The question_answered event
@@ -1173,6 +1257,15 @@ function renderEvent(event) {
         var targetGroup = messagesEl;
 
         // Render each block as its own element in the turn group — all get dots
+        // If this message has non-thinking content, move any existing thinking
+        // blocks to the end so they always stay at the bottom of the turn.
+        var _hasNonThinking = blocks.some(b => b.type !== 'thinking');
+        if (_hasNonThinking) {
+            var existingThinks = messagesEl.querySelectorAll('.msg-thinking');
+            existingThinks.forEach(function(t) { t.remove(); });
+            // They'll be re-appended (or new ones added) after all non-thinking content
+            var _savedThinkEls = Array.from(existingThinks);
+        }
 
         for (const block of blocks) {
             if (block.type === 'text') {
@@ -1215,7 +1308,7 @@ function renderEvent(event) {
                 const thinkText = (block.thinking || '').trim();
                 if (!thinkText) continue;
                 const el = document.createElement('div');
-                el.className = 'msg msg-claude msg-claude-dot';
+                el.className = 'msg msg-claude msg-claude-dot msg-thinking';
                 el.style.setProperty('--dot-top', 'calc(6px + 0.42em)');
                 const details = document.createElement('details');
                 details.style.cssText = 'margin:0;border:1px solid #2d333b;border-radius:6px;overflow:hidden;';
@@ -1224,20 +1317,18 @@ function renderEvent(event) {
                 const preview = thinkText.length > 80 ? thinkText.slice(0, 80).replace(/\n/g, ' ') + '\u2026' : thinkText.replace(/\n/g, ' ');
                 summary.innerHTML = _chevron + ' <strong style="color:#a0a0c0;">Thoughts</strong><span style="color:var(--muted);font-size:11px;opacity:0.7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escHtml(preview) + '</span>';
                 _addChevron(details);
-                const content = document.createElement('div');
-                content.style.cssText = 'padding:10px 12px;background:#12121f;max-height:300px;overflow-y:auto;';
+                const tcontent = document.createElement('div');
+                tcontent.style.cssText = 'padding:10px 12px;background:#12121f;max-height:300px;overflow-y:auto;';
                 const pre = document.createElement('pre');
                 pre.style.cssText = 'margin:0;font-size:12px;color:#a0a0c0;white-space:pre-wrap;line-height:1.5;';
                 pre.textContent = thinkText;
-                content.appendChild(pre);
+                tcontent.appendChild(pre);
                 details.appendChild(summary);
-                details.appendChild(content);
+                details.appendChild(tcontent);
                 el.appendChild(details);
-                // Insert thinking at TOP of group (before other content)
-                // so it always appears first, even if text/tools arrived earlier
-                var firstChild = targetGroup.querySelector('.msg-claude');
-                if (firstChild) {
-                    targetGroup.insertBefore(el, firstChild);
+                // Insert before spinner so thinking stays at bottom
+                if (spinnerEl && spinnerEl.parentNode === messagesEl) {
+                    messagesEl.insertBefore(el, spinnerEl);
                 } else {
                     targetGroup.appendChild(el);
                 }
@@ -1290,6 +1381,18 @@ function renderEvent(event) {
                 }
             }
         }
+        // Re-append any previously saved thinking elements at the bottom
+        if (_hasNonThinking && _savedThinkEls) {
+            _savedThinkEls.forEach(function(t) {
+                if (spinnerEl && spinnerEl.parentNode === messagesEl) {
+                    messagesEl.insertBefore(t, spinnerEl);
+                } else {
+                    messagesEl.appendChild(t);
+                }
+            });
+        }
+        // Keep spinner at the very bottom after appending content
+        if (spinnerEl && spinnerEl.parentNode === messagesEl) messagesEl.appendChild(spinnerEl);
 
     } else if (etype === 'question') {
         // Render the question in the timeline with a dot
@@ -1473,22 +1576,39 @@ function renderEvent(event) {
 
 
 function _updateGroupLines() {
-    messagesEl.querySelectorAll('.msg-group').forEach(g => {
-        const dots = g.querySelectorAll('.msg-claude-dot');
-        g.classList.toggle('single-dot', dots.length <= 1);
-        if (dots.length >= 2) {
-            const first = dots[0];
-            const last = dots[dots.length - 1];
-            const firstTop = parseFloat(getComputedStyle(first, '::before').top) || 0;
-            const lastTop = parseFloat(getComputedStyle(last, '::before').top) || 0;
-            const top = first.offsetTop + firstTop + 3.5;
-            const bottom = last.offsetTop + lastTop + 3.5;
-            g.style.setProperty('--line-top', top + 'px');
-            g.style.setProperty('--line-height', Math.max(0, bottom - top) + 'px');
-        } else {
-            g.style.setProperty('--line-height', '0');
+    // Remove old connecting lines
+    messagesEl.querySelectorAll('.dot-line').forEach(l => l.remove());
+    // Collect runs of consecutive .msg-claude-dot (separated by .msg-user)
+    var children = Array.from(messagesEl.children);
+    var run = [];
+    for (var ci = 0; ci < children.length; ci++) {
+        var ch = children[ci];
+        if (ch.classList && ch.classList.contains('msg-claude-dot')) {
+            run.push(ch);
+        } else if (ch.classList && ch.classList.contains('msg-user')) {
+            _drawRunLines(run);
+            run = [];
         }
-    });
+    }
+    _drawRunLines(run);
+}
+function _drawRunLines(dots) {
+    if (dots.length < 2) return;
+    for (var i = 0; i < dots.length - 1; i++) {
+        var cur = dots[i];
+        var nxt = dots[i + 1];
+        var curDotTop = parseFloat(getComputedStyle(cur, '::before').top) || 0;
+        var nxtDotTop = parseFloat(getComputedStyle(nxt, '::before').top) || 0;
+        var top = curDotTop + 3.5;  // center of dot (7px / 2)
+        var bottom = (nxt.offsetTop - cur.offsetTop) + nxtDotTop + 3.5;
+        if (bottom > top) {
+            var line = document.createElement('div');
+            line.className = 'dot-line';
+            line.style.top = top + 'px';
+            line.style.height = (bottom - top) + 'px';
+            cur.appendChild(line);
+        }
+    }
 }
 // Recalculate lines when any <details> toggles (expand/collapse changes dot positions)
 messagesEl.addEventListener('toggle', function() { _updateGroupLines(); }, true);
@@ -2501,6 +2621,8 @@ function sendPrompt() {
     }
     ws.send(JSON.stringify(msg));
     if (!busy) setBusy(true);
+    // Ensure spinner is always at the very bottom (below queued user messages)
+    if (spinnerEl && spinnerEl.parentNode === messagesEl) messagesEl.appendChild(spinnerEl);
     promptEl.focus({ preventScroll: true });
 }
 
@@ -2510,6 +2632,8 @@ var _slashOpen = false, _slashIdx = 0, _slashFiltered = [];
 var _inputHistory = [], _historyIdx = -1, _historyDraft = '';
 var _lastOptimisticContent = null;  // skip backend echo of optimistic user_message
 var _streamBubbleRaw = '';  // accumulated raw text for live markdown rendering
+var _streamThinkingRaw = '';  // accumulated thinking text for live rendering
+var _streamBlockType = '';  // current streaming block type (text/thinking)
 promptEl.addEventListener('input', () => {
     if (!_manualResize) {
         promptEl.style.height = '38px';

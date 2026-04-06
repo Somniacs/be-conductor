@@ -1885,7 +1885,10 @@ async def agent_view(session_id: str):
     if not html_path.exists():
         raise HTTPException(status_code=404, detail="agent-view.html not found")
     from starlette.responses import HTMLResponse
-    return HTMLResponse(html_path.read_text(encoding="utf-8"))
+    return HTMLResponse(
+        html_path.read_text(encoding="utf-8"),
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
 
 
 # WebSocket — supports typed=true mode for agent clients
