@@ -614,13 +614,6 @@ class AgentSession:
             if isinstance(message, AssistantMessage):
                 formatted = self._format_assistant(message)
                 _emit(formatted)
-                # Detect ExitPlanMode — emit plan_review if the PreToolUse hook
-                # didn't already handle it (hook sets _question_pending).
-                for _blk in formatted.get("content", []):
-                    if _blk.get("type") == "tool_use" and _blk.get("tool") == "ExitPlanMode":
-                        if not getattr(self, '_question_pending', False):
-                            self._emit_plan_review()
-                        break
             elif isinstance(message, ResultMessage):
                 subtype = getattr(message, "subtype", None)
                 _emit({
