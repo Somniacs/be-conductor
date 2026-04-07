@@ -879,8 +879,8 @@ function renderEvent(event) {
     // Question was answered (by us or another client) — clear pending + dismiss modal
     if (etype === 'question_answered') {
         _pendingQuestion = null;
+        _pendingPlanReview = null;
         _hideQuestionBanner();
-        // Don't clear _pendingPlanReview here — it's a separate flow
         if (!_replayingHistory) {
             var modal = document.getElementById('question-modal');
             if (modal) {
@@ -1580,11 +1580,36 @@ function renderEvent(event) {
     } else if (etype === 'result') {
         _importantEvent = true;
         _compacting = false;
-        if (event.usage) updateContextRing(event.usage);
+        // Prefer model_usage (cumulative) over per-turn usage for context ring
+        if (event.model_usage) {
+            var mu = event.model_usage;
+            var modelKey = Object.keys(mu)[0];
+            if (modelKey) {
+                var mi = mu[modelKey];
+                var muTotal = (mi.inputTokens || 0) + (mi.cacheReadInputTokens || 0) + (mi.cacheCreationInputTokens || 0);
+                if (mi.contextWindow) MAX_CONTEXT = mi.contextWindow;
+                if (muTotal > 0) {
+                    totalTokens = muTotal;
+                    var pct = Math.min(1, muTotal / MAX_CONTEXT);
+                    var circumference = 37.7;
+                    if (contextRing) {
+                        contextRing.style.strokeDashoffset = circumference * (1 - pct);
+                        contextRing.style.stroke = pct < 0.5 ? 'var(--success)' : pct < 0.8 ? '#c4a000' : pct < 0.95 ? '#f0a020' : 'var(--error)';
+                    }
+                    var label = document.getElementById('context-label');
+                    if (label) {
+                        label.textContent = (muTotal / 1000).toFixed(0) + 'K \u00b7 ' + (pct * 100).toFixed(0) + '%';
+                        label.style.color = pct < 0.5 ? 'var(--muted)' : pct < 0.8 ? '#c4a000' : pct < 0.95 ? '#f0a020' : 'var(--error)';
+                    }
+                }
+            }
+        } else if (event.usage) {
+            updateContextRing(event.usage);
+        }
         _stats.turns += (event.num_turns || 1);
         if (event.total_cost_usd) _stats.totalCost += Number(event.total_cost_usd);
         // Request real context usage from SDK to update ring accurately
-        if (ws && ws.readyState === WebSocket.OPEN) {
+        if (!_replayingHistory && ws && ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({type: 'get_context_usage'}));
         }
         // Budget exceeded — show clear message
@@ -2566,6 +2591,10 @@ function connect() {
                 }
                 _hideLoading();
                 messagesEl.scrollTop = messagesEl.scrollHeight;
+                // Refresh context ring from SDK (if session is connected)
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({type: 'get_context_usage'}));
+                }
                 // Set overlay bar
                 var lastUserEl = null, lastUserText = '';
                 messagesEl.querySelectorAll('.msg-user').forEach(function(el) {

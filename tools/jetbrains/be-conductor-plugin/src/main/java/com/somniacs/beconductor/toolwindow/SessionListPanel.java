@@ -176,7 +176,7 @@ public class SessionListPanel extends JPanel {
             ApiModels.SessionResponse s = getSelectedSession();
             if (s == null) return;
             if (s.isAgent()) {
-                openAgentInBrowser(s.serverKey, s.id);
+                openAgentInBrowser(s.serverKey, s.id, s.name);
             } else {
                 attachSession(s.name, s.cwd);
             }
@@ -269,7 +269,7 @@ public class SessionListPanel extends JPanel {
                     if (s == null) return;
                     if ("running".equals(s.status)) {
                         if (s.isAgent()) {
-                            openAgentInBrowser(s.serverKey, s.id);
+                            openAgentInBrowser(s.serverKey, s.id, s.name);
                         } else {
                             attachSession(s.name, s.cwd);
                         }
@@ -444,11 +444,11 @@ public class SessionListPanel extends JPanel {
             if ("running".equals(session.status)) {
                 if (session.isAgent()) {
                     JMenuItem openItem = new JMenuItem("Open in Editor");
-                    openItem.addActionListener(e -> openAgentInBrowser(session.serverKey, session.id));
+                    openItem.addActionListener(e -> openAgentInBrowser(session.serverKey, session.id, session.name));
                     menu.add(openItem);
 
                     JMenuItem panelItem = new JMenuItem("Open as Panel");
-                    panelItem.addActionListener(e -> openAgentAsToolWindow(session.serverKey, session.id));
+                    panelItem.addActionListener(e -> openAgentAsToolWindow(session.serverKey, session.id, session.name));
                     menu.add(panelItem);
                 } else {
                     JMenuItem attachItem = new JMenuItem("Attach");
@@ -590,7 +590,11 @@ public class SessionListPanel extends JPanel {
 
     /** Open an agent session in the editor area (default). */
     private void openAgentInBrowser(String serverKey, String sessionId) {
-        openAgentPanel(project, serverKey, sessionId);
+        openAgentPanel(project, serverKey, sessionId, null);
+    }
+
+    private void openAgentInBrowser(String serverKey, String sessionId, String sessionName) {
+        openAgentPanel(project, serverKey, sessionId, sessionName);
     }
 
     /** Open an agent session as a dockable tool window (bottom/side/floating). */
@@ -598,11 +602,20 @@ public class SessionListPanel extends JPanel {
         openAgentToolWindow(project, serverKey, sessionId);
     }
 
+    private void openAgentAsToolWindow(String serverKey, String sessionId, String sessionName) {
+        openAgentToolWindow(project, serverKey, sessionId, sessionName);
+    }
+
     /**
      * Open (or focus) an agent session as a tool window — can be docked to
      * bottom, left, right, or floated as a separate window.
      */
     private static void openAgentToolWindow(com.intellij.openapi.project.Project proj, String serverKey, String sessionId) {
+        openAgentToolWindow(proj, serverKey, sessionId, null);
+    }
+
+    private static void openAgentToolWindow(com.intellij.openapi.project.Project proj, String serverKey, String sessionId, String sessionName) {
+        String displayName = sessionName != null && !sessionName.isEmpty() ? sessionName : sessionId;
         String twId = "Agent: " + sessionId;
         com.intellij.openapi.wm.ToolWindow existing =
                 com.intellij.openapi.wm.ToolWindowManager.getInstance(proj).getToolWindow(twId);
@@ -617,14 +630,14 @@ public class SessionListPanel extends JPanel {
                 true,
                 com.intellij.openapi.wm.ToolWindowAnchor.BOTTOM
         );
-        tw.setTitle(sessionId);
-        tw.setStripeTitle(sessionId + " (Agent)");
+        tw.setTitle(displayName);
+        tw.setStripeTitle(displayName + " (Agent)");
         tw.setIcon(com.intellij.openapi.util.IconLoader.getIcon("/icons/be-conductor.svg", SessionListPanel.class));
 
         com.somniacs.beconductor.agent.AgentSessionPanel panel =
                 new com.somniacs.beconductor.agent.AgentSessionPanel(proj, serverKey, sessionId);
         com.intellij.ui.content.Content content = tw.getContentManager()
-                .getFactory().createContent(panel, sessionId, false);
+                .getFactory().createContent(panel, displayName, false);
         content.setCloseable(true);
         content.setDisposer(panel);
         tw.getContentManager().addContent(content);
@@ -636,6 +649,10 @@ public class SessionListPanel extends JPanel {
      * split, and placed alongside code files like a normal editor tab.
      */
     private static void openAgentPanel(com.intellij.openapi.project.Project proj, String serverKey, String sessionId) {
+        openAgentPanel(proj, serverKey, sessionId, null);
+    }
+
+    private static void openAgentPanel(com.intellij.openapi.project.Project proj, String serverKey, String sessionId, String sessionName) {
         ServerRegistry registry = ServerRegistry.getInstance();
         String baseUrl = registry.getBaseUrl(serverKey);
         String wsBase = baseUrl.replaceFirst("^http", "ws");
@@ -643,12 +660,14 @@ public class SessionListPanel extends JPanel {
                 + "?session=" + java.net.URLEncoder.encode(sessionId, java.nio.charset.StandardCharsets.UTF_8)
                 + "&ws=" + java.net.URLEncoder.encode(wsBase, java.nio.charset.StandardCharsets.UTF_8);
 
+        String displayName = sessionName != null && !sessionName.isEmpty() ? sessionName : sessionId;
+
         // Open as editor tab via LightVirtualFile + custom FileEditorProvider
         try {
             com.intellij.testFramework.LightVirtualFile vf =
-                    new com.intellij.testFramework.LightVirtualFile(sessionId + " (Agent)");
+                    new com.intellij.testFramework.LightVirtualFile(displayName + " (Agent)");
             vf.putUserData(com.somniacs.beconductor.agent.AgentFileEditorProvider.AGENT_URL_KEY, url);
-            vf.putUserData(com.somniacs.beconductor.agent.AgentFileEditorProvider.AGENT_SESSION_KEY, sessionId);
+            vf.putUserData(com.somniacs.beconductor.agent.AgentFileEditorProvider.AGENT_SESSION_KEY, displayName);
             com.intellij.openapi.fileEditor.FileEditorManager.getInstance(proj).openFile(vf, true);
             return;
         } catch (Exception | NoClassDefFoundError e) {
@@ -656,7 +675,7 @@ public class SessionListPanel extends JPanel {
         }
 
         // Fallback: register a tool window
-        String twId = "Agent: " + sessionId;
+        String twId = "Agent: " + displayName;
         com.intellij.openapi.wm.ToolWindow existing =
                 com.intellij.openapi.wm.ToolWindowManager.getInstance(proj).getToolWindow(twId);
         if (existing != null) {
@@ -735,7 +754,7 @@ public class SessionListPanel extends JPanel {
                 BeConductorClient.getInstance().resumeSession(serverKey, id, dims[0], dims[1]);
                 SwingUtilities.invokeLater(() -> {
                     if (isAgent) {
-                        openAgentInBrowser(serverKey, id);
+                        openAgentInBrowser(serverKey, id, name);
                     } else {
                         attachSession(name, cwd);
                     }
@@ -1004,7 +1023,7 @@ public class SessionListPanel extends JPanel {
                 }
                 if ("running".equals(s.status)) {
                     if (s.isAgent()) {
-                        SwingUtilities.invokeLater(() -> openAgentInBrowser(s.serverKey, s.id));
+                        SwingUtilities.invokeLater(() -> openAgentInBrowser(s.serverKey, s.id, s.name));
                     } else {
                         SwingUtilities.invokeLater(() -> attachSession(s.name, s.cwd));
                     }
@@ -1015,7 +1034,7 @@ public class SessionListPanel extends JPanel {
                         ApiModels.SessionResponse resumed_s = client.resumeSession("local", s.id, dims[0], dims[1]);
                         String resumedCwd = resumed_s != null ? resumed_s.cwd : s.cwd;
                         if (s.isAgent()) {
-                            SwingUtilities.invokeLater(() -> openAgentInBrowser(s.serverKey, s.id));
+                            SwingUtilities.invokeLater(() -> openAgentInBrowser(s.serverKey, s.id, s.name));
                         } else {
                             SwingUtilities.invokeLater(() -> attachSession(s.name, resumedCwd));
                         }
