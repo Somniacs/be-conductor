@@ -282,10 +282,14 @@ class SessionRegistry:
                      cols: int | None = None, source: str | None = None,
                      worktree: bool = False,
                      session_type: str = "pty",
-                     agent_options: dict | None = None) -> Session:
+                     agent_options: dict | None = None,
+                     session_id: str | None = None) -> Session:
         # Agent sessions get a unique UUID; PTY sessions keep name as ID
-        # for backwards compatibility.
-        if session_type == "agent":
+        # for backwards compatibility.  Callers (e.g. resume) can pass an
+        # explicit session_id to reuse the old ID and its history file.
+        if session_id:
+            pass  # use caller-provided ID
+        elif session_type == "agent":
             session_id = str(_uuid.uuid4())
         else:
             session_id = name
@@ -473,7 +477,8 @@ class SessionRegistry:
         session = await self.create(meta["name"], command, cwd=cwd,
                                     rows=rows, cols=cols,
                                     session_type=st,
-                                    agent_options=agent_opts)
+                                    agent_options=agent_opts,
+                                    session_id=session_id)
         # Carry forward resume_id so fork works immediately
         if has_resume_id:
             session.resume_id = meta["resume_id"]

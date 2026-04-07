@@ -132,6 +132,7 @@ if ($scriptDir -and (Test-Path (Join-Path $scriptDir "pyproject.toml"))) {
     # ── Local mode ────────────────────────────────────────────────
     Write-Host "Installing $Project from local source..."
     & pipx install -e $scriptDir --force
+    & pipx inject $Project claude-agent-sdk 2>$null
 } else {
     # ── Remote mode ───────────────────────────────────────────────
     Write-Host "Downloading latest $Project release..."
@@ -153,6 +154,7 @@ if ($scriptDir -and (Test-Path (Join-Path $scriptDir "pyproject.toml"))) {
 
         Write-Host "Installing $Project..."
         & pipx install (Join-Path $tmpDir $Project) --force
+        & pipx inject $Project claude-agent-sdk 2>$null
     } finally {
         Remove-Item -Recurse -Force $tmpDir -ErrorAction SilentlyContinue
     }

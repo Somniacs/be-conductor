@@ -662,6 +662,10 @@ function _mdToHtml(text) {
     // Paragraphs
     h = h.replace(/\n\n/g, '<div style="height:8px;"></div>');
     h = h.replace(/\n/g, '<br>');
+    // Recover <details>/<summary> tags from model output
+    h = h.replace(/&lt;details&gt;/gi, '<details style="margin:8px 0;border:1px solid #30363d;border-radius:6px;overflow:hidden;">');
+    h = h.replace(/&lt;\/details&gt;/gi, '</details>');
+    h = h.replace(/&lt;summary&gt;([\s\S]*?)&lt;\/summary&gt;/gi, '<summary style="padding:6px 10px;background:var(--tool-header);cursor:pointer;user-select:none;font-size:13px;">$1</summary>');
     // Make file paths clickable
     h = makeFileLinksClickable(h);
     return h;
