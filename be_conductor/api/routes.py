@@ -453,7 +453,22 @@ async def get_config():
 @router.get("/browse")
 async def browse_directory(path: str = "~"):
     """List subdirectories of a given path for the directory picker."""
+    import sys
     try:
+        # Special path: list Windows drive letters
+        if sys.platform == "win32" and path in ("drives", "\\"):
+            import string
+            drives = []
+            for letter in string.ascii_uppercase:
+                dp = Path(f"{letter}:\\")
+                if dp.exists():
+                    drives.append({"name": f"{letter}:\\", "path": str(dp)})
+            return {
+                "current": "My Computer",
+                "parent": None,
+                "directories": drives,
+            }
+
         resolved = Path(path).expanduser().resolve()
         if not resolved.is_dir():
             raise HTTPException(status_code=400, detail="Not a directory")
@@ -468,9 +483,15 @@ async def browse_directory(path: str = "~"):
         except PermissionError:
             pass
 
+        # On Windows, when at a drive root (C:\), go up to drive list
+        is_drive_root = sys.platform == "win32" and resolved == resolved.parent
+        parent = "drives" if is_drive_root else (
+            str(resolved.parent) if resolved != resolved.parent else None
+        )
+
         return {
             "current": str(resolved),
-            "parent": str(resolved.parent) if resolved != resolved.parent else None,
+            "parent": parent,
             "directories": dirs,
         }
     except Exception as e:

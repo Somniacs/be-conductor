@@ -2,6 +2,25 @@
 
 All notable changes to be-conductor are documented here.
 
+## v0.3.48
+
+### New
+
+- **Interactive question boxes** — when Claude asks a clarifying question (via AskUserQuestion), you now see a formatted modal with the question text, option descriptions, and clickable answer buttons instead of a raw permission prompt. Supports both single-select and multi-select questions
+- **Drive switching on Windows** — the directory picker now lets you navigate between drives (C:\, D:\, E:\, etc.) by going up from a drive root to a "My Computer" view listing all available drives
+
+### Changed
+
+- **Session resume preserves conversation history** — closing and resuming a GUI session now replays the previous conversation instead of starting with an empty view
+- **Claude Agent SDK auto-updated on install** — running the install script now always upgrades to the latest SDK version, keeping you current with weekly Anthropic releases
+
+### Fixed
+
+- **Question box actually works** — the AskUserQuestion flow was broken by multiple layered issues: hooks configured as plain dicts instead of HookMatcher objects, a stale server process that survived restarts, the catch-all continue hook overriding the question hook's permission decision, and bypass mode short-circuiting before the question handler. All resolved
+- **No more duplicate answers** — answering a question no longer shows the answer twice in the timeline
+- **Context breakdown popup no longer appears on page reload** — the popup only shows when you explicitly click "Context breakdown" in the menu, not when replaying history
+- **`<details>` tags render as collapsible sections** — model output containing HTML `<details>`/`<summary>` tags now renders as styled collapsible blocks instead of raw text
+
 ## v0.3.47
 
 ### Fixed
