@@ -181,7 +181,7 @@ if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/pyproject.toml" ]; then
     # ── Local mode ────────────────────────────────────────────────
     echo "Installing $PROJECT from local source..."
     pipx install -e "$SCRIPT_DIR" --force
-    pipx inject "$PROJECT" claude-agent-sdk 2>/dev/null || true
+    pipx inject --force "$PROJECT" claude-agent-sdk 2>/dev/null || true
 else
     # ── Remote mode ───────────────────────────────────────────────
     echo "Downloading latest $PROJECT release..."
@@ -199,7 +199,7 @@ else
 
     echo "Installing $PROJECT..."
     pipx install "$tmpdir/$PROJECT" --force
-    pipx inject "$PROJECT" claude-agent-sdk 2>/dev/null || true
+    pipx inject --force "$PROJECT" claude-agent-sdk 2>/dev/null || true
 
     # trap handles cleanup
 fi
