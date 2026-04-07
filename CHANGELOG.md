@@ -2,7 +2,7 @@
 
 All notable changes to be-conductor are documented here.
 
-## v0.3.48
+## v0.3.47
 
 ### New
 
@@ -20,11 +20,6 @@ All notable changes to be-conductor are documented here.
 - **No more duplicate answers** — answering a question no longer shows the answer twice in the timeline
 - **Context breakdown popup no longer appears on page reload** — the popup only shows when you explicitly click "Context breakdown" in the menu, not when replaying history
 - **`<details>` tags render as collapsible sections** — model output containing HTML `<details>`/`<summary>` tags now renders as styled collapsible blocks instead of raw text
-
-## v0.3.47
-
-### Fixed
-
 - **Claude's TUI now renders correctly when attached on Windows** — terminal output used to appear as garbled escape codes (e.g. `←[38;2;...m`) because ANSI colors and cursor moves weren't being interpreted by the Windows console. Arrow keys and function keys now also work inside claude's menus (previously they were sent as raw Windows scancodes the agent couldn't understand)
 - **JetBrains: "Run Session" no longer errors in Windows PowerShell** — the terminal used `&&` to chain commands, which PowerShell 5.x (the Windows default) doesn't support, so sessions would fail with a parser error before claude even started. The plugin now uses shell-appropriate syntax on each platform
 - **GUI sessions no longer crash on Windows when running shell commands** — permission prompts for cmd.exe/powershell commands hit an uninitialized state and crashed with an AttributeError, breaking any `.bat` file or Windows shell interaction
