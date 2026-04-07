@@ -385,7 +385,7 @@ const dragHandle = document.getElementById('drag-handle');
 const inputArea = document.getElementById('input-area');
 const contextRing = document.getElementById('context-ring');
 const contextIndicator = document.getElementById('context-indicator');
-const MAX_CONTEXT = 1000000; // 1M tokens (Opus)
+let MAX_CONTEXT = 1000000; // 1M tokens (Opus)
 let totalTokens = 0;
 
 // Prevent toolbar buttons (send, mode, etc.) from stealing focus from the textarea.
@@ -410,6 +410,7 @@ var _stats = {
 };
 
 var _hasContextUsageEvent = false;  // true after first context_usage event
+var _showContextPopup = false;  // true when user explicitly requested the breakdown popup
 function updateContextRing(usage) {
     if (!usage) return;
     // If we have real context_usage data from the SDK, don't let
@@ -530,6 +531,7 @@ if (contextIndicator) {
         }));
         _ctxPopup.appendChild(_ctxMenuItem('Context breakdown', 'What\u2019s using context (SDK)', () => {
             if (ws && ws.readyState === WebSocket.OPEN) {
+                _showContextPopup = true;
                 ws.send(JSON.stringify({type: 'get_context_usage'}));
             }
         }));
@@ -1008,6 +1010,9 @@ function renderEvent(event) {
             label.textContent = kStr + 'K \u00b7 ' + pctLabel + '%';
             label.style.color = realPct < 0.5 ? 'var(--muted)' : realPct < 0.8 ? '#c4a000' : realPct < 0.95 ? '#f0a020' : 'var(--error)';
         }
+        // Only show the popup when the user explicitly clicked "Context breakdown"
+        if (!_showContextPopup) return;
+        _showContextPopup = false;
         var pct = d.percentage != null ? d.percentage.toFixed(1) : (total / max * 100).toFixed(1);
         var autoCompact = d.isAutoCompactEnabled ? 'on' : 'off';
         var oldP = document.getElementById('context-usage-popup');
@@ -1341,15 +1346,10 @@ function renderEvent(event) {
                 _tuIdToName[block.tool_use_id] = block.tool;
 
             } else if (block.type === 'tool_use' && block.tool === 'AskUserQuestion') {
+                // Skip rendering — the PreToolUse hook emits a separate
+                // formatted question event with descriptions + answer modal.
                 _tuIdToName[block.tool_use_id] = 'AskUserQuestion';
-                const questions = block.input.questions || [block.input];
-                for (const q of questions) {
-                    const el = document.createElement('div');
-                    el.className = 'msg msg-claude msg-claude-dot';
-                    el.style.setProperty('--dot-top', 'calc(10px + 0.4em)');
-                    el.innerHTML = '<div style="padding:10px 14px;background:#1a1a2e;border-radius:8px;border-left:3px solid #c084fc;line-height:1.5;"><div style="font-size:11px;color:#c084fc;font-weight:600;margin-bottom:4px;">Question</div>' + _mdToHtml(q.question || q.text || '') + (q.options && q.options.length ? '<div style="margin-top:6px;font-size:12px;color:var(--muted);">' + q.options.map(o => '<div style="padding:2px 0;">\u2022 ' + escHtml(typeof o === 'string' ? o : (o.label || o.value || String(o))) + '</div>').join('') + '</div>' : '') + '</div>';
-                    targetGroup.appendChild(el);
-                }
+                continue;
 
             } else if (block.type === 'tool_use' && block.tool === 'ExitPlanMode') {
                 // Skip rendering — the backend emits a separate plan_review event
@@ -1385,14 +1385,9 @@ function renderEvent(event) {
                     el.style.setProperty('--dot-top', 'calc(8px + 0.42em)');
                     el.innerHTML = '<div style="padding:8px 12px;background:var(--error-bg);border-radius:6px;border:1px solid var(--error);font-size:12px;color:var(--error);max-height:200px;overflow-y:auto;white-space:pre-wrap;">' + escHtml(block.content || 'Tool error') + '</div>';
                     targetGroup.appendChild(el);
-                } else if (resultToolName === 'AskUserQuestion' && block.content) {
-                    const el = document.createElement('div');
-                    el.className = 'msg msg-claude msg-claude-dot';
-                    el.style.setProperty('--dot-top', 'calc(8px + 0.42em)');
-                    el.innerHTML = '<div style="padding:8px 12px;background:rgba(192,132,252,0.08);border-radius:6px;border-left:3px solid #c084fc;font-size:13px;color:var(--fg);line-height:1.5;">'
-                        + '<span style="font-size:11px;color:#c084fc;font-weight:600;">Answer: </span>'
-                        + escHtml(block.content) + '</div>';
-                    targetGroup.appendChild(el);
+                } else if (resultToolName === 'AskUserQuestion') {
+                    // Skip — answer is shown by the question_answered event
+                    continue;
                 } else if (block.content && !_hiddenTools.has(resultToolName)) {
                     const el = document.createElement('div');
                     el.className = 'msg msg-claude msg-claude-dot';
@@ -1421,8 +1416,13 @@ function renderEvent(event) {
         var qOpts = event.options || [];
 
         // Classify: permission prompt ("Allow **ToolName**: `...`?") vs. direct question
-        var permMatch = qText.match(/^Allow \*\*(\w+)\*\*:\s*`?([\s\S]*?)`?\s*\??\s*$/);
+        var permMatch = qText.match(/^(?:\[.*?\]\s*)?Allow \*\*(\w+)\*\*:\s*`?([\s\S]*?)`?\s*\??\s*$/);
         var isPermission = !!permMatch;
+
+        // AskUserQuestion permission prompts: if the hook handled it we'll
+        // get a separate question event with source=ask_user.  If we see
+        // this permission prompt it means the hook didn't fire — show the
+        // modal so the user can at least approve/deny.
 
 
         // Render in timeline
@@ -1449,16 +1449,33 @@ function renderEvent(event) {
             qBlock.appendChild(det);
         } else {
             // AskUserQuestion or plain question → render the actual question nicely
+            var isAskUser = event.source === 'ask_user';
             var optHtml = '';
             if (qOpts.length) {
-                optHtml = '<div style="margin-top:6px;font-size:12px;color:var(--muted);">' + qOpts.map(function(o) {
+                optHtml = '<div style="margin-top:8px;display:flex;flex-direction:column;gap:4px;">' + qOpts.map(function(o) {
                     var label = typeof o === 'string' ? o : (o.label || o.value || String(o));
-                    return '<div style="padding:2px 0;">\u2022 ' + escHtml(label) + '</div>';
+                    var desc = typeof o === 'object' ? (o.description || '') : '';
+                    return '<div style="padding:6px 10px;background:rgba(192,132,252,0.08);border:1px solid rgba(192,132,252,0.2);border-radius:6px;font-size:12px;">'
+                        + '<div style="color:var(--fg);font-weight:500;">' + escHtml(label) + '</div>'
+                        + (desc ? '<div style="color:var(--muted);font-size:11px;margin-top:2px;">' + escHtml(desc) + '</div>' : '')
+                        + '</div>';
                 }).join('') + '</div>';
             }
-            qBlock.innerHTML = '<div style="padding:10px 14px;background:#1a1a2e;border-radius:8px;border-left:3px solid #c084fc;line-height:1.5;">'
-                + '<div style="font-size:11px;color:#c084fc;font-weight:600;margin-bottom:4px;">Question</div>'
-                + _mdToHtml(qText) + optHtml + '</div>';
+            var multiLabel = event.multiSelect ? ' <span style="font-weight:400;opacity:0.7;">(select multiple)</span>' : '';
+            // Collapsible question block
+            var det = document.createElement('details');
+            det.style.cssText = 'margin:0;border:1px solid rgba(192,132,252,0.25);border-radius:6px;overflow:hidden;';
+            var sum = document.createElement('summary');
+            sum.style.cssText = 'padding:6px 10px;background:#1a1a2e;color:var(--fg);font-size:12px;cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px;list-style:none;';
+            var shortQ = qText.length > 80 ? qText.slice(0,80) + '\u2026' : qText;
+            sum.innerHTML = _chevron + ' <span style="color:#c084fc;">&#10067;</span> <span>' + escHtml(shortQ) + '</span>' + multiLabel;
+            _addChevron(det);
+            var cnt = document.createElement('div');
+            cnt.style.cssText = 'padding:10px 14px;background:#1a1a2e;line-height:1.5;';
+            cnt.innerHTML = optHtml;
+            det.appendChild(sum);
+            det.appendChild(cnt);
+            qBlock.appendChild(det);
         }
         messagesEl.appendChild(qBlock);
 
@@ -2000,6 +2017,10 @@ function showQuestionModal(q, onAnswer) {
     // Scroll messages to bottom
     messagesEl.scrollTop = messagesEl.scrollHeight;
 
+    // AskUserQuestion uses label for answers; permission questions use value
+    const isAskUser = q.source === 'ask_user';
+    const isMulti = !!q.multiSelect;
+
     // Build modal as the input area content
     const modal = document.createElement('div');
     modal.id = 'question-modal';
@@ -2025,7 +2046,9 @@ function showQuestionModal(q, onAnswer) {
     // Question text
     const qText = document.createElement('div');
     qText.style.cssText = 'color:var(--fg);line-height:1.5;font-size:14px;margin-bottom:10px;';
-    qText.innerHTML = _mdToHtml(q.question || q.text || '');
+    var questionHtml = _mdToHtml(q.question || q.text || '');
+    if (isMulti) questionHtml += ' <span style="font-size:11px;color:var(--muted);">(select one or more)</span>';
+    qText.innerHTML = questionHtml;
     modal.appendChild(qText);
 
     function dismiss(answer) {
@@ -2040,39 +2063,120 @@ function showQuestionModal(q, onAnswer) {
         onAnswer(answer);
     }
 
-    // Options (keyboard navigable: arrows to move, Enter to select)
+    // Options (keyboard navigable: arrows to move, Enter/Space to select)
     const opts = q.options || q.choices || [];
     var optBtns = [];
     var _focusIdx = 0;
-    function _focusOpt(idx) {
-        _focusIdx = Math.max(0, Math.min(idx, optBtns.length - 1));
+    // Multi-select: track which options are selected
+    var _selected = new Set();
+
+    function _updateOptVisuals() {
         optBtns.forEach((b, i) => {
             var focused = i === _focusIdx;
-            b.style.borderColor = focused ? 'var(--accent)' : 'var(--border)';
-            b.style.background = focused ? 'var(--tool-header)' : 'var(--code-bg)';
+            var selected = _selected.has(i);
+            b.style.borderColor = selected ? 'var(--accent)' : (focused ? 'var(--accent)' : 'var(--border)');
+            b.style.background = selected ? 'rgba(192,132,252,0.12)' : (focused ? 'var(--tool-header)' : 'var(--code-bg)');
+            // Update the indicator (radio circle or checkbox)
+            var indicator = b.querySelector('[data-indicator]');
+            if (indicator) {
+                if (isMulti) {
+                    indicator.innerHTML = selected ? '<svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 5l2.5 2.5L8 3" stroke="var(--accent)" stroke-width="1.5" fill="none"/></svg>' : '';
+                } else {
+                    indicator.innerHTML = selected ? '<span style="width:8px;height:8px;background:var(--accent);border-radius:50%;display:block;"></span>' : '';
+                }
+            }
         });
+        // Show/hide submit button for multi-select
+        if (submitBtn) submitBtn.style.display = _selected.size > 0 ? '' : 'none';
+    }
+
+    function _focusOpt(idx) {
+        _focusIdx = Math.max(0, Math.min(idx, optBtns.length - 1));
+        _updateOptVisuals();
         optBtns[_focusIdx].focus();
     }
+
+    function _toggleOpt(idx) {
+        if (_selected.has(idx)) _selected.delete(idx);
+        else _selected.add(idx);
+        _updateOptVisuals();
+    }
+
+    function _submitMulti() {
+        // Join selected labels with ", " per SDK spec
+        var labels = [];
+        optBtns.forEach((b, i) => {
+            if (_selected.has(i)) labels.push(b.dataset.label);
+        });
+        if (labels.length) dismiss(labels.join(', '));
+    }
+
+    var submitBtn = null;
+
     if (opts.length) {
         opts.forEach((opt, oi) => {
             const label = typeof opt === 'string' ? opt : (opt.label || opt.value || String(opt));
             const desc = typeof opt === 'object' ? (opt.description || '') : '';
-            const value = typeof opt === 'string' ? opt : (opt.value || opt.label || String(opt));
+            // For AskUserQuestion, answer must be the label; for permissions, use value
+            const answerVal = isAskUser ? label : (typeof opt === 'string' ? opt : (opt.value || opt.label || String(opt)));
             const btn = document.createElement('button');
             btn.tabIndex = 0;
+            btn.dataset.label = label;
+            var indicatorStyle = isMulti
+                ? 'width:16px;height:16px;border:2px solid var(--accent);border-radius:3px;flex-shrink:0;display:flex;align-items:center;justify-content:center;'
+                : 'width:16px;height:16px;border:2px solid var(--accent);border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;';
             btn.style.cssText = 'background:var(--code-bg);color:var(--fg);border:1px solid var(--border);border-radius:8px;padding:10px 14px;cursor:pointer;font-size:13px;text-align:left;display:flex;align-items:center;gap:10px;margin-bottom:4px;width:100%;outline:none;';
-            btn.innerHTML = `<span style="width:16px;height:16px;border:2px solid var(--accent);border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;"></span><div><div>${escHtml(label)}</div>${desc ? `<div style="font-size:11px;color:var(--muted);margin-top:2px;">${escHtml(desc)}</div>` : ''}</div>`;
-            btn.addEventListener('mouseover', () => { _focusOpt(oi); });
-            btn.addEventListener('mouseout', () => { btn.style.borderColor = 'var(--border)'; btn.style.background = 'var(--code-bg)'; });
-            btn.addEventListener('click', () => { dismiss(value); });
+            btn.innerHTML = '<span data-indicator style="' + indicatorStyle + '"></span>'
+                + '<div><div>' + escHtml(label) + '</div>'
+                + (desc ? '<div style="font-size:11px;color:var(--muted);margin-top:2px;">' + escHtml(desc) + '</div>' : '')
+                + '</div>';
+            btn.addEventListener('mouseover', () => {
+                _focusIdx = oi;
+                _updateOptVisuals();
+            });
+            btn.addEventListener('mouseout', () => {
+                if (!_selected.has(oi)) {
+                    btn.style.borderColor = 'var(--border)';
+                    btn.style.background = 'var(--code-bg)';
+                }
+            });
+            btn.addEventListener('click', () => {
+                if (isMulti) {
+                    _toggleOpt(oi);
+                } else {
+                    dismiss(answerVal);
+                }
+            });
             btn.addEventListener('keydown', (e) => {
                 if (e.key === 'ArrowDown' || e.key === 'ArrowRight') { e.preventDefault(); _focusOpt(oi + 1); }
                 else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') { e.preventDefault(); _focusOpt(oi - 1); }
-                else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); dismiss(value); }
+                else if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (isMulti) { _toggleOpt(oi); }
+                    else { dismiss(answerVal); }
+                }
+                else if (e.key === ' ') {
+                    e.preventDefault();
+                    if (isMulti) { _toggleOpt(oi); }
+                    else { dismiss(answerVal); }
+                }
             });
             optBtns.push(btn);
             modal.appendChild(btn);
         });
+
+        // Multi-select: add submit button (hidden until something is selected)
+        if (isMulti) {
+            submitBtn = document.createElement('button');
+            submitBtn.textContent = 'Submit selection';
+            submitBtn.style.cssText = 'display:none;background:var(--accent);color:#fff;border:none;border-radius:6px;padding:8px 16px;cursor:pointer;font-size:13px;font-weight:500;margin-top:6px;width:100%;';
+            submitBtn.addEventListener('click', _submitMulti);
+            submitBtn.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') { e.preventDefault(); _submitMulti(); }
+            });
+            modal.appendChild(submitBtn);
+        }
+
         // Focus first option after modal is added to DOM
         setTimeout(() => { if (optBtns.length) _focusOpt(0); }, 50);
     }
@@ -2084,7 +2188,7 @@ function showQuestionModal(q, onAnswer) {
         freeRow.style.cssText = 'display:flex;gap:6px;margin-top:8px;align-items:center;';
         freeInput = document.createElement('input');
         freeInput.type = 'text';
-        freeInput.placeholder = opts.length ? 'Tell Claude what to do instead...' : 'Type your answer...';
+        freeInput.placeholder = isAskUser ? 'Or type a custom answer...' : (opts.length ? 'Tell Claude what to do instead...' : 'Type your answer...');
         freeInput.style.cssText = 'flex:1;background:var(--code-bg);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:13px;outline:none;';
         freeInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && freeInput.value.trim()) dismiss(freeInput.value.trim());

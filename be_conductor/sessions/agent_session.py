@@ -9,10 +9,13 @@ work for backwards-compatible consumers (CLI, console-mode toggle).
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 import time
 from datetime import datetime, timezone
 from typing import Any, Set
+
+log = logging.getLogger(__name__)
 
 BUFFER_MAX_BYTES = 1_000_000
 
@@ -179,60 +182,6 @@ class AgentSession:
         # Queue for receiving answers to AskUserQuestion from the UI
         self._question_answer_queue: asyncio.Queue[str] = asyncio.Queue()
 
-        # Hook to handle AskUserQuestion — parse the structured questions,
-        # show a clean modal, collect answers, and return them via
-        # permissionDecision: "allow" with updatedInput.
-        async def _ask_user_hook(hook_input, match=None, context=None):
-            tool_input = hook_input.get("tool_input", {})
-            questions = tool_input.get("questions", [])
-            answers = {}
-
-            for q in questions:
-                q_text = q.get("question", "")
-                q_header = q.get("header", "")
-                q_options = q.get("options", [])
-                q_multi = q.get("multiSelect", False)
-
-                if not self._question_pending:
-                    while not self._question_answer_queue.empty():
-                        try: self._question_answer_queue.get_nowait()
-                        except: break
-                self._question_pending = True
-
-                self._emit_event({
-                    "type": "question",
-                    "question": q_text,
-                    "header": q_header,
-                    "options": q_options,
-                    "multiSelect": q_multi,
-                })
-
-                try:
-                    answer = await asyncio.wait_for(
-                        self._question_answer_queue.get(), timeout=300
-                    )
-                except asyncio.TimeoutError:
-                    answer = ""
-                self._question_pending = False
-
-                self._emit_event({
-                    "type": "question_answered",
-                    "answer": answer,
-                })
-
-                answers[q_text] = answer
-
-            return {
-                "hookSpecificOutput": {
-                    "hookEventName": "PreToolUse",
-                    "permissionDecision": "allow",
-                    "updatedInput": {
-                        "questions": questions,
-                        "answers": answers,
-                    },
-                },
-            }
-
         # Hook to intercept ExitPlanMode — show plan to user for approval.
         async def _exit_plan_hook(hook_input, match=None, context=None):
             from pathlib import Path
@@ -292,25 +241,87 @@ class AgentSession:
             PermissionResultAllow, PermissionResultDeny,
         )
 
+        # Hook for AskUserQuestion — parse structured questions, show them,
+        # collect answers, return allow with updated_input containing answers.
+        async def _ask_user_hook(hook_input, tool_use_id=None, context=None):
+            tool_input = hook_input.get("tool_input", {})
+            questions = tool_input.get("questions", [])
+            answers = {}
+            for q in questions:
+                q_text = q.get("question", "")
+                if not self._question_pending:
+                    while not self._question_answer_queue.empty():
+                        try: self._question_answer_queue.get_nowait()
+                        except: break
+                self._question_pending = True
+                self._emit_event({
+                    "type": "question",
+                    "source": "ask_user",
+                    "question": q_text,
+                    "header": q.get("header", ""),
+                    "options": q.get("options", []),
+                    "multiSelect": q.get("multiSelect", False),
+                })
+                try:
+                    answer = await asyncio.wait_for(
+                        self._question_answer_queue.get(), timeout=300
+                    )
+                except asyncio.TimeoutError:
+                    answer = ""
+                    self._question_pending = False
+                # question_answered is emitted by answer_question() which
+                # also handles multi-client dismissal — don't duplicate here.
+                answers[q_text] = answer
+            return {
+                "continue_": True,
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "allow",
+                    "updatedInput": {
+                        "questions": questions,
+                        "answers": answers,
+                    },
+                },
+            }
+
         async def _can_use_tool(tool_name, tool_input, context):
-            # Check our internal mode — SDK may still call us even after
-            # set_permission_mode if the change hasn't propagated yet.
+            # AskUserQuestion is fully handled by its PreToolUse hook.
+            if tool_name == "AskUserQuestion":
+                return PermissionResultAllow()
+            # Permission mode shortcuts
             mode = self._agent_options.get("permission_mode", "default")
             if mode == "bypassPermissions":
                 return PermissionResultAllow()
             if mode == "acceptEdits" and tool_name in ("Edit", "Write", "NotebookEdit"):
                 return PermissionResultAllow()
-            # AskUserQuestion is handled by its PreToolUse hook — auto-approve
-            # the permission check so the SDK doesn't show a raw JSON prompt.
-            if tool_name == "AskUserQuestion":
-                return PermissionResultAllow()
-            # Build a readable summary
+            # Build a readable summary for the permission prompt
             if tool_name == "Bash":
                 prompt = tool_input.get("command", "") or tool_input.get("description", "")
-            elif tool_name in ("Edit", "Write", "NotebookEdit"):
+            elif tool_name in ("Edit", "Write", "NotebookEdit", "Read"):
                 prompt = tool_input.get("file_path", "")
+            elif tool_name == "Glob":
+                prompt = tool_input.get("pattern", "")
+            elif tool_name == "Grep":
+                prompt = tool_input.get("pattern", "")
+            elif tool_name == "Skill":
+                skill = tool_input.get("skill", "")
+                args = tool_input.get("args", "")
+                prompt = f"{skill} {args}".strip() if args else skill
+            elif tool_name == "Agent":
+                prompt = tool_input.get("description", "") or tool_input.get("prompt", "")[:100]
+            elif tool_name == "WebFetch":
+                prompt = tool_input.get("url", "")
+            elif tool_name == "WebSearch":
+                prompt = tool_input.get("query", "")
             else:
-                prompt = str(tool_input)[:200]
+                # Generic: pick the first string-valued field
+                prompt = ""
+                for v in tool_input.values():
+                    if isinstance(v, str) and v:
+                        prompt = v[:200]
+                        break
+                if not prompt:
+                    prompt = str(tool_input)[:200]
 
             # Only drain if no question is pending (avoids losing a fresh answer)
             if not self._question_pending:
@@ -359,6 +370,10 @@ class AgentSession:
         # Catch-all hook: keeps stream open while can_use_tool waits for
         # the user to click Allow/Deny.  Without this the SDK may close
         # the stream before the permission callback completes.
+        # Returns continue_=True but NO permissionDecision — so the SDK
+        # falls through to can_use_tool for the actual decision.
+        # AskUserQuestion and ExitPlanMode are excluded (they have their
+        # own hooks that return permissionDecision="allow").
         async def _continue_hook(hook_input, match=None, context=None):
             return {"continue_": True}
 
@@ -378,14 +393,15 @@ class AgentSession:
             return {}
 
         try:
+            from claude_agent_sdk.types import HookMatcher
             hooks_config = {
                 "PreToolUse": [
-                    {"matcher": "AskUserQuestion", "hooks": [_ask_user_hook]},
-                    {"matcher": "ExitPlanMode", "hooks": [_exit_plan_hook]},
-                    {"matcher": None, "hooks": [_continue_hook]},
+                    HookMatcher(matcher="AskUserQuestion", hooks=[_ask_user_hook]),
+                    HookMatcher(matcher="ExitPlanMode", hooks=[_exit_plan_hook]),
+                    HookMatcher(matcher="^(?!AskUserQuestion$|ExitPlanMode$)", hooks=[_continue_hook]),
                 ],
-                "PreCompact": [{"matcher": None, "hooks": [_pre_compact_hook]}],
-                "Stop": [{"matcher": None, "hooks": [_stop_hook]}],
+                "PreCompact": [HookMatcher(matcher=None, hooks=[_pre_compact_hook])],
+                "Stop": [HookMatcher(matcher=None, hooks=[_stop_hook])],
             }
         except Exception:
             hooks_config = None
@@ -506,13 +522,19 @@ class AgentSession:
                             await client.query(text)
                         await self._stream_response(client, is_btw=is_btw)
                         self._processing = False
-                        # Apply deferred mode change (from yes_all inside can_use_tool)
+                        # Apply deferred mode change (from yes_all inside can_use_tool).
+                        # Never send bypassPermissions to the SDK — it disables hooks
+                        # (including our AskUserQuestion hook).  We handle bypass
+                        # ourselves in _can_use_tool; just broadcast the UI update.
                         if getattr(self, '_pending_mode_change', None):
-                            try:
-                                await client.set_permission_mode(self._pending_mode_change)
-                            except Exception:
-                                pass
+                            mode = self._pending_mode_change
                             self._pending_mode_change = None
+                            if mode != "bypassPermissions":
+                                try:
+                                    await client.set_permission_mode(mode)
+                                except Exception:
+                                    pass
+                            self._broadcast_settings()
                         if is_btw:
                             self._broadcast_event({"type": "btw_end"})
 
