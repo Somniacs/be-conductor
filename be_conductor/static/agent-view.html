@@ -787,13 +787,10 @@ function makeFileLinksClickable(html) {
     });
 }
 
-// Keep all thinking elements + spinner at the very bottom of the message list.
+// Keep live streaming thinking + spinner at the very bottom of the message list.
+// Finalized thinking blocks (.msg-thinking) stay where they were rendered in their turn.
 function _ensureThinkingLast() {
-    // Move finalized thinking blocks (from assistant_message)
-    messagesEl.querySelectorAll('.msg-thinking').forEach(function(t) {
-        messagesEl.appendChild(t);
-    });
-    // Move live streaming thinking
+    // Move live streaming thinking to the bottom
     var think = document.getElementById('stream-thinking');
     if (think && think.parentNode === messagesEl) messagesEl.appendChild(think);
     // Spinner always last
@@ -891,6 +888,19 @@ function renderEvent(event) {
                 if (ia) { ia.style.display = 'none'; ia.offsetHeight; ia.style.display = ''; }
             }
             setBusy(true);
+        }
+        // Show the answer in the timeline
+        var answerText = event.answer || '';
+        if (answerText) {
+            var ansEl = document.createElement('div');
+            ansEl.className = 'msg msg-claude msg-claude-dot';
+            ansEl.style.setProperty('--dot-top', 'calc(8px + 0.42em)');
+            ansEl.innerHTML = '<div style="padding:8px 12px;background:rgba(192,132,252,0.08);border-radius:6px;border-left:3px solid #c084fc;font-size:13px;color:var(--fg);line-height:1.5;">'
+                + '<span style="font-size:11px;color:#c084fc;font-weight:600;">Answer: </span>'
+                + escHtml(answerText) + '</div>';
+            messagesEl.appendChild(ansEl);
+            _ensureThinkingLast();
+            autoScroll();
         }
         return;
     }
@@ -1259,6 +1269,7 @@ function renderEvent(event) {
 
         // Linear append — everything goes to messagesEl in chronological order.
         var targetGroup = messagesEl;
+        var _tuIdToName = {};  // track tool_use_id → tool name for tool_result rendering
 
         for (const block of blocks) {
             if (block.type === 'text') {
@@ -1327,9 +1338,10 @@ function renderEvent(event) {
                 }
 
             } else if (block.type === 'tool_use' && _hiddenTools.has(block.tool)) {
-                // Hidden internal tools
+                _tuIdToName[block.tool_use_id] = block.tool;
 
             } else if (block.type === 'tool_use' && block.tool === 'AskUserQuestion') {
+                _tuIdToName[block.tool_use_id] = 'AskUserQuestion';
                 const questions = block.input.questions || [block.input];
                 for (const q of questions) {
                     const el = document.createElement('div');
@@ -1345,6 +1357,7 @@ function renderEvent(event) {
                 continue;
 
             } else if (block.type === 'tool_use') {
+                _tuIdToName[block.tool_use_id] = block.tool;
                 const el = document.createElement('div');
                 el.className = 'msg msg-claude msg-claude-dot';
                 el.style.setProperty('--dot-top', 'calc(7px + 0.42em)');
@@ -1365,11 +1378,38 @@ function renderEvent(event) {
                 targetGroup.appendChild(el);
 
             } else if (block.type === 'tool_result') {
+                var resultToolName = _tuIdToName[block.tool_use_id] || '';
                 if (block.is_error) {
                     const el = document.createElement('div');
                     el.className = 'msg msg-claude msg-claude-dot';
                     el.style.setProperty('--dot-top', 'calc(8px + 0.42em)');
                     el.innerHTML = '<div style="padding:8px 12px;background:var(--error-bg);border-radius:6px;border:1px solid var(--error);font-size:12px;color:var(--error);max-height:200px;overflow-y:auto;white-space:pre-wrap;">' + escHtml(block.content || 'Tool error') + '</div>';
+                    targetGroup.appendChild(el);
+                } else if (resultToolName === 'AskUserQuestion' && block.content) {
+                    const el = document.createElement('div');
+                    el.className = 'msg msg-claude msg-claude-dot';
+                    el.style.setProperty('--dot-top', 'calc(8px + 0.42em)');
+                    el.innerHTML = '<div style="padding:8px 12px;background:rgba(192,132,252,0.08);border-radius:6px;border-left:3px solid #c084fc;font-size:13px;color:var(--fg);line-height:1.5;">'
+                        + '<span style="font-size:11px;color:#c084fc;font-weight:600;">Answer: </span>'
+                        + escHtml(block.content) + '</div>';
+                    targetGroup.appendChild(el);
+                } else if (block.content && !_hiddenTools.has(resultToolName)) {
+                    const el = document.createElement('div');
+                    el.className = 'msg msg-claude msg-claude-dot';
+                    el.style.setProperty('--dot-top', 'calc(7px + 0.42em)');
+                    var rPreview = block.content.length > 120 ? block.content.slice(0, 120) + '\u2026' : block.content;
+                    var det = document.createElement('details');
+                    det.style.cssText = 'margin:0;border:1px solid #30363d;border-radius:6px;overflow:hidden;';
+                    var sum = document.createElement('summary');
+                    sum.style.cssText = 'padding:5px 10px;background:var(--tool-header);color:var(--muted);font-size:12px;cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px;list-style:none;';
+                    sum.innerHTML = _chevron + ' <span style="color:#3fb950;">\u2713</span> <span style="color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escHtml(rPreview) + '</span>';
+                    _addChevron(det);
+                    var cnt = document.createElement('div');
+                    cnt.style.cssText = 'padding:8px 12px;background:var(--tool-bg);white-space:pre-wrap;font-size:12px;color:var(--muted);line-height:1.4;max-height:300px;overflow-y:auto;';
+                    cnt.textContent = block.content;
+                    det.appendChild(sum);
+                    det.appendChild(cnt);
+                    el.appendChild(det);
                     targetGroup.appendChild(el);
                 }
             }
@@ -1380,19 +1420,10 @@ function renderEvent(event) {
         var qText = event.question || '';
         var qOpts = event.options || [];
 
-        // Classify: permission prompt vs. AskUserQuestion
+        // Classify: permission prompt ("Allow **ToolName**: `...`?") vs. direct question
         var permMatch = qText.match(/^Allow \*\*(\w+)\*\*:\s*`?([\s\S]*?)`?\s*\??\s*$/);
-        var isPermission = permMatch && permMatch[1] !== 'AskUserQuestion';
-        var isAskUser = permMatch && permMatch[1] === 'AskUserQuestion';
+        var isPermission = !!permMatch;
 
-        // Extract clean question text for AskUserQuestion
-        var cleanQuestion = qText;
-        if (isAskUser) {
-            // The SDK wraps it as: Allow **AskUserQuestion**: `{'question': '...', ...}`
-            // Extract the actual question from the tool_input
-            var qm = permMatch[2].match(/'question':\s*'([^']+)'/);
-            cleanQuestion = qm ? qm[1] : permMatch[2];
-        }
 
         // Render in timeline
         var qBlock = document.createElement('div');
@@ -1427,13 +1458,13 @@ function renderEvent(event) {
             }
             qBlock.innerHTML = '<div style="padding:10px 14px;background:#1a1a2e;border-radius:8px;border-left:3px solid #c084fc;line-height:1.5;">'
                 + '<div style="font-size:11px;color:#c084fc;font-weight:600;margin-bottom:4px;">Question</div>'
-                + _mdToHtml(cleanQuestion) + optHtml + '</div>';
+                + _mdToHtml(qText) + optHtml + '</div>';
         }
         messagesEl.appendChild(qBlock);
 
         // Show top banner for non-permission questions
         if (!isPermission && !_replayingHistory) {
-            _showQuestionBanner(cleanQuestion);
+            _showQuestionBanner(qText);
         }
 
         // Track as pending (cleared by question_answered)
@@ -1442,9 +1473,7 @@ function renderEvent(event) {
 
         if (_replayingHistory) return;
         setBusy(false);
-        // For AskUserQuestion: pass cleaned question text to the modal
-        var modalEvent = isAskUser ? Object.assign({}, event, {question: cleanQuestion}) : event;
-        showQuestionModal(modalEvent, (answer) => {
+        showQuestionModal(event, (answer) => {
             _hideQuestionBanner();
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({type: 'answer', text: answer}));

@@ -179,40 +179,59 @@ class AgentSession:
         # Queue for receiving answers to AskUserQuestion from the UI
         self._question_answer_queue: asyncio.Queue[str] = asyncio.Queue()
 
-        # Hook to intercept AskUserQuestion — emit to UI and wait for answer.
-        # SDK hook signature: (hook_input: dict, match: str|None, context: HookContext)
-        # Returns SyncHookJSONOutput dict.
+        # Hook to handle AskUserQuestion — parse the structured questions,
+        # show a clean modal, collect answers, and return them via
+        # permissionDecision: "allow" with updatedInput.
         async def _ask_user_hook(hook_input, match=None, context=None):
             tool_input = hook_input.get("tool_input", {})
-            tool_use_id = hook_input.get("tool_use_id", "")
-            question = tool_input.get("question", tool_input.get("text", ""))
-            options_list = tool_input.get("options", tool_input.get("choices", []))
+            questions = tool_input.get("questions", [])
+            answers = {}
 
-            # Only drain if no question is pending (avoids losing a fresh answer)
-            if not self._question_pending:
-                while not self._question_answer_queue.empty():
-                    try: self._question_answer_queue.get_nowait()
-                    except: break
-            self._question_pending = True
+            for q in questions:
+                q_text = q.get("question", "")
+                q_header = q.get("header", "")
+                q_options = q.get("options", [])
+                q_multi = q.get("multiSelect", False)
 
-            self._emit_event({
-                "type": "question",
-                "question": question,
-                "options": options_list,
-                "tool_use_id": tool_use_id,
-            })
+                if not self._question_pending:
+                    while not self._question_answer_queue.empty():
+                        try: self._question_answer_queue.get_nowait()
+                        except: break
+                self._question_pending = True
 
-            # Wait for the user's answer from the UI
-            try:
-                answer = await asyncio.wait_for(
-                    self._question_answer_queue.get(), timeout=300
-                )
-            except asyncio.TimeoutError:
-                answer = "No answer provided (timeout)"
+                self._emit_event({
+                    "type": "question",
+                    "question": q_text,
+                    "header": q_header,
+                    "options": q_options,
+                    "multiSelect": q_multi,
+                })
 
-            # Block the tool and deliver the answer as the reason —
-            # the model sees this as the tool's response.
-            return {"decision": "block", "reason": answer}
+                try:
+                    answer = await asyncio.wait_for(
+                        self._question_answer_queue.get(), timeout=300
+                    )
+                except asyncio.TimeoutError:
+                    answer = ""
+                self._question_pending = False
+
+                self._emit_event({
+                    "type": "question_answered",
+                    "answer": answer,
+                })
+
+                answers[q_text] = answer
+
+            return {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "allow",
+                    "updatedInput": {
+                        "questions": questions,
+                        "answers": answers,
+                    },
+                },
+            }
 
         # Hook to intercept ExitPlanMode — show plan to user for approval.
         async def _exit_plan_hook(hook_input, match=None, context=None):
@@ -281,7 +300,10 @@ class AgentSession:
                 return PermissionResultAllow()
             if mode == "acceptEdits" and tool_name in ("Edit", "Write", "NotebookEdit"):
                 return PermissionResultAllow()
-
+            # AskUserQuestion is handled by its PreToolUse hook — auto-approve
+            # the permission check so the SDK doesn't show a raw JSON prompt.
+            if tool_name == "AskUserQuestion":
+                return PermissionResultAllow()
             # Build a readable summary
             if tool_name == "Bash":
                 prompt = tool_input.get("command", "") or tool_input.get("description", "")
