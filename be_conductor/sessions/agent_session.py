@@ -290,6 +290,16 @@ class AgentSession:
                 return PermissionResultAllow()
             # Permission mode shortcuts
             mode = self._agent_options.get("permission_mode", "default")
+            if mode == "plan":
+                # Plan mode: block all tools except read-only exploration
+                # and AskUserQuestion (handled above). Claude plans but doesn't act.
+                if tool_name in ("Read", "Glob", "Grep", "ToolSearch",
+                                 "EnterPlanMode", "ExitPlanMode", "Agent",
+                                 "TodoWrite"):
+                    return PermissionResultAllow()
+                return PermissionResultDeny(
+                    message="Plan mode is active — tools are blocked until the plan is approved."
+                )
             if mode == "bypassPermissions":
                 return PermissionResultAllow()
             if mode == "acceptEdits" and tool_name in ("Edit", "Write", "NotebookEdit"):
