@@ -7,8 +7,13 @@ All notable changes to be-conductor are documented here.
 ### New
 
 - **Search in conversation** — press Ctrl+F to open a search bar at the top of the message area. Type to find text across all messages, tool calls, and responses. Navigate matches with Enter/Shift+Enter or the arrow buttons. Shows match count ("3/17"). Escape to close
-- **Progressive history loading** — reconnecting to a long session no longer freezes the browser. User messages and structure appear instantly, then assistant messages fill in progressively from newest to oldest using idle callbacks
+- **Instant history loading** — reconnecting to a long session loads all messages in one shot using a DocumentFragment batch render. No scrollbar jumping, no progressive fill — just fast
 - **Smoother live streaming** — markdown rendering during live responses is now throttled to once per animation frame instead of on every character, eliminating jank on long outputs
+
+### Fixed
+
+- **BTW responses no longer leak into main chat** — stream deltas from side questions were rendering in the message area. Now properly filtered to the BTW panel only
+- **BTW close button no longer scrolls the page** — clicking the X to close the side question panel no longer triggers a scroll jump
 
 ## v0.3.48
 
