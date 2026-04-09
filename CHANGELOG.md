@@ -8,7 +8,9 @@ All notable changes to be-conductor are documented here.
 
 - **GUI agent inherits your full environment** — SSH, GPG, PATH, nvm, pyenv, API keys, and everything else from your shell now works in agent sessions. Previously the CLI subprocess launched with a bare environment, causing silent failures for SSH connections, custom tools, and version managers
 - **Plan mode actually blocks tools** — switching to Plan mode had no effect because the permission callback didn't handle it. Now read-only tools (Read, Glob, Grep) are allowed for exploration, everything else is blocked until the plan is approved
-- **Responses no longer appear delayed** — in some cases the agent's response would only show up when the next message was sent. A `turn_complete` event now fires after every turn to guarantee the spinner stops and the response is visible
+- **Responses no longer appear delayed** — in some cases the agent's response would only show up when the next message was sent. Caused by the batch render monkey-patching `appendChild` which broke internal DOM operations in `renderEvent`. Replaced with `display:none` batch render. A `turn_complete` event also fires after every turn as a safety net
+- **Smooth scrolling and typing on large sessions** — removed expensive dot-line recalculation from every scroll event, added CSS containment to isolate the message area from the input, and throttled textarea auto-resize. Sessions with 1800+ messages no longer lag
+- **Render errors visible** — if a message fails to render, a red indicator appears instead of silently vanishing
 
 ## v0.3.49
 
