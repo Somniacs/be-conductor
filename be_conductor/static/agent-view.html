@@ -155,7 +155,7 @@ summary[style*="list-style:none"]::-webkit-details-marker { display: none; }
     <button id="search-next" title="Next (Enter)" style="background:none;border:1px solid var(--border);border-radius:4px;color:var(--muted);cursor:pointer;padding:2px 6px;font-size:12px;line-height:1;">&#9660;</button>
     <button id="search-close" title="Close (Esc)" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;padding:2px 4px;line-height:1;">&times;</button>
 </div>
-<div id="messages" style="flex:1;width:100%;">
+<div id="messages" style="flex:1;width:100%;contain:layout style;">
 </div>
 </div>
 <div class="btw-panel" id="btw-panel"></div>
@@ -3019,10 +3019,15 @@ var _streamBubbleRaw = '';  // accumulated raw text for live markdown rendering
 var _streamThinkingRaw = '';  // accumulated thinking text for live rendering
 var _streamBlockType = '';  // current streaming block type (text/thinking)
 var _streamRenderPending = false;  // throttle: true while rAF is pending
+var _resizePending = false;
 promptEl.addEventListener('input', () => {
-    if (!_manualResize) {
-        promptEl.style.height = '38px';
-        promptEl.style.height = promptEl.scrollHeight + 'px';
+    if (!_manualResize && !_resizePending) {
+        _resizePending = true;
+        requestAnimationFrame(() => {
+            promptEl.style.height = '38px';
+            promptEl.style.height = promptEl.scrollHeight + 'px';
+            _resizePending = false;
+        });
     }
     updateSendBtn();
     updateSlashPopup();
