@@ -126,6 +126,9 @@ summary[style*="list-style:none"]::-webkit-details-marker { display: none; }
 ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #484f58; }
 ::-webkit-scrollbar-corner { background: transparent; }
+.search-hit { background: rgba(255,200,0,0.25); border-radius: 2px; }
+.search-hit-active { background: rgba(255,200,0,0.7); outline: 1px solid #f0c040; border-radius: 2px; }
+.msg-skeleton { opacity: 0.5; }
 </style>
 </head>
 <body>
@@ -143,6 +146,14 @@ summary[style*="list-style:none"]::-webkit-details-marker { display: none; }
     <button id="nav-down" title="Next question" disabled style="opacity:0.25;">
             <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M2 5l4 4 4-4"/></svg>
         </button>
+</div>
+<div id="search-bar" style="display:none;align-items:center;gap:6px;padding:6px 12px;background:var(--bg-secondary);border-bottom:1px solid var(--border);flex-shrink:0;">
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="var(--muted)" stroke-width="1.5"><circle cx="6.5" cy="6.5" r="5"/><path d="M10.5 10.5L14 14"/></svg>
+    <input id="search-input" type="text" placeholder="Find in conversation..." style="flex:1;background:var(--code-bg);color:var(--fg);border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:13px;outline:none;min-width:0;" />
+    <span id="search-count" style="font-size:11px;color:var(--muted);white-space:nowrap;">0/0</span>
+    <button id="search-prev" title="Previous (Shift+Enter)" style="background:none;border:1px solid var(--border);border-radius:4px;color:var(--muted);cursor:pointer;padding:2px 6px;font-size:12px;line-height:1;">&#9650;</button>
+    <button id="search-next" title="Next (Enter)" style="background:none;border:1px solid var(--border);border-radius:4px;color:var(--muted);cursor:pointer;padding:2px 6px;font-size:12px;line-height:1;">&#9660;</button>
+    <button id="search-close" title="Close (Esc)" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;padding:2px 4px;line-height:1;">&times;</button>
 </div>
 <div id="messages" style="flex:1;width:100%;">
 </div>
@@ -1096,8 +1107,16 @@ function renderEvent(event) {
                 _ensureThinkingLast();
             }
             _streamBubbleRaw += event.text;
-            bubble.innerHTML = _mdToHtml(_streamBubbleRaw);
-            autoScroll();
+            // Throttle markdown re-parsing — once per animation frame instead of every delta
+            if (!_streamRenderPending) {
+                _streamRenderPending = true;
+                requestAnimationFrame(function() {
+                    var _b = document.getElementById('stream-bubble');
+                    if (_b) _b.innerHTML = _mdToHtml(_streamBubbleRaw);
+                    _streamRenderPending = false;
+                    autoScroll();
+                });
+            }
         } else if (etype === 'stream_delta' && event.delta_type === 'thinking') {
             var thinkEl = document.getElementById('stream-thinking');
             if (!thinkEl) {
@@ -2271,6 +2290,123 @@ let spinnerEl = null;
 let busyStartTime = 0;
 let spinnerInterval = null;
 var _compacting = false;  // true while manual /compact is in progress
+
+// --- Search / Find in conversation ---
+var _searchMatches = [];   // array of <mark> elements
+var _searchIdx = -1;       // current match index
+var _searchDebounce = null;
+
+function _openSearch() {
+    var bar = document.getElementById('search-bar');
+    bar.style.display = 'flex';
+    var inp = document.getElementById('search-input');
+    inp.value = '';
+    inp.focus();
+    _clearSearchMarks();
+    document.getElementById('search-count').textContent = '0/0';
+}
+
+function _closeSearch() {
+    document.getElementById('search-bar').style.display = 'none';
+    _clearSearchMarks();
+    _searchMatches = [];
+    _searchIdx = -1;
+    if (promptEl) promptEl.focus({ preventScroll: true });
+}
+
+function _clearSearchMarks() {
+    var marks = messagesEl.querySelectorAll('mark.search-hit');
+    for (var i = marks.length - 1; i >= 0; i--) {
+        var m = marks[i];
+        var parent = m.parentNode;
+        parent.replaceChild(document.createTextNode(m.textContent), m);
+        parent.normalize();
+    }
+}
+
+function _performSearch(query) {
+    _clearSearchMarks();
+    _searchMatches = [];
+    _searchIdx = -1;
+    if (!query) {
+        document.getElementById('search-count').textContent = '0/0';
+        return;
+    }
+    var lowerQ = query.toLowerCase();
+    // Walk all text nodes in #messages
+    var walker = document.createTreeWalker(messagesEl, NodeFilter.SHOW_TEXT, null, false);
+    var textNodes = [];
+    while (walker.nextNode()) textNodes.push(walker.currentNode);
+    for (var i = 0; i < textNodes.length; i++) {
+        var node = textNodes[i];
+        var text = node.textContent;
+        var lower = text.toLowerCase();
+        var pos = lower.indexOf(lowerQ);
+        if (pos === -1) continue;
+        // Split node and wrap matches
+        var frag = document.createDocumentFragment();
+        var lastIdx = 0;
+        while (pos !== -1) {
+            if (pos > lastIdx) frag.appendChild(document.createTextNode(text.slice(lastIdx, pos)));
+            var mark = document.createElement('mark');
+            mark.className = 'search-hit';
+            mark.textContent = text.slice(pos, pos + query.length);
+            frag.appendChild(mark);
+            _searchMatches.push(mark);
+            lastIdx = pos + query.length;
+            pos = lower.indexOf(lowerQ, lastIdx);
+        }
+        if (lastIdx < text.length) frag.appendChild(document.createTextNode(text.slice(lastIdx)));
+        node.parentNode.replaceChild(frag, node);
+    }
+    if (_searchMatches.length > 0) {
+        _searchIdx = 0;
+        _searchMatches[0].classList.add('search-hit-active');
+        _searchMatches[0].scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+    document.getElementById('search-count').textContent = _searchMatches.length > 0
+        ? '1/' + _searchMatches.length : '0/0';
+}
+
+function _searchNav(dir) {
+    if (_searchMatches.length === 0) return;
+    _searchMatches[_searchIdx].classList.remove('search-hit-active');
+    _searchIdx = (_searchIdx + dir + _searchMatches.length) % _searchMatches.length;
+    _searchMatches[_searchIdx].classList.add('search-hit-active');
+    _searchMatches[_searchIdx].scrollIntoView({ block: 'center', behavior: 'smooth' });
+    document.getElementById('search-count').textContent = (_searchIdx + 1) + '/' + _searchMatches.length;
+}
+
+// Wire up search bar events
+document.addEventListener('DOMContentLoaded', function() {
+    var searchInput = document.getElementById('search-input');
+    var searchBar = document.getElementById('search-bar');
+    if (!searchInput) return;
+
+    searchInput.addEventListener('input', function() {
+        clearTimeout(_searchDebounce);
+        _searchDebounce = setTimeout(function() {
+            _performSearch(searchInput.value.trim());
+        }, 150);
+    });
+    searchInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); _searchNav(1); }
+        if (e.key === 'Enter' && e.shiftKey) { e.preventDefault(); _searchNav(-1); }
+        if (e.key === 'Escape') { e.preventDefault(); _closeSearch(); }
+    });
+    document.getElementById('search-next').addEventListener('click', function() { _searchNav(1); });
+    document.getElementById('search-prev').addEventListener('click', function() { _searchNav(-1); });
+    document.getElementById('search-close').addEventListener('click', _closeSearch);
+});
+
+// Ctrl+F intercept
+document.addEventListener('keydown', function(e) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault();
+        _openSearch();
+    }
+});
+
 var _rateLimitInfo = {};  // rate limit info keyed by type, e.g. {five_hour: {...}, seven_day: {...}}
 try {
     var _rlStored = JSON.parse(localStorage.getItem('agent-view-ratelimit'));
@@ -2583,16 +2719,78 @@ function connect() {
             if (msg.type === 'history') {
                 const allMsgs = msg.messages || [];
                 _replayingHistory = true;
+
+                // Phase A: fast pass — render user/system/result fully, assistant as skeletons
+                var _deferredFills = [];  // [{el, event}]
                 try {
                     for (var hi = 0; hi < allMsgs.length; hi++) {
-                        try { renderEvent(allMsgs[hi]); } catch (e) {}
-                        if (allMsgs[hi].type === 'user_message' && allMsgs[hi].content) _inputHistory.push(allMsgs[hi].content);
+                        var _hm = allMsgs[hi];
+                        if (_hm.type === 'user_message' && _hm.content) _inputHistory.push(_hm.content);
+                        if (_hm.type === 'assistant_message') {
+                            // Lightweight skeleton
+                            var blocks = _hm.content || [];
+                            var nText = 0, nTool = 0, nThink = 0;
+                            for (var bi = 0; bi < blocks.length; bi++) {
+                                if (blocks[bi].type === 'text') nText++;
+                                else if (blocks[bi].type === 'tool_use' || blocks[bi].type === 'tool_result') nTool++;
+                                else if (blocks[bi].type === 'thinking') nThink++;
+                            }
+                            var parts = [];
+                            if (nThink) parts.push(nThink + ' thinking');
+                            if (nText) parts.push(nText + ' text');
+                            if (nTool) parts.push(nTool + ' tool');
+                            var skel = document.createElement('div');
+                            skel.className = 'msg msg-claude msg-claude-dot msg-skeleton';
+                            skel.style.cssText = 'padding:8px 14px;color:var(--muted);font-size:12px;font-style:italic;';
+                            skel.textContent = 'Claude \u00b7 ' + (parts.join(', ') || 'responded');
+                            messagesEl.appendChild(skel);
+                            _deferredFills.push({el: skel, event: _hm});
+                        } else {
+                            try { renderEvent(_hm); } catch (e) {}
+                        }
                     }
                 } finally {
                     _replayingHistory = false;
                 }
                 _hideLoading();
                 messagesEl.scrollTop = messagesEl.scrollHeight;
+
+                // Phase B: progressive fill, bottom-up with idle callbacks
+                var _fillIdx = _deferredFills.length - 1;
+                function _fillChunk(deadline) {
+                    _replayingHistory = true;
+                    var budget = (deadline && deadline.timeRemaining) ? deadline.timeRemaining() : 16;
+                    var start = performance.now();
+                    while (_fillIdx >= 0 && (performance.now() - start) < Math.min(budget, 30)) {
+                        var item = _deferredFills[_fillIdx];
+                        // Render full content into a temp container
+                        var tempWrap = document.createElement('div');
+                        var origTarget = messagesEl;
+                        // Temporarily redirect renderEvent output
+                        var _origAppend = messagesEl.appendChild.bind(messagesEl);
+                        messagesEl.appendChild = tempWrap.appendChild.bind(tempWrap);
+                        try { renderEvent(item.event); } catch (e) {}
+                        messagesEl.appendChild = _origAppend;
+                        // Replace skeleton with rendered content
+                        while (tempWrap.firstChild) {
+                            item.el.parentNode.insertBefore(tempWrap.firstChild, item.el);
+                        }
+                        item.el.remove();
+                        _fillIdx--;
+                    }
+                    _replayingHistory = false;
+                    if (_fillIdx >= 0) {
+                        if (window.requestIdleCallback) requestIdleCallback(_fillChunk, {timeout: 100});
+                        else setTimeout(_fillChunk, 16);
+                    } else {
+                        // All filled — update dot lines
+                        _updateGroupLines();
+                    }
+                }
+                if (_deferredFills.length > 0) {
+                    if (window.requestIdleCallback) requestIdleCallback(_fillChunk, {timeout: 50});
+                    else setTimeout(_fillChunk, 0);
+                }
                 // Refresh context ring from SDK (if session is connected)
                 if (ws && ws.readyState === WebSocket.OPEN) {
                     ws.send(JSON.stringify({type: 'get_context_usage'}));
@@ -2846,6 +3044,7 @@ var _lastOptimisticContent = null;  // skip backend echo of optimistic user_mess
 var _streamBubbleRaw = '';  // accumulated raw text for live markdown rendering
 var _streamThinkingRaw = '';  // accumulated thinking text for live rendering
 var _streamBlockType = '';  // current streaming block type (text/thinking)
+var _streamRenderPending = false;  // throttle: true while rAF is pending
 promptEl.addEventListener('input', () => {
     if (!_manualResize) {
         promptEl.style.height = '38px';
