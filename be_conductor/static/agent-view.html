@@ -2848,6 +2848,10 @@ function connect() {
                 }
             } else {
                 renderEvent(msg);
+                // Update dot connecting lines after content changes (throttled via rAF)
+                if (msg.type === 'assistant_message' || msg.type === 'user_message' || msg.type === 'result') {
+                    _updateGroupLines();
+                }
             }
         } catch (err) {
             console.error('[agent-view] renderEvent error:', err, e.data);
