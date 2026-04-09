@@ -15,6 +15,10 @@
 #   irm https://github.com/somniacs/be-conductor/releases/latest/download/install.ps1 | iex
 #   powershell -ExecutionPolicy Bypass -File install.ps1
 
+# Wrap in a function so 'return' works when piped via iex
+# (bare 'exit' in iex context closes the entire PowerShell window)
+function Install-BeConductor {
+
 $ErrorActionPreference = "Stop"
 
 # ── Configuration (change these if the project is renamed) ────────────
@@ -54,7 +58,7 @@ foreach ($cmd in @("py", "python3", "python")) {
 if (-not $pyCmd) {
     Write-Host "Error: Python 3.10+ is required but not found." -ForegroundColor Red
     Write-Host "Install from https://python.org (check 'Add to PATH' during install)"
-    exit 1
+    return
 }
 
 # ── Install pipx if needed ───────────────────────────────────────────
@@ -148,7 +152,7 @@ if ($scriptDir -and (Test-Path (Join-Path $scriptDir "pyproject.toml"))) {
             Write-Host "Error: could not download the release archive." -ForegroundColor Red
             Write-Host "If a new version was just published, the build may still be in progress."
             Write-Host "Wait a minute and try again."
-            exit 1
+            return
         }
         Expand-Archive -Path $zipPath -DestinationPath $tmpDir -Force
 
@@ -226,3 +230,7 @@ Write-Host "Run '$Project run claude research' to start a session."
 Write-Host "Dashboard: http://127.0.0.1:7777"
 Write-Host ""
 Write-Host "If the command is not found, restart your terminal."
+
+} # end Install-BeConductor
+
+Install-BeConductor
