@@ -3677,6 +3677,16 @@
             return match ? match.label : base;
         }
 
+        function _relativeTime(unixTs) {
+            if (!unixTs) return '';
+            const diff = (Date.now() / 1000) - unixTs;
+            if (diff < 60) return 'just now';
+            if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+            if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+            if (diff < 2592000) return Math.floor(diff / 86400) + 'd ago';
+            return Math.floor(diff / 2592000) + 'mo ago';
+        }
+
         let _lastSessionListHtml = '';
         function renderSessionList() {
             const list = document.getElementById('session-list');
@@ -3699,7 +3709,14 @@
                     <span>${escHtml(label)}</span>
                 </div>`;
                 if (groups[key] && groups[key].length > 0) {
-                    html += groups[key].map(s => renderSessionItem(s)).join('');
+                    // Sort: running/stopping first, then exited/resumable — within each group by start_time descending
+                    const sorted = groups[key].slice().sort((a, b) => {
+                        const aActive = a.status === 'running' || a.status === 'stopping' ? 0 : 1;
+                        const bActive = b.status === 'running' || b.status === 'stopping' ? 0 : 1;
+                        if (aActive !== bActive) return aActive - bActive;
+                        return (b.start_time || 0) - (a.start_time || 0);
+                    });
+                    html += sorted.map(s => renderSessionItem(s)).join('');
                 } else {
                     html += '<div style="padding:4px 12px;color:#404060;font-size:11px;">No sessions</div>';
                 }
@@ -3767,10 +3784,11 @@
             const _branchSvg = `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M5 3.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Zm0 9.5a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Zm7.5-9.5a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0ZM4.25 5.5a1.75 1.75 0 1 0-.25-3.48V1.75a.75.75 0 0 0-1.5 0v.27a1.75 1.75 0 1 0-.25 3.48v4.5a1.75 1.75 0 1 0 1.5 0v-4.5a1.75 1.75 0 0 0 .5 0Zm7 0a1.75 1.75 0 1 0-1-.04v2.29a2.25 2.25 0 0 1-2.25 2.25H6.5a.75.75 0 0 0 0 1.5h1.5A3.75 3.75 0 0 0 11.75 7.75V5.46a1.75 1.75 0 0 0-.5.04Z"/></svg>`;
             let wtIcon = '';
             let wtBadge = '';
-            let subtitle = escHtml(appLabel);
-            if (s.session_type === 'agent') {
-                subtitle = '<span style="color:#4a6cf7;font-weight:600;">GUI</span> &middot; ' + subtitle;
-            }
+            const timeAgo = _relativeTime(s.start_time);
+            let subtitle = s.session_type === 'agent'
+                ? '<span style="color:#4a6cf7;font-weight:600;">GUI</span>'
+                : escHtml(appLabel);
+            if (timeAgo) subtitle += ' &middot; ' + timeAgo;
             if (s.worktree) {
                 const branch = s.worktree.branch || '';
                 const shortBranch = branch.replace('be-conductor/', '');
@@ -3783,7 +3801,7 @@
                 wtIcon = `<div class="session-wt-icon" title="${escHtml(wtTooltip)}">${_branchSvg}</div>`;
                 // Show branch in subtitle only if it differs from session name
                 const branchLabel = shortBranch !== s.name ? `${escHtml(shortBranch)}${aheadText} &middot; ` : (aheadText ? `${aheadText.trim()} &middot; ` : '');
-                subtitle = `${branchLabel}${escHtml(appLabel)}`;
+                subtitle = `${branchLabel}${escHtml(appLabel)}` + (timeAgo ? ' &middot; ' + timeAgo : '');
 
             }
 

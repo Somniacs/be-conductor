@@ -2,6 +2,13 @@
 
 All notable changes to be-conductor are documented here.
 
+## v0.3.48
+
+### New
+
+- **Session list sorted by status and recency** — running sessions appear first, then resumable ones. Within each group, most recently used sessions float to the top
+- **Relative time in session list** — sessions show "2h ago", "3d ago" instead of session IDs, so you can tell at a glance how stale a session is
+
 ## v0.3.47
 
 ### New
