@@ -56,9 +56,30 @@ foreach ($cmd in @("py", "python3", "python")) {
 }
 
 if (-not $pyCmd) {
-    Write-Host "Error: Python 3.10+ is required but not found." -ForegroundColor Red
-    Write-Host "Install from https://python.org (check 'Add to PATH' during install)"
-    return
+    Write-Host "  Python 3.10+ not found. Installing via winget..." -ForegroundColor Yellow
+    try {
+        winget install Python.Python.3.12 --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null
+        # Refresh PATH after install
+        $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH", "User") + ";" + $env:PATH
+        foreach ($cmd in @("py", "python3", "python")) {
+            try {
+                $ver = & $cmd --version 2>&1
+                if ($ver -match "Python (\d+)\.(\d+)") {
+                    $major = [int]$Matches[1]; $minor = [int]$Matches[2]
+                    if ($major -ge 3 -and $minor -ge 10) { $pyCmd = $cmd; break }
+                }
+            } catch {}
+        }
+    } catch {
+        Write-Host "  winget not available." -ForegroundColor Red
+    }
+    if (-not $pyCmd) {
+        Write-Host "Error: Python 3.10+ is required but could not be installed." -ForegroundColor Red
+        Write-Host "Install manually from https://python.org (check 'Add to PATH' during install)"
+        return
+    }
+    Write-Host "  Python installed" -NoNewline
+    Write-Host " OK" -ForegroundColor Green
 }
 
 # ── Install pipx if needed ───────────────────────────────────────────
