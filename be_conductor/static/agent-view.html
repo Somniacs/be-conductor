@@ -1684,7 +1684,15 @@ function renderEvent(event) {
 }
 
 
+var _groupLinesQueued = false;
 function _updateGroupLines() {
+    // Throttle: at most once per animation frame
+    if (_groupLinesQueued) return;
+    _groupLinesQueued = true;
+    requestAnimationFrame(_updateGroupLinesNow);
+}
+function _updateGroupLinesNow() {
+    _groupLinesQueued = false;
     // Remove old connecting lines
     messagesEl.querySelectorAll('.dot-line').forEach(l => l.remove());
     // Collect runs of consecutive .msg-claude-dot (separated by .msg-user)
@@ -1749,7 +1757,8 @@ function autoScroll() {
     // Spinner stays where setBusy placed it — do NOT move it here.
     // appendChild on an already-attached node would move it to the wrong
     // group when current-group changes (user sends new message mid-stream).
-    _updateGroupLines();
+    // NOTE: _updateGroupLines() is NOT called here — it's too expensive
+    // for large sessions. It's called explicitly after content changes.
     var nearBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 100;
     if (nearBottom) {
         messagesEl.scrollTop = messagesEl.scrollHeight;
