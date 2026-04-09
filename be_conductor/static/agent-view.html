@@ -1066,6 +1066,7 @@ function renderEvent(event) {
     // Real-time text streaming from StreamEvent deltas — render markdown live
     if (etype === 'stream_start' || etype === 'stream_delta' || etype === 'stream_stop') {
         if (_replayingHistory) return;
+        if (event.btw) return;  // BTW stream goes to panel, not main chat
         if (etype === 'stream_start' && event.block_type === 'text') {
             _streamBlockType = 'text';
             var existing = document.getElementById('stream-bubble');
@@ -1599,6 +1600,7 @@ function renderEvent(event) {
         }
 
     } else if (etype === 'result') {
+        if (event.btw) return;  // BTW results are ephemeral — btw_end handles panel
         _importantEvent = true;
         _compacting = false;
         // Prefer model_usage (cumulative) over per-turn usage for context ring
@@ -2482,7 +2484,7 @@ function _openBtwPanel(question) {
         + '<div class="btw-question">' + escHtml(question) + '</div>'
         + '<div class="btw-waiting"><span class="agent-spinner"></span> <span class="spinner-verb">Waiting for response</span>...</div>';
     _btwPanel.classList.add('open');
-    document.getElementById('btw-close-btn').addEventListener('click', _closeBtwPanel);
+    document.getElementById('btw-close-btn').addEventListener('click', function(e) { e.preventDefault(); e.stopPropagation(); _closeBtwPanel(); });
 }
 function _btwShowResponse(text) {
     var waiting = _btwPanel.querySelector('.btw-waiting');
