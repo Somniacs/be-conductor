@@ -2301,6 +2301,9 @@ var _searchDebounce = null;
 function _openSearch() {
     var bar = document.getElementById('search-bar');
     bar.style.display = 'flex';
+    // Hide the sticky last-message overlay while searching
+    var lmb = document.getElementById('last-msg-bar');
+    if (lmb) lmb.style.display = 'none';
     var inp = document.getElementById('search-input');
     inp.value = '';
     inp.focus();
@@ -2740,6 +2743,9 @@ function connect() {
                 messagesEl.appendChild(frag);
                 _hideLoading();
                 messagesEl.scrollTop = messagesEl.scrollHeight;
+                // Update nav buttons now that elements are in the DOM
+                if (typeof _updateNavButtons === 'function') _updateNavButtons();
+                _updateGroupLines();
                 // Refresh context ring from SDK (if session is connected)
                 if (ws && ws.readyState === WebSocket.OPEN) {
                     ws.send(JSON.stringify({type: 'get_context_usage'}));
