@@ -6,7 +6,7 @@ All notable changes to be-conductor are documented here.
 
 ### New
 
-- **Search in conversation** — press Ctrl+F to open a search bar at the top of the message area. Type to find text across all messages, tool calls, and responses. Navigate matches with Enter/Shift+Enter or the arrow buttons. Shows match count ("3/17"). Escape to close
+- **Search in conversation** — press Ctrl+F to open a search bar at the top of the message area. Type to find text across all messages, tool calls, and responses. Navigate matches with Enter/Shift+Enter, arrow keys, or the ▲▼ buttons. Shows match count ("3/17"). Escape to close. The sticky message overlay hides while searching
 - **Instant history loading** — reconnecting to a long session loads all messages in one shot using a DocumentFragment batch render. No scrollbar jumping, no progressive fill — just fast
 - **Smoother live streaming** — markdown rendering during live responses is now throttled to once per animation frame instead of on every character, eliminating jank on long outputs
 
