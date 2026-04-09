@@ -14,7 +14,7 @@ All notable changes to be-conductor are documented here.
 - **Upgraded Agent SDK to v0.1.58** (CLI v2.1.97) — fixes adaptive thinking sending a fixed 32K budget instead of actual adaptive mode, adds auto permission mode, cross-user prompt caching option, and multiple CLI-level compaction and cache fixes
 - **Session resume preserves conversation history** — closing and resuming a GUI session now replays the previous conversation instead of starting with an empty view
 - **Claude Agent SDK auto-updated on install** — running the install script now always upgrades to the latest SDK version, keeping you current with weekly Anthropic releases
-- **JetBrains plugin update served locally** — be-conductor now serves the plugin update XML at `/plugins/jetbrains/updatePlugins.xml` so JetBrains can check for updates without reaching GitHub. Add `http://127.0.0.1:7777/plugins/jetbrains/updatePlugins.xml` as a custom plugin repository
+- **JetBrains plugin auto-update** — be-conductor serves the plugin update check locally, so JetBrains can find new versions without reaching GitHub
 
 ### Fixed
 
