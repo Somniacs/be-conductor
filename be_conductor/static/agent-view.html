@@ -2397,6 +2397,8 @@ document.addEventListener('DOMContentLoaded', function() {
     searchInput.addEventListener('keydown', function(e) {
         if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); _searchNav(1); }
         if (e.key === 'Enter' && e.shiftKey) { e.preventDefault(); _searchNav(-1); }
+        if (e.key === 'ArrowDown') { e.preventDefault(); _searchNav(1); }
+        if (e.key === 'ArrowUp') { e.preventDefault(); _searchNav(-1); }
         if (e.key === 'Escape') { e.preventDefault(); _closeSearch(); }
     });
     document.getElementById('search-next').addEventListener('click', function() { _searchNav(1); });
