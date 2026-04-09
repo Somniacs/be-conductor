@@ -532,6 +532,10 @@ class AgentSession:
                             await client.query(text)
                         await self._stream_response(client, is_btw=is_btw)
                         self._processing = False
+                        # Notify clients the turn is complete — ensures
+                        # the frontend removes the spinner even if the
+                        # result event was missed or delayed.
+                        self._broadcast_event({"type": "system", "subtype": "turn_complete"})
                         # Apply deferred mode change (from yes_all inside can_use_tool).
                         # Never send bypassPermissions to the SDK — it disables hooks
                         # (including our AskUserQuestion hook).  We handle bypass

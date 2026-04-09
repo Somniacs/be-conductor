@@ -834,6 +834,11 @@ function renderEvent(event) {
     // Skip internal events
     if (etype === 'system') {
         if (event.subtype === 'debug') console.log('[DEBUG]', JSON.stringify(event.data));
+        if (event.subtype === 'turn_complete') {
+            // Backend confirms turn is done — ensure spinner stops
+            if (busy && !_replayingHistory) setBusy(false);
+            return;
+        }
         if (event.subtype === 'pre_compact') {
             // About to compact — update spinner text
             if (!_replayingHistory) _compacting = true;
