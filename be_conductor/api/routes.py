@@ -370,6 +370,21 @@ async def health():
     return {"ok": True, "version": VERSION}
 
 
+@router.get("/plugins/jetbrains/updatePlugins.xml")
+async def jetbrains_update_xml():
+    """JetBrains custom plugin repository — serves current version for auto-update."""
+    from fastapi.responses import Response
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        "<plugins>\n"
+        f'    <plugin id="com.somniacs.beconductor"'
+        f' url="https://github.com/somniacs/be-conductor/releases/latest/download/be-conductor-jetbrains.zip"'
+        f' version="{VERSION}"/>\n'
+        "</plugins>\n"
+    )
+    return Response(content=xml, media_type="application/xml")
+
+
 @router.get("/info")
 async def server_info(request: Request):
     """Return server identity for multi-server dashboard."""
