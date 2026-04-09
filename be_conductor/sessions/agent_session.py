@@ -448,6 +448,20 @@ class AgentSession:
             fresh_sid = str(_uuid.uuid4())
             opts_kwargs["session_id"] = fresh_sid
             log.info("New agent session %s: forcing session_id=%s", self.id, fresh_sid)
+        # Pass through important environment variables so the CLI subprocess
+        # can access SSH keys, GPG, displays, etc. The SDK doesn't inherit
+        # the parent process environment by default.
+        import os as _os
+        _passthrough_env = {}
+        for _evar in ("SSH_AUTH_SOCK", "SSH_AGENT_PID", "GPG_AGENT_INFO",
+                       "DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR",
+                       "HOME", "USER", "PATH", "LANG", "TERM"):
+            _val = _os.environ.get(_evar)
+            if _val:
+                _passthrough_env[_evar] = _val
+        if _passthrough_env:
+            opts_kwargs["env"] = _passthrough_env
+
         # Only pass these if explicitly set — let the CLI use its own defaults
         for key in ("effort", "thinking", "max_budget_usd"):
             val = self._agent_options.get(key)
