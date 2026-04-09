@@ -2740,23 +2740,18 @@ function connect() {
             if (msg.type === 'history') {
                 const allMsgs = msg.messages || [];
                 _replayingHistory = true;
-                // Render into a DocumentFragment to avoid per-element reflows
-                var frag = document.createDocumentFragment();
-                var _origTarget = messagesEl;
-                // Temporarily redirect renderEvent output to the fragment
-                var _origAppend = messagesEl.appendChild.bind(messagesEl);
-                messagesEl.appendChild = frag.appendChild.bind(frag);
+                // Hide messages during render to avoid per-element reflows
+                messagesEl.style.display = 'none';
                 try {
                     for (var hi = 0; hi < allMsgs.length; hi++) {
                         try { renderEvent(allMsgs[hi]); } catch (e) {}
                         if (allMsgs[hi].type === 'user_message' && allMsgs[hi].content) _inputHistory.push(allMsgs[hi].content);
                     }
                 } finally {
-                    messagesEl.appendChild = _origAppend;
                     _replayingHistory = false;
                 }
-                // Single DOM write — all elements added at once, one reflow
-                messagesEl.appendChild(frag);
+                // Show all at once — single reflow
+                messagesEl.style.display = '';
                 _hideLoading();
                 messagesEl.scrollTop = messagesEl.scrollHeight;
                 // Update nav buttons now that elements are in the DOM
@@ -2854,7 +2849,17 @@ function connect() {
             } else {
                 renderEvent(msg);
             }
-        } catch (err) { console.error('[agent-view] renderEvent error:', err, e.data); }
+        } catch (err) {
+            console.error('[agent-view] renderEvent error:', err, e.data);
+            // Show dropped message indicator so user knows something was lost
+            if (msg && msg.type === 'assistant_message') {
+                var errDiv = document.createElement('div');
+                errDiv.className = 'msg';
+                errDiv.style.cssText = 'padding:6px 14px;color:var(--error);font-size:11px;';
+                errDiv.textContent = '[Render error — message may not be displayed. Reload to recover.]';
+                messagesEl.appendChild(errDiv);
+            }
+        }
     };
 
     ws.onclose = (ev) => {
