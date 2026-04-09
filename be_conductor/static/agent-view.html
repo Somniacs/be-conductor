@@ -2895,6 +2895,9 @@ _lastMsgBar.addEventListener('click', function(e) {
 // IntersectionObserver to show/hide the bar when message scrolls out of view
 var _lastMsgObserver = new IntersectionObserver(function(entries) {
     if (!_lastUserMsgEl) return;
+    // Suppress overlay while search bar is open
+    var searchOpen = document.getElementById('search-bar').style.display !== 'none';
+    if (searchOpen) { _lastMsgBar.style.display = 'none'; return; }
     var visible = entries[0].isIntersecting;
     _lastMsgBar.style.display = visible ? 'none' : 'flex';
 }, {root: messagesEl, threshold: 0.1});
