@@ -2,6 +2,13 @@
 
 All notable changes to be-conductor are documented here.
 
+## v0.3.50
+
+### Fixed
+
+- **Plan mode actually blocks tools** — switching to Plan mode had no effect because the permission callback didn't handle it. Now read-only tools (Read, Glob, Grep) are allowed for exploration, everything else is blocked until the plan is approved
+- **Responses no longer appear delayed** — in some cases the agent's response would only show up when the next message was sent. A `turn_complete` event now fires after every turn to guarantee the spinner stops and the response is visible
+
 ## v0.3.49
 
 ### New

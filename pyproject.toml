@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "be-conductor"
-version = "0.3.49"
+version = "0.3.50"
 description = "Local orchestration layer for interactive terminal processes"
 requires-python = ">=3.10"
 dependencies = [
