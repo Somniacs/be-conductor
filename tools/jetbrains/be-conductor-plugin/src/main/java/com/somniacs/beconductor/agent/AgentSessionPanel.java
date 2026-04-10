@@ -26,9 +26,13 @@ public class AgentSessionPanel extends JPanel implements Disposable {
         ServerRegistry registry = ServerRegistry.getInstance();
         String baseUrl = registry.getBaseUrl(serverKey);
         String wsBase = baseUrl.replaceFirst("^http", "ws");
+        // Append a timestamp to bust JCEF's disk cache on every tab open —
+        // otherwise the embedded browser may serve a stale agent-view.html
+        // even after server updates.
         String url = baseUrl + "/agent/" + URLEncoder.encode(sessionId, StandardCharsets.UTF_8)
                 + "?session=" + URLEncoder.encode(sessionId, StandardCharsets.UTF_8)
-                + "&ws=" + URLEncoder.encode(wsBase, StandardCharsets.UTF_8);
+                + "&ws=" + URLEncoder.encode(wsBase, StandardCharsets.UTF_8)
+                + "&_v=" + System.currentTimeMillis();
 
         if (JBCefApp.isSupported()) {
             // Defer browser creation so the panel is already in a visible window
