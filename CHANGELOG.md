@@ -16,6 +16,7 @@ All notable changes to be-conductor are documented here.
 - **JetBrains plugin.xml and VS Code package.json versions are in sync** — the committed files were stale (showing 0.3.44 and 0.3.45). Now tracked in lockstep with `pyproject.toml` so releases don't ship mismatched metadata
 - **Context ring shows correct value on resumed sessions** — opening a resumed session briefly showed absurd numbers like "5999K · 100%" because `model_usage` is cumulative across all API calls in the session history, not the current context size. Now uses per-turn `usage` (the actual context sent to the API) and ignores stale values during history replay
 - **JetBrains agent tab shows session name** — new agent sessions opened from "Run Session" were showing the UUID instead of the user-chosen name. Fixed by passing the session name through the full chain of static entry points
+- **Smooth typing on large sessions** — the textarea auto-resize was forcing a full reflow of the messages area on every keystroke because changing the input height shrinks the flex-sized messages area. Replaced with a fixed base height and internal scrolling at 200px. Typing is now decoupled from message rendering work
 
 ## v0.3.50
 
