@@ -3067,28 +3067,62 @@ promptEl.addEventListener('input', () => {
     updateSlashPopup();
 });
 
-// JCEF clipboard bridge: in JetBrains, the JS Clipboard API doesn't
-// sync with the OS clipboard. Use CEF's native browser.copy/paste/cut
-// methods (the same ones the right-click context menu uses) which DO
-// use the OS clipboard. The plugin installs these as window.__beClipNative*.
+// Server-side clipboard bridge: in JCEF (JetBrains), the JS Clipboard
+// API and JCEF's native copy/paste don't sync with the OS clipboard.
+// Fetch/POST the real OS clipboard through the be-conductor server,
+// which runs as a normal process and has access to the real clipboard
+// via xclip/wl-paste/pbpaste/powershell.
+var _httpBase = WS_BASE.replace('ws://', 'http://').replace('wss://', 'https://');
+function _serverClipRead() {
+    return fetch(_httpBase + '/clipboard', {cache: 'no-store'})
+        .then(function(r) { return r.text(); })
+        .catch(function() { return ''; });
+}
+function _serverClipWrite(text) {
+    return fetch(_httpBase + '/clipboard', {method: 'POST', body: text || ''}).catch(function() {});
+}
+// Detect JCEF — in a real browser the native clipboard works, no need to bridge
+var _isJCEF = navigator.userAgent.indexOf('JetBrains') >= 0
+    || (window.external && typeof window.external.getBrowserInfo === 'function')
+    || !!window.__beClipNativePaste;
+
 promptEl.addEventListener('keydown', (e) => {
-    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && window.__beClipNativePaste) {
+    if (_isJCEF && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
         var k = e.key.toLowerCase();
         if (k === 'v') {
             e.preventDefault();
-            window.__beClipNativePaste();
-            // Native paste fires input events on the focused element
+            _serverClipRead().then(function(text) {
+                if (!text) return;
+                var start = promptEl.selectionStart || 0;
+                var end = promptEl.selectionEnd || 0;
+                var cur = promptEl.value;
+                promptEl.value = cur.slice(0, start) + text + cur.slice(end);
+                var newPos = start + text.length;
+                promptEl.selectionStart = promptEl.selectionEnd = newPos;
+                promptEl.dispatchEvent(new Event('input', {bubbles: true}));
+            });
             return;
         }
         if (k === 'c') {
-            e.preventDefault();
-            window.__beClipNativeCopy();
-            return;
+            var selStart = promptEl.selectionStart || 0;
+            var selEnd = promptEl.selectionEnd || 0;
+            if (selEnd > selStart) {
+                e.preventDefault();
+                _serverClipWrite(promptEl.value.slice(selStart, selEnd));
+                return;
+            }
         }
         if (k === 'x') {
-            e.preventDefault();
-            window.__beClipNativeCut();
-            return;
+            var cutStart = promptEl.selectionStart || 0;
+            var cutEnd = promptEl.selectionEnd || 0;
+            if (cutEnd > cutStart) {
+                e.preventDefault();
+                _serverClipWrite(promptEl.value.slice(cutStart, cutEnd));
+                promptEl.value = promptEl.value.slice(0, cutStart) + promptEl.value.slice(cutEnd);
+                promptEl.selectionStart = promptEl.selectionEnd = cutStart;
+                promptEl.dispatchEvent(new Event('input', {bubbles: true}));
+                return;
+            }
         }
     }
     if (_slashOpen) {
