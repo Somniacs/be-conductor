@@ -602,6 +602,9 @@ public class SessionListPanel extends JPanel {
     }
 
     private void openAgentInBrowser(String serverKey, String sessionId, String sessionName) {
+        if (sessionName != null && !sessionName.isEmpty()) {
+            trackSession(project, sessionName);
+        }
         openAgentPanel(project, serverKey, sessionId, sessionName);
     }
 
