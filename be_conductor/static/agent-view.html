@@ -41,7 +41,7 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--fo
 #input-box { display: flex; flex-direction: column; background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px; padding: 0; transition: border-color 0.2s; }
 #input-box:focus-within { border-color: var(--mode-color, var(--border)); }
 #input-toolbar { display: flex; align-items: center; gap: 0; padding: 2px 4px; border-top: 1px solid var(--border); border-radius: 0 0 10px 10px; }
-#prompt { width: 100%; resize: none; background: transparent; color: var(--fg); border: none; outline: none; padding: 8px 12px; font-family: inherit; font-size: 13px; height: 38px; line-height: 1.4; overflow: hidden; }
+#prompt { width: 100%; resize: none; background: transparent; color: var(--fg); border: none; outline: none; padding: 8px 12px; font-family: inherit; font-size: 13px; min-height: 38px; max-height: 200px; line-height: 1.4; overflow-y: auto; }
 .attach-btn, .mode-btn, .send-btn { flex-shrink: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; }
 .attach-btn { background: none; border: none; color: var(--muted); padding: 6px; border-radius: 6px; }
 .attach-btn:hover { color: var(--fg); background: #1a1f2b; }
@@ -3022,16 +3022,10 @@ var _streamBubbleRaw = '';  // accumulated raw text for live markdown rendering
 var _streamThinkingRaw = '';  // accumulated thinking text for live rendering
 var _streamBlockType = '';  // current streaming block type (text/thinking)
 var _streamRenderPending = false;  // throttle: true while rAF is pending
-var _resizePending = false;
+// No auto-resize — textarea uses min-height/max-height + internal scroll.
+// Previous JS resize forced a reflow of the entire messages area on every
+// keystroke, making typing laggy on large sessions.
 promptEl.addEventListener('input', () => {
-    if (!_manualResize && !_resizePending) {
-        _resizePending = true;
-        requestAnimationFrame(() => {
-            promptEl.style.height = '38px';
-            promptEl.style.height = promptEl.scrollHeight + 'px';
-            _resizePending = false;
-        });
-    }
     updateSendBtn();
     updateSlashPopup();
 });
