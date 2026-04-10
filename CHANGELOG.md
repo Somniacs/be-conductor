@@ -17,6 +17,9 @@ All notable changes to be-conductor are documented here.
 - **Context ring shows correct value on resumed sessions** — opening a resumed session briefly showed absurd numbers like "5999K · 100%" because `model_usage` is cumulative across all API calls in the session history, not the current context size. Now uses per-turn `usage` (the actual context sent to the API) and ignores stale values during history replay
 - **JetBrains agent tab shows session name** — new agent sessions opened from "Run Session" were showing the UUID instead of the user-chosen name. Fixed by passing the session name through the full chain of static entry points
 - **Smooth typing on large sessions** — the textarea auto-resize was forcing a full reflow of the messages area on every keystroke because changing the input height shrinks the flex-sized messages area. Replaced with a fixed base height and internal scrolling at 200px. Typing is now decoupled from message rendering work
+- **Typing stays smooth during streaming** — stream deltas were re-parsing the entire accumulated markdown on every animation frame (O(n²) work) and reading scroll metrics that force synchronous layout of 1000+ message elements. Now uses plain text during streaming (markdown renders once at the end) and caches the near-bottom state via passive scroll listener
+- **Ctrl+C/V/X work in the JetBrains plugin** — JCEF's embedded browser has its own internal clipboard disconnected from the system clipboard, so pasting in the agent view returned stale data. The plugin now bridges JCEF's JS layer to Java's AWT system clipboard, so keyboard shortcuts route through the real OS clipboard
+- **JetBrains plugin busts JCEF cache on tab open** — adds a timestamp query param to the agent view URL so reloading the tab always fetches fresh HTML. Previously JCEF would serve stale cached versions even after server updates
 
 ## v0.3.50
 
