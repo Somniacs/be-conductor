@@ -1314,7 +1314,11 @@ function renderEvent(event) {
                 // Add copy + view buttons for longer text blocks
                 if (block.text.split('\n').length > 5 || block.text.length > 300) {
                     var btnRow = document.createElement('div');
-                    btnRow.style.cssText = 'position:sticky;bottom:8px;display:flex;gap:4px;opacity:0;transition:opacity 0.15s;z-index:5;margin-top:6px;';
+                    // On touch devices (no hover), always show the buttons.
+                    // On desktop, fade in on hover.
+                    var _isTouch = window.matchMedia && window.matchMedia('(hover: none)').matches;
+                    var _initOpacity = _isTouch ? '0.7' : '0';
+                    btnRow.style.cssText = 'position:sticky;bottom:8px;display:flex;gap:4px;opacity:' + _initOpacity + ';transition:opacity 0.15s;z-index:5;margin-top:6px;';
 
                     var viewBtn = document.createElement('button');
                     viewBtn.style.cssText = 'background:var(--code-bg);border:1px solid var(--border);border-radius:4px;padding:3px 6px;cursor:pointer;color:var(--muted);font-size:11px;display:flex;align-items:center;gap:4px;';
@@ -1336,8 +1340,11 @@ function renderEvent(event) {
 
                     btnRow.appendChild(viewBtn);
                     btnRow.appendChild(copyBtn);
-                    el.addEventListener('mouseenter', function() { btnRow.style.opacity = '1'; });
-                    el.addEventListener('mouseleave', function() { btnRow.style.opacity = '0'; });
+                    // Hover fade only on desktop
+                    if (!_isTouch) {
+                        el.addEventListener('mouseenter', function() { btnRow.style.opacity = '1'; });
+                        el.addEventListener('mouseleave', function() { btnRow.style.opacity = '0'; });
+                    }
                     el.appendChild(btnRow);
                 }
                 targetGroup.appendChild(el);
@@ -3087,6 +3094,23 @@ promptEl.addEventListener('keydown', (e) => {
         if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({type: 'interrupt'}));
         }
+        return;
+    }
+    // Ctrl+Shift+Enter — send current text as a BTW (by the way) message,
+    // directly bypassing the normal prompt queue. Opens the BTW panel.
+    if (e.key === 'Enter' && e.ctrlKey && e.shiftKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        var btwText = promptEl.value.trim();
+        if (!btwText) return;
+        closeSlashPopup();
+        promptEl.value = '';
+        promptEl.style.height = '38px';
+        _openBtwPanel(btwText);
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({type: 'prompt', text: btwText, btw: true}));
+        }
+        promptEl.focus({ preventScroll: true });
         return;
     }
     if (e.key === 'Enter' && !e.shiftKey) {

@@ -205,6 +205,21 @@ try {
 
 Write-Host ""
 
+# ── Restart any running server so the new version takes effect ──────
+# Without this, `up` would see the old process still running and do
+# nothing, leaving the dashboard stuck showing the old version.
+if ($installed) {
+    try {
+        $statusOut = & $Project status 2>&1 | Out-String
+        if ($statusOut -match "URL:") {
+            Write-Host "Restarting running server to apply the update..."
+            & $Project restart -f 2>&1 | Out-Null
+        }
+    } catch {}
+}
+
+Write-Host ""
+
 # ── Autostart setup (Startup folder) ──────────────────────────────────
 
 if ($installed) {

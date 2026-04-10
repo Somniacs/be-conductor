@@ -223,6 +223,18 @@ fi
 
 echo ""
 
+# ── Restart any running server so the new version takes effect ──────
+# Without this, `up` would see the old process still running and do
+# nothing, leaving the dashboard stuck showing the old version.
+if command -v "$PROJECT" &>/dev/null; then
+    if "$PROJECT" status &>/dev/null && "$PROJECT" status 2>/dev/null | grep -qi "url"; then
+        echo "Restarting running server to apply the update..."
+        "$PROJECT" restart -f || true
+    fi
+fi
+
+echo ""
+
 # ── Autostart setup ──────────────────────────────────────────────────
 
 setup_autostart_linux() {
@@ -264,8 +276,8 @@ setup_autostart_cron() {
         echo "  cron @reboot entry added ✓"
     fi
 
-    # Start the server right away
-    "$conductor_path" up
+    # Start the server right away (or restart to pick up new version)
+    "$conductor_path" restart -f 2>/dev/null || "$conductor_path" up
 }
 
 setup_autostart_macos() {

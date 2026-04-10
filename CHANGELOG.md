@@ -2,6 +2,18 @@
 
 All notable changes to be-conductor are documented here.
 
+## v0.3.51
+
+### New
+
+- **Ctrl+Shift+Enter sends as BTW** — in any session, press Ctrl+Shift+Enter in the input to send the current text as a side-question (BTW) message that bypasses the normal queue. Same as typing `/btw …` but without the prefix
+- **View/Copy buttons visible on touch devices** — the sticky View/Copy buttons on long Claude responses now show by default on phones and tablets (where there's no hover). Desktop still fades them in on hover
+
+### Fixed
+
+- **Installs actually restart the running server** — previously `install.sh` / `install.ps1` called `be-conductor up` after installing, which just prints "already running" and does nothing. The old server kept running with the old version, so the dashboard update banner would come back immediately after an update. Now the install scripts detect a running server and call `restart -f` to pick up the new version
+- **JetBrains plugin.xml and VS Code package.json versions are in sync** — the committed files were stale (showing 0.3.44 and 0.3.45). Now tracked in lockstep with `pyproject.toml` so releases don't ship mismatched metadata
+
 ## v0.3.50
 
 ### Fixed

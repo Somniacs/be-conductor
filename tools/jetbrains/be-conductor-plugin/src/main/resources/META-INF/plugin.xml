@@ -1,7 +1,7 @@
 <idea-plugin>
     <id>com.somniacs.beconductor</id>
     <name>be-conductor</name>
-    <version>0.3.44</version>
+    <version>0.3.51</version>
     <vendor url="https://github.com/somniacs/be-conductor">Somniacs</vendor>
 
     <description><![CDATA[
