@@ -67,7 +67,7 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--fo
 .slash-item { padding: 7px 14px; cursor: pointer; display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--fg); }
 .slash-item:hover, .slash-item.selected { background: #2a2f3a; }
 .slash-item .slash-desc { color: var(--muted); font-size: 12px; margin-left: auto; }
-.btw-panel { display: none; background: #1c1206; border: 2px solid #e67e22; border-radius: 8px; padding: 14px 16px; margin: 0 0 4px 0; flex-shrink: 0; max-height: 40vh; overflow-y: auto; }
+.btw-panel { display: none; background: #1c1206; border: 2px solid #e67e22; border-radius: 8px; padding: 14px 16px; margin: 0 8px 4px 8px; flex-shrink: 0; max-height: 40vh; overflow-y: auto; box-sizing: border-box; }
 .btw-panel.open { display: block; animation: btwSlideUp 0.2s ease-out; }
 .btw-panel .btw-header { display: flex; align-items: center; margin-bottom: 10px; }
 .btw-panel .btw-label { font-size: 12px; color: #f39c12; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
