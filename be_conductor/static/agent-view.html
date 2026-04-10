@@ -3067,59 +3067,7 @@ promptEl.addEventListener('input', () => {
     updateSlashPopup();
 });
 
-// Clipboard bridge: in JCEF (JetBrains), the JS Clipboard API doesn't
-// sync with the OS clipboard. Fetch/POST the real OS clipboard through
-// the be-conductor server, which runs as a normal process with access
-// to xclip/wl-paste/pbpaste/powershell. Works in browser too.
-var _httpBase = WS_BASE.replace('ws://', 'http://').replace('wss://', 'https://');
-function _serverClipRead() {
-    return fetch(_httpBase + '/clipboard', {cache: 'no-store'})
-        .then(function(r) { return r.text(); })
-        .catch(function() { return ''; });
-}
-function _serverClipWrite(text) {
-    return fetch(_httpBase + '/clipboard', {method: 'POST', body: text || ''}).catch(function() {});
-}
-
 promptEl.addEventListener('keydown', (e) => {
-    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
-        var k = e.key.toLowerCase();
-        if (k === 'v') {
-            e.preventDefault();
-            _serverClipRead().then(function(text) {
-                if (!text) return;
-                var start = promptEl.selectionStart || 0;
-                var end = promptEl.selectionEnd || 0;
-                var cur = promptEl.value;
-                promptEl.value = cur.slice(0, start) + text + cur.slice(end);
-                var newPos = start + text.length;
-                promptEl.selectionStart = promptEl.selectionEnd = newPos;
-                promptEl.dispatchEvent(new Event('input', {bubbles: true}));
-            });
-            return;
-        }
-        if (k === 'c') {
-            var selStart = promptEl.selectionStart || 0;
-            var selEnd = promptEl.selectionEnd || 0;
-            if (selEnd > selStart) {
-                e.preventDefault();
-                _serverClipWrite(promptEl.value.slice(selStart, selEnd));
-                return;
-            }
-        }
-        if (k === 'x') {
-            var cutStart = promptEl.selectionStart || 0;
-            var cutEnd = promptEl.selectionEnd || 0;
-            if (cutEnd > cutStart) {
-                e.preventDefault();
-                _serverClipWrite(promptEl.value.slice(cutStart, cutEnd));
-                promptEl.value = promptEl.value.slice(0, cutStart) + promptEl.value.slice(cutEnd);
-                promptEl.selectionStart = promptEl.selectionEnd = cutStart;
-                promptEl.dispatchEvent(new Event('input', {bubbles: true}));
-                return;
-            }
-        }
-    }
     if (_slashOpen) {
         if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
             e.preventDefault();
