@@ -3042,10 +3042,12 @@ promptEl.addEventListener('input', () => {
 });
 
 promptEl.addEventListener('keydown', (e) => {
-    // JCEF/JetBrains workaround: sometimes Ctrl+V doesn't trigger the
-    // native paste event. Handle it explicitly via the Clipboard API.
-    if ((e.ctrlKey || e.metaKey) && (e.key === 'v' || e.key === 'V')) {
-        if (navigator.clipboard && navigator.clipboard.readText) {
+    // JCEF/JetBrains workarounds: Ctrl+C/V/X sometimes don't fire native
+    // copy/paste events on textareas. Handle them explicitly via the
+    // Clipboard API.
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+        var k = e.key.toLowerCase();
+        if (k === 'v' && navigator.clipboard && navigator.clipboard.readText) {
             e.preventDefault();
             navigator.clipboard.readText().then(function(text) {
                 if (!text) return;
@@ -3058,6 +3060,29 @@ promptEl.addEventListener('keydown', (e) => {
                 promptEl.dispatchEvent(new Event('input', {bubbles: true}));
             }).catch(function() {});
             return;
+        }
+        if (k === 'c' && navigator.clipboard && navigator.clipboard.writeText) {
+            var selStart = promptEl.selectionStart || 0;
+            var selEnd = promptEl.selectionEnd || 0;
+            if (selEnd > selStart) {
+                e.preventDefault();
+                navigator.clipboard.writeText(promptEl.value.slice(selStart, selEnd)).catch(function() {});
+                return;
+            }
+        }
+        if (k === 'x' && navigator.clipboard && navigator.clipboard.writeText) {
+            var cutStart = promptEl.selectionStart || 0;
+            var cutEnd = promptEl.selectionEnd || 0;
+            if (cutEnd > cutStart) {
+                e.preventDefault();
+                var text = promptEl.value.slice(cutStart, cutEnd);
+                navigator.clipboard.writeText(text).then(function() {
+                    promptEl.value = promptEl.value.slice(0, cutStart) + promptEl.value.slice(cutEnd);
+                    promptEl.selectionStart = promptEl.selectionEnd = cutStart;
+                    promptEl.dispatchEvent(new Event('input', {bubbles: true}));
+                }).catch(function() {});
+                return;
+            }
         }
     }
     if (_slashOpen) {
@@ -3147,6 +3172,22 @@ document.addEventListener('paste', (e) => {
             const file = item.getAsFile();
             if (file) readAttachmentFile(file);
         }
+    }
+});
+
+// JCEF workaround: Ctrl+C on selected text in messages area
+// Fallback to Clipboard API if native copy event doesn't fire
+document.addEventListener('keydown', function(e) {
+    if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
+    if (e.key.toLowerCase() !== 'c') return;
+    // Only fallback if focus is NOT on an input/textarea (those have their own handler)
+    var active = document.activeElement;
+    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return;
+    var sel = window.getSelection();
+    if (!sel || sel.isCollapsed) return;
+    var text = sel.toString();
+    if (text && navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).catch(function() {});
     }
 });
 
