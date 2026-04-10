@@ -1116,16 +1116,23 @@ function renderEvent(event) {
                 messagesEl.appendChild(bubble);
                 _ensureThinkingLast();
             }
-            _streamBubbleRaw += event.text;
-            // Fast path during streaming: plain-text with line breaks.
-            // The final assistant_message will replace this with the
-            // fully rendered markdown. Parsing markdown on every frame
-            // of a long response is O(n²) and makes typing laggy.
+            var _newText = event.text || '';
+            _streamBubbleRaw += _newText;
+            _streamBubblePendingText = (_streamBubblePendingText || '') + _newText;
+            // Incremental append instead of full re-render — O(1) per frame
+            // instead of O(n). Final markdown render happens once on assistant_message.
             if (!_streamRenderPending) {
                 _streamRenderPending = true;
                 requestAnimationFrame(function() {
                     var _b = document.getElementById('stream-bubble');
-                    if (_b) _b.textContent = _streamBubbleRaw;
+                    if (_b && _streamBubblePendingText) {
+                        if (_b.firstChild && _b.firstChild.nodeType === 3) {
+                            _b.firstChild.appendData(_streamBubblePendingText);
+                        } else {
+                            _b.appendChild(document.createTextNode(_streamBubblePendingText));
+                        }
+                    }
+                    _streamBubblePendingText = '';
                     _streamRenderPending = false;
                     autoScroll();
                 });
@@ -1148,21 +1155,33 @@ function renderEvent(event) {
                 messagesEl.appendChild(thinkEl);
                 _ensureThinkingLast();
             }
-            _streamThinkingRaw += (event.thinking || '');
-            // Throttle thinking updates to once per animation frame
+            // Append to buffer and remember the new chunk to add incrementally.
+            // textContent = fullString on every frame is O(n) per frame → O(n²)
+            // over a long thinking block. Appending to a text node is O(1).
+            var _newThink = event.thinking || '';
+            _streamThinkingRaw += _newThink;
+            _streamThinkPendingText = (_streamThinkPendingText || '') + _newThink;
             if (!_streamThinkPending) {
                 _streamThinkPending = true;
                 requestAnimationFrame(function() {
                     var el = document.getElementById('stream-thinking');
                     if (el) {
                         var thinkPre = el.querySelector('.stream-think-content');
-                        if (thinkPre) thinkPre.textContent = _streamThinkingRaw;
+                        if (thinkPre && _streamThinkPendingText) {
+                            // Append only new chars — ensure there's a text node to append to
+                            if (thinkPre.firstChild && thinkPre.firstChild.nodeType === 3) {
+                                thinkPre.firstChild.appendData(_streamThinkPendingText);
+                            } else {
+                                thinkPre.appendChild(document.createTextNode(_streamThinkPendingText));
+                            }
+                        }
                         var thinkPreview = el.querySelector('.stream-think-preview');
                         if (thinkPreview) {
                             var pv = _streamThinkingRaw.length > 80 ? _streamThinkingRaw.slice(0, 80).replace(/\n/g, ' ') + '\u2026' : _streamThinkingRaw.replace(/\n/g, ' ');
                             thinkPreview.textContent = pv;
                         }
                     }
+                    _streamThinkPendingText = '';
                     _streamThinkPending = false;
                     autoScroll();
                 });
@@ -3033,6 +3052,8 @@ var _streamThinkingRaw = '';  // accumulated thinking text for live rendering
 var _streamBlockType = '';  // current streaming block type (text/thinking)
 var _streamRenderPending = false;  // throttle: true while rAF is pending
 var _streamThinkPending = false;   // throttle: true while thinking rAF is pending
+var _streamBubblePendingText = ''; // text to append next frame
+var _streamThinkPendingText = '';  // thinking text to append next frame
 // No auto-resize — textarea uses min-height/max-height + internal scroll.
 // Previous JS resize forced a reflow of the entire messages area on every
 // keystroke, making typing laggy on large sessions.
