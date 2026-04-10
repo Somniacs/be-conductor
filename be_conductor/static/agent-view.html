@@ -3042,6 +3042,24 @@ promptEl.addEventListener('input', () => {
 });
 
 promptEl.addEventListener('keydown', (e) => {
+    // JCEF/JetBrains workaround: sometimes Ctrl+V doesn't trigger the
+    // native paste event. Handle it explicitly via the Clipboard API.
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'v' || e.key === 'V')) {
+        if (navigator.clipboard && navigator.clipboard.readText) {
+            e.preventDefault();
+            navigator.clipboard.readText().then(function(text) {
+                if (!text) return;
+                var start = promptEl.selectionStart || 0;
+                var end = promptEl.selectionEnd || 0;
+                var cur = promptEl.value;
+                promptEl.value = cur.slice(0, start) + text + cur.slice(end);
+                var newPos = start + text.length;
+                promptEl.selectionStart = promptEl.selectionEnd = newPos;
+                promptEl.dispatchEvent(new Event('input', {bubbles: true}));
+            }).catch(function() {});
+            return;
+        }
+    }
     if (_slashOpen) {
         if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
             e.preventDefault();
