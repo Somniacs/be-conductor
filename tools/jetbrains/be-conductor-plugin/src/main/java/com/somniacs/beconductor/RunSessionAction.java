@@ -67,12 +67,13 @@ public class RunSessionAction extends AnAction {
                 ApiModels.RunRequest request = new ApiModels.RunRequest(name, command, cwd, worktree, "agent");
                 ApiModels.SessionResponse session = client.createSession(serverKey, request);
                 String sessionId = session != null ? session.id : name;
+                String sessionName = name;
                 javax.swing.SwingUtilities.invokeLater(() -> {
                     BeConductorToolWindowFactory.refreshAll(project);
                     if ("panel".equals(openMode)) {
-                        SessionListPanel.openAgentSessionAsPanel(project, serverKey, sessionId);
+                        SessionListPanel.openAgentSessionAsPanel(project, serverKey, sessionId, sessionName);
                     } else {
-                        SessionListPanel.openAgentSession(project, serverKey, sessionId);
+                        SessionListPanel.openAgentSession(project, serverKey, sessionId, sessionName);
                     }
                 });
             } catch (Exception ex) {

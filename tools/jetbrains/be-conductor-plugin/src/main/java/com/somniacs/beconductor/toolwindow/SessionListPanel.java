@@ -569,9 +569,13 @@ public class SessionListPanel extends JPanel {
 
     /** Open an agent session in a native panel inside the IDE (static entry point). */
     public static void openAgentSession(com.intellij.openapi.project.Project proj, String serverKey, String sessionId) {
+        openAgentSession(proj, serverKey, sessionId, null);
+    }
+
+    public static void openAgentSession(com.intellij.openapi.project.Project proj, String serverKey, String sessionId, String sessionName) {
         ApplicationManager.getApplication().invokeLater(() -> {
             if (proj == null || proj.isDisposed()) return;
-            openAgentPanel(proj, serverKey, sessionId);
+            openAgentPanel(proj, serverKey, sessionId, sessionName);
         });
     }
 
@@ -582,9 +586,13 @@ public class SessionListPanel extends JPanel {
 
     /** Open an agent session as a dockable tool window (static entry point). */
     public static void openAgentSessionAsPanel(com.intellij.openapi.project.Project proj, String serverKey, String sessionId) {
+        openAgentSessionAsPanel(proj, serverKey, sessionId, null);
+    }
+
+    public static void openAgentSessionAsPanel(com.intellij.openapi.project.Project proj, String serverKey, String sessionId, String sessionName) {
         ApplicationManager.getApplication().invokeLater(() -> {
             if (proj == null || proj.isDisposed()) return;
-            openAgentToolWindow(proj, serverKey, sessionId);
+            openAgentToolWindow(proj, serverKey, sessionId, sessionName);
         });
     }
 
@@ -689,14 +697,14 @@ public class SessionListPanel extends JPanel {
                 true,
                 com.intellij.openapi.wm.ToolWindowAnchor.BOTTOM
         );
-        tw.setTitle(sessionId);
-        tw.setStripeTitle(sessionId + " (Agent)");
+        tw.setTitle(displayName);
+        tw.setStripeTitle(displayName + " (Agent)");
         try { tw.setIcon(com.intellij.openapi.util.IconLoader.getIcon("/icons/be-conductor.svg", SessionListPanel.class)); } catch (Exception ignored) {}
 
         com.somniacs.beconductor.agent.AgentSessionPanel panel =
                 new com.somniacs.beconductor.agent.AgentSessionPanel(proj, serverKey, sessionId);
         com.intellij.ui.content.Content content = tw.getContentManager()
-                .getFactory().createContent(panel, sessionId, false);
+                .getFactory().createContent(panel, displayName, false);
         content.setCloseable(true);
         content.setDisposer(panel);
         tw.getContentManager().addContent(content);
