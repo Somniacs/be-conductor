@@ -3067,11 +3067,10 @@ promptEl.addEventListener('input', () => {
     updateSlashPopup();
 });
 
-// Server-side clipboard bridge: in JCEF (JetBrains), the JS Clipboard
-// API and JCEF's native copy/paste don't sync with the OS clipboard.
-// Fetch/POST the real OS clipboard through the be-conductor server,
-// which runs as a normal process and has access to the real clipboard
-// via xclip/wl-paste/pbpaste/powershell.
+// Clipboard bridge: in JCEF (JetBrains), the JS Clipboard API doesn't
+// sync with the OS clipboard. Fetch/POST the real OS clipboard through
+// the be-conductor server, which runs as a normal process with access
+// to xclip/wl-paste/pbpaste/powershell. Works in browser too.
 var _httpBase = WS_BASE.replace('ws://', 'http://').replace('wss://', 'https://');
 function _serverClipRead() {
     return fetch(_httpBase + '/clipboard', {cache: 'no-store'})
@@ -3081,20 +3080,9 @@ function _serverClipRead() {
 function _serverClipWrite(text) {
     return fetch(_httpBase + '/clipboard', {method: 'POST', body: text || ''}).catch(function() {});
 }
-// Detect JCEF. CefSharp/JCEF expose window.cefQuery for the JS↔Java bridge.
-// Real browsers (Chrome, Firefox) don't have it.
-// We also always enable the bridge if __beClipNativePaste is injected.
-var _isJCEF = typeof window.cefQuery === 'function'
-    || !!window.__beClipNativePaste
-    || navigator.userAgent.indexOf('JCEF') >= 0;
-// For now: always route through the server bridge — the native browser
-// Clipboard API requires user permission which may not be granted in JCEF.
-// The fetch-based server bridge works identically in both contexts.
-var _useServerClipboard = _isJCEF || true;  // always on for reliability
-console.log('[clipboard] isJCEF=' + _isJCEF + ' useServer=' + _useServerClipboard);
 
 promptEl.addEventListener('keydown', (e) => {
-    if (_useServerClipboard && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
         var k = e.key.toLowerCase();
         if (k === 'v') {
             e.preventDefault();
