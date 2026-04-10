@@ -3041,7 +3041,49 @@ promptEl.addEventListener('input', () => {
     updateSlashPopup();
 });
 
+// JCEF clipboard bridge: the embedded browser has its own internal
+// clipboard disconnected from the system. When the JetBrains plugin
+// installs window.__beClipRead/__beClipWrite, route Ctrl+C/V/X through
+// Java's AWT system clipboard.
 promptEl.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && window.__beClipRead) {
+        var k = e.key.toLowerCase();
+        if (k === 'v') {
+            e.preventDefault();
+            window.__beClipRead().then(function(text) {
+                if (!text) return;
+                var start = promptEl.selectionStart || 0;
+                var end = promptEl.selectionEnd || 0;
+                var cur = promptEl.value;
+                promptEl.value = cur.slice(0, start) + text + cur.slice(end);
+                var newPos = start + text.length;
+                promptEl.selectionStart = promptEl.selectionEnd = newPos;
+                promptEl.dispatchEvent(new Event('input', {bubbles: true}));
+            });
+            return;
+        }
+        if (k === 'c') {
+            var selStart = promptEl.selectionStart || 0;
+            var selEnd = promptEl.selectionEnd || 0;
+            if (selEnd > selStart && window.__beClipWrite) {
+                e.preventDefault();
+                window.__beClipWrite(promptEl.value.slice(selStart, selEnd));
+                return;
+            }
+        }
+        if (k === 'x') {
+            var cutStart = promptEl.selectionStart || 0;
+            var cutEnd = promptEl.selectionEnd || 0;
+            if (cutEnd > cutStart && window.__beClipWrite) {
+                e.preventDefault();
+                window.__beClipWrite(promptEl.value.slice(cutStart, cutEnd));
+                promptEl.value = promptEl.value.slice(0, cutStart) + promptEl.value.slice(cutEnd);
+                promptEl.selectionStart = promptEl.selectionEnd = cutStart;
+                promptEl.dispatchEvent(new Event('input', {bubbles: true}));
+                return;
+            }
+        }
+    }
     if (_slashOpen) {
         if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
             e.preventDefault();
@@ -3130,6 +3172,20 @@ document.addEventListener('paste', (e) => {
             if (file) readAttachmentFile(file);
         }
     }
+});
+
+// JCEF clipboard bridge: route Ctrl+C from messages area to system clipboard.
+// Only fires if the Java bridge is installed (window.__beClipWrite exists).
+document.addEventListener('keydown', function(e) {
+    if (!window.__beClipWrite) return;
+    if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
+    if (e.key.toLowerCase() !== 'c') return;
+    var active = document.activeElement;
+    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return;
+    var sel = window.getSelection();
+    if (!sel || sel.isCollapsed) return;
+    var text = sel.toString();
+    if (text) window.__beClipWrite(text);
 });
 
 
