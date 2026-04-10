@@ -424,6 +424,10 @@ var _hasContextUsageEvent = false;  // true after first context_usage event
 var _showContextPopup = false;  // true when user explicitly requested the breakdown popup
 function updateContextRing(usage) {
     if (!usage) return;
+    // Don't update during history replay — the per-message usage is
+    // stale and can make the ring jump wildly. We request fresh context
+    // usage from the SDK after replay finishes.
+    if (_replayingHistory) return;
     // If we have real context_usage data from the SDK, don't let
     // per-turn usage override it (per-turn double-counts cache reads)
     if (_hasContextUsageEvent) return;
@@ -1615,32 +1619,15 @@ function renderEvent(event) {
         if (event.btw) return;  // BTW results are ephemeral — btw_end handles panel
         _importantEvent = true;
         _compacting = false;
-        // Prefer model_usage (cumulative) over per-turn usage for context ring
+        // Use per-turn usage (the actual context sent to the API).
+        // model_usage is cumulative across the whole session — not what
+        // we want for the context ring.
         if (event.model_usage) {
             var mu = event.model_usage;
             var modelKey = Object.keys(mu)[0];
-            if (modelKey) {
-                var mi = mu[modelKey];
-                var muTotal = (mi.inputTokens || 0) + (mi.cacheReadInputTokens || 0) + (mi.cacheCreationInputTokens || 0);
-                if (mi.contextWindow) MAX_CONTEXT = mi.contextWindow;
-                if (muTotal > 0) {
-                    totalTokens = muTotal;
-                    var pct = Math.min(1, muTotal / MAX_CONTEXT);
-                    var circumference = 37.7;
-                    if (contextRing) {
-                        contextRing.style.strokeDashoffset = circumference * (1 - pct);
-                        contextRing.style.stroke = pct < 0.5 ? 'var(--success)' : pct < 0.8 ? '#c4a000' : pct < 0.95 ? '#f0a020' : 'var(--error)';
-                    }
-                    var label = document.getElementById('context-label');
-                    if (label) {
-                        label.textContent = (muTotal / 1000).toFixed(0) + 'K \u00b7 ' + (pct * 100).toFixed(0) + '%';
-                        label.style.color = pct < 0.5 ? 'var(--muted)' : pct < 0.8 ? '#c4a000' : pct < 0.95 ? '#f0a020' : 'var(--error)';
-                    }
-                }
-            }
-        } else if (event.usage) {
-            updateContextRing(event.usage);
+            if (modelKey && mu[modelKey].contextWindow) MAX_CONTEXT = mu[modelKey].contextWindow;
         }
+        if (event.usage) updateContextRing(event.usage);
         _stats.turns += (event.num_turns || 1);
         if (event.total_cost_usd) _stats.totalCost += Number(event.total_cost_usd);
         // Request real context usage from SDK to update ring accurately

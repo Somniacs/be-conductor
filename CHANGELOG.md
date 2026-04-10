@@ -13,6 +13,8 @@ All notable changes to be-conductor are documented here.
 
 - **Installs actually restart the running server** — previously `install.sh` / `install.ps1` called `be-conductor up` after installing, which just prints "already running" and does nothing. The old server kept running with the old version, so the dashboard update banner would come back immediately after an update. Now the install scripts detect a running server and call `restart -f` to pick up the new version
 - **JetBrains plugin.xml and VS Code package.json versions are in sync** — the committed files were stale (showing 0.3.44 and 0.3.45). Now tracked in lockstep with `pyproject.toml` so releases don't ship mismatched metadata
+- **Context ring shows correct value on resumed sessions** — opening a resumed session briefly showed absurd numbers like "5999K · 100%" because `model_usage` is cumulative across all API calls in the session history, not the current context size. Now uses per-turn `usage` (the actual context sent to the API) and ignores stale values during history replay
+- **JetBrains agent tab shows session name** — new agent sessions opened from "Run Session" were showing the UUID instead of the user-chosen name. Fixed by passing the session name through the full chain of static entry points
 
 ## v0.3.50
 
