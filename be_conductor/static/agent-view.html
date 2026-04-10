@@ -3885,6 +3885,14 @@ function _buildSettingsPopup() {
     // Divider
     html += '<div style="height:1px;background:#30363d;margin:4px 0;"></div>';
 
+    // Link Device (QR code)
+    html += '<div class="settings-item" style="' + itemStyle + '" id="set-link-device">'
+        + '<div style="' + iconStyle + '"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="1.5" width="5" height="5"/><rect x="9.5" y="1.5" width="5" height="5"/><rect x="1.5" y="9.5" width="5" height="5"/><path d="M9.5 9.5h2v2M14.5 9.5v5M9.5 14.5h2"/></svg></div>'
+        + 'Link Device</div>';
+
+    // Divider
+    html += '<div style="height:1px;background:#30363d;margin:4px 0;"></div>';
+
     // Reload
     html += '<div class="settings-item" style="' + itemStyle + '" id="set-reload">'
         + '<div style="' + iconStyle + '"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 8a6 6 0 1 1 1.5 4"/><path d="M2 12V8h4"/></svg></div>'
@@ -3918,6 +3926,100 @@ function _buildSettingsPopup() {
         _buildSettingsPopup();
     });
     document.getElementById('set-reload').addEventListener('click', function() { location.reload(); });
+    document.getElementById('set-link-device').addEventListener('click', function(e) {
+        e.stopPropagation();
+        _closeAllPopups();
+        _showLinkDevice();
+    });
+}
+
+function _showLinkDevice() {
+    var old = document.getElementById('link-device-modal');
+    if (old) { old.remove(); return; }
+    // Fetch server info to get best URL (Tailscale, LAN IP, or localhost)
+    var httpBase = WS_BASE.replace('ws://', 'http://').replace('wss://', 'https://');
+    fetch(httpBase + '/info').then(function(r) { return r.json(); }).then(function(info) {
+        var port = info.port || 7777;
+        var url;
+        if (info.tailscale_name) url = 'http://' + info.tailscale_name + ':' + port;
+        else if (info.tailscale_ip) url = 'http://' + info.tailscale_ip + ':' + port;
+        else url = location.origin;
+        _renderLinkDeviceModal(url, info);
+    }).catch(function() {
+        _renderLinkDeviceModal(location.origin, {});
+    });
+}
+
+function _renderLinkDeviceModal(url, info) {
+    var modal = document.createElement('div');
+    modal.id = 'link-device-modal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:10000;display:flex;align-items:center;justify-content:center;';
+    modal.addEventListener('click', function(e) { if (e.target === modal) modal.remove(); });
+
+    var box = document.createElement('div');
+    box.style.cssText = 'background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:20px 24px;min-width:300px;max-width:380px;text-align:center;position:relative;box-shadow:0 8px 32px rgba(0,0,0,0.6);';
+
+    var closeBtn = document.createElement('button');
+    closeBtn.innerHTML = '&times;';
+    closeBtn.style.cssText = 'position:absolute;top:8px;right:10px;background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;line-height:1;padding:2px 6px;';
+    closeBtn.addEventListener('click', function() { modal.remove(); });
+    box.appendChild(closeBtn);
+
+    var title = document.createElement('h2');
+    title.textContent = 'Link Device';
+    title.style.cssText = 'font-size:15px;font-weight:600;color:var(--fg);margin:0 0 12px 0;';
+    box.appendChild(title);
+
+    var qrContainer = document.createElement('div');
+    qrContainer.id = 'link-device-qr';
+    qrContainer.style.cssText = 'display:flex;justify-content:center;margin-bottom:12px;min-height:200px;align-items:center;';
+    box.appendChild(qrContainer);
+
+    var urlText = document.createElement('div');
+    urlText.textContent = url;
+    urlText.style.cssText = 'font-size:11px;color:var(--muted);word-break:break-all;padding:6px 10px;background:var(--code-bg);border-radius:4px;margin-bottom:8px;cursor:pointer;';
+    urlText.title = 'Click to copy';
+    urlText.addEventListener('click', function() {
+        navigator.clipboard.writeText(url).then(function() {
+            urlText.textContent = 'Copied!';
+            setTimeout(function() { urlText.textContent = url; }, 1500);
+        });
+    });
+    box.appendChild(urlText);
+
+    var hint = document.createElement('div');
+    hint.style.cssText = 'font-size:11px;color:var(--muted);';
+    hint.textContent = 'Scan to open the dashboard on another device';
+    box.appendChild(hint);
+
+    modal.appendChild(box);
+    document.body.appendChild(modal);
+
+    // Render QR code
+    _ensureQRLib(function() {
+        try {
+            var qr = qrcode(0, 'M');
+            qr.addData(url);
+            qr.make();
+            qrContainer.innerHTML = qr.createImgTag(6, 8);
+            var img = qrContainer.querySelector('img');
+            if (img) { img.style.background = '#fff'; img.style.borderRadius = '6px'; }
+        } catch (err) {
+            qrContainer.textContent = 'QR generation failed';
+        }
+    });
+
+    var esc = function(e) { if (e.key === 'Escape') { modal.remove(); document.removeEventListener('keydown', esc); } };
+    document.addEventListener('keydown', esc);
+}
+
+function _ensureQRLib(cb) {
+    if (typeof qrcode !== 'undefined') { cb(); return; }
+    var s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js';
+    s.onload = cb;
+    s.onerror = function() { cb(); };
+    document.head.appendChild(s);
 }
 
 _settingsBtn.addEventListener('click', function(e) {

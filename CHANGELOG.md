@@ -6,6 +6,7 @@ All notable changes to be-conductor are documented here.
 
 ### New
 
+- **Link Device from the agent view** — the "..." settings popup in the agent view now has a "Link Device" option that shows a QR code with the server URL (Tailscale name/IP preferred). Previously only available from the dashboard sidebar, so IDE plugin users had no way to link a phone or other device
 - **Ctrl+Shift+Enter sends as BTW** — in any session, press Ctrl+Shift+Enter in the input to send the current text as a side-question (BTW) message that bypasses the normal queue. Same as typing `/btw …` but without the prefix
 - **View/Copy buttons visible on touch devices** — the sticky View/Copy buttons on long Claude responses now show by default on phones and tablets (where there's no hover). Desktop still fades them in on hover
 
