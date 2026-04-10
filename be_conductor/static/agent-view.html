@@ -3028,18 +3028,23 @@ function sendPrompt() {
     }
     // Track /compact for spinner text
     _compacting = (text === '/compact');
-    // Always send to backend — it decides whether to queue or process immediately.
-    // Render user message optimistically so the spinner has a group to land in.
-    // Mark it so backend's echoed user_message can be skipped.
+    // Send to backend FIRST so the WS message goes out immediately —
+    // doesn't wait for the DOM render.
+    ws.send(JSON.stringify(msg));
+    // Render user message optimistically — defer to next frame so the
+    // keystroke handler returns immediately and the input stays responsive.
+    // The DOM work for adding a message can take 50-200ms with a large session.
+    promptEl.focus({ preventScroll: true });  // refocus before any heavy work
     if (!busy) {
         _lastOptimisticContent = text || '(attachment)';
-        renderEvent({type: 'user_message', content: _lastOptimisticContent});
+        var _optContent = _lastOptimisticContent;
+        // Defer all DOM work to next frame so the keystroke + WS send return now
+        requestAnimationFrame(function() {
+            renderEvent({type: 'user_message', content: _optContent});
+            setBusy(true);
+            if (spinnerEl && spinnerEl.parentNode === messagesEl) messagesEl.appendChild(spinnerEl);
+        });
     }
-    ws.send(JSON.stringify(msg));
-    if (!busy) setBusy(true);
-    // Ensure spinner is always at the very bottom (below queued user messages)
-    if (spinnerEl && spinnerEl.parentNode === messagesEl) messagesEl.appendChild(spinnerEl);
-    promptEl.focus({ preventScroll: true });
 }
 
 // --- Input handlers ---
