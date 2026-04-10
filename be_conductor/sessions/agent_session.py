@@ -630,7 +630,27 @@ class AgentSession:
             })
             return
 
+        # Buffers for coalescing consecutive stream deltas — reduces
+        # the WebSocket message rate during long responses (would
+        # otherwise send 1000+ tiny events per turn, blocking the
+        # frontend main thread).
+        _delta_buf_text = ""
+        _delta_buf_think = ""
+
+        def _flush_stream_buffers():
+            nonlocal _delta_buf_text, _delta_buf_think
+            if _delta_buf_text:
+                _bcast({"type": "stream_delta", "delta_type": "text", "text": _delta_buf_text})
+                _delta_buf_text = ""
+            if _delta_buf_think:
+                _bcast({"type": "stream_delta", "delta_type": "thinking", "thinking": _delta_buf_think})
+                _delta_buf_think = ""
+
         async for message in response_iter:
+            # Flush any pending stream deltas before any structured event
+            # so the frontend sees events in the correct order.
+            if not isinstance(message, StreamEvent):
+                _flush_stream_buffers()
             if isinstance(message, AssistantMessage):
                 formatted = self._format_assistant(message)
                 _emit(formatted)
@@ -705,24 +725,40 @@ class AgentSession:
             elif isinstance(message, StreamEvent):
                 # Real-time text/thinking deltas for live UI rendering.
                 # Ephemeral — not saved to history (AssistantMessage has final content).
+                # Coalesce consecutive text/thinking deltas to reduce WebSocket
+                # message rate and frontend event dispatch overhead. Flush the
+                # buffer on any non-delta event or when it reaches a size cap.
                 event = getattr(message, "event", {})
                 etype = event.get("type", "")
                 if etype == "content_block_delta":
                     delta = event.get("delta", {})
                     dtype = delta.get("type", "")
                     if dtype == "text_delta":
-                        _bcast({
-                            "type": "stream_delta",
-                            "delta_type": "text",
-                            "text": delta.get("text", ""),
-                        })
+                        _delta_buf_text += delta.get("text", "")
+                        if len(_delta_buf_text) > 200:
+                            _bcast({"type": "stream_delta", "delta_type": "text", "text": _delta_buf_text})
+                            _delta_buf_text = ""
                     elif dtype == "thinking_delta":
-                        _bcast({
-                            "type": "stream_delta",
-                            "delta_type": "thinking",
-                            "thinking": delta.get("thinking", ""),
-                        })
+                        _delta_buf_think += delta.get("thinking", "")
+                        if len(_delta_buf_think) > 200:
+                            _bcast({"type": "stream_delta", "delta_type": "thinking", "thinking": _delta_buf_think})
+                            _delta_buf_think = ""
+                    else:
+                        # Other delta type — flush buffers
+                        if _delta_buf_text:
+                            _bcast({"type": "stream_delta", "delta_type": "text", "text": _delta_buf_text})
+                            _delta_buf_text = ""
+                        if _delta_buf_think:
+                            _bcast({"type": "stream_delta", "delta_type": "thinking", "thinking": _delta_buf_think})
+                            _delta_buf_think = ""
                 elif etype == "content_block_start":
+                    # Flush any pending deltas before the new block starts
+                    if _delta_buf_text:
+                        _bcast({"type": "stream_delta", "delta_type": "text", "text": _delta_buf_text})
+                        _delta_buf_text = ""
+                    if _delta_buf_think:
+                        _bcast({"type": "stream_delta", "delta_type": "thinking", "thinking": _delta_buf_think})
+                        _delta_buf_think = ""
                     cb = event.get("content_block", {})
                     _bcast({
                         "type": "stream_start",
@@ -730,6 +766,13 @@ class AgentSession:
                         "index": event.get("index", 0),
                     })
                 elif etype == "content_block_stop":
+                    # Flush pending deltas before signaling the block is done
+                    if _delta_buf_text:
+                        _bcast({"type": "stream_delta", "delta_type": "text", "text": _delta_buf_text})
+                        _delta_buf_text = ""
+                    if _delta_buf_think:
+                        _bcast({"type": "stream_delta", "delta_type": "thinking", "thinking": _delta_buf_think})
+                        _delta_buf_think = ""
                     _bcast({
                         "type": "stream_stop",
                         "index": event.get("index", 0),
@@ -746,6 +789,8 @@ class AgentSession:
                         "overage_status": getattr(rli, "overage_status", None),
                         "raw": getattr(rli, "raw", None),
                     })
+        # Flush any trailing deltas when the stream ends
+        _flush_stream_buffers()
 
     def _emit_plan_review(self) -> None:
         """Read the latest plan file and emit a plan_review event."""
