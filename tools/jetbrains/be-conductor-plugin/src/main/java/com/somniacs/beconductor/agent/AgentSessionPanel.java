@@ -77,35 +77,53 @@ public class AgentSessionPanel extends JPanel implements Disposable {
     }
 
     /**
-     * Bridge the JCEF webview's clipboard to the system clipboard.
-     * JCEF has its own internal clipboard that doesn't sync with the OS,
-     * so Ctrl+V in the embedded agent view pastes stale data.
-     * This registers JS callbacks __beClipWrite(text) and __beClipRead()
-     * that route through Java's AWT system clipboard.
+     * Bridge the JCEF webview's clipboard to the OS system clipboard.
+     *
+     * JCEF doesn't sync the JS Clipboard API with the OS system clipboard,
+     * but CEF's native CefBrowser.copy()/paste()/cut() methods DO use the
+     * actual system clipboard (that's what the right-click context menu
+     * uses). We expose these as JS functions and override the textarea's
+     * Ctrl+C/V/X to call them.
      */
     private void installClipboardBridge(JBCefBrowser b) {
         try {
-            JBCefJSQuery writeQuery = JBCefJSQuery.create(b);
-            writeQuery.addHandler(text -> {
+            // Bridge: __beClipNativePaste() — calls CEF's native paste which
+            // reads from the OS clipboard and inserts at the focused element.
+            JBCefJSQuery pasteQuery = JBCefJSQuery.create(b);
+            pasteQuery.addHandler(_ignored -> {
+                try {
+                    // Use CEF's native paste — same as right-click → Paste
+                    b.getCefBrowser().getFocusedFrame().paste();
+                } catch (Exception ignored) {}
+                return null;
+            });
+
+            // __beClipNativeCopy() — CEF's native copy from focused element to OS clipboard
+            JBCefJSQuery copyQuery = JBCefJSQuery.create(b);
+            copyQuery.addHandler(_ignored -> {
+                try {
+                    b.getCefBrowser().getFocusedFrame().copy();
+                } catch (Exception ignored) {}
+                return null;
+            });
+
+            // __beClipNativeCut() — CEF's native cut
+            JBCefJSQuery cutQuery = JBCefJSQuery.create(b);
+            cutQuery.addHandler(_ignored -> {
+                try {
+                    b.getCefBrowser().getFocusedFrame().cut();
+                } catch (Exception ignored) {}
+                return null;
+            });
+
+            // Also expose AWT-based read/write as fallback for messages-area copy
+            JBCefJSQuery awtWriteQuery = JBCefJSQuery.create(b);
+            awtWriteQuery.addHandler(text -> {
                 try {
                     Clipboard sys = Toolkit.getDefaultToolkit().getSystemClipboard();
                     sys.setContents(new StringSelection(text != null ? text : ""), null);
                 } catch (Exception ignored) {}
                 return null;
-            });
-
-            JBCefJSQuery readQuery = JBCefJSQuery.create(b);
-            readQuery.addHandler(_ignored -> {
-                try {
-                    Clipboard sys = Toolkit.getDefaultToolkit().getSystemClipboard();
-                    if (sys.isDataFlavorAvailable(DataFlavor.stringFlavor)) {
-                        Object data = sys.getData(DataFlavor.stringFlavor);
-                        if (data instanceof String) {
-                            return new JBCefJSQuery.Response((String) data);
-                        }
-                    }
-                } catch (Exception ignored) {}
-                return new JBCefJSQuery.Response("");
             });
 
             // Inject bridge functions into the page after it loads
@@ -114,16 +132,10 @@ public class AgentSessionPanel extends JPanel implements Disposable {
                 public void onLoadEnd(CefBrowser cefBrowser, CefFrame frame, int httpStatusCode) {
                     if (!frame.isMain()) return;
                     String js = ""
-                        + "window.__beClipWrite = function(text) {"
-                        + writeQuery.inject("text")
-                        + "};"
-                        + "window.__beClipRead = function() {"
-                        + "  return new Promise(function(resolve) {"
-                        + "    " + readQuery.inject("",
-                            "function(response) { resolve(response); }",
-                            "function(errCode, errMsg) { resolve(''); }")
-                        + "  });"
-                        + "};";
+                        + "window.__beClipNativePaste = function() {" + pasteQuery.inject("") + "};"
+                        + "window.__beClipNativeCopy = function() {" + copyQuery.inject("") + "};"
+                        + "window.__beClipNativeCut = function() {" + cutQuery.inject("") + "};"
+                        + "window.__beClipWrite = function(text) {" + awtWriteQuery.inject("text") + "};";
                     cefBrowser.executeJavaScript(js, cefBrowser.getURL(), 0);
                 }
             }, b.getCefBrowser());
