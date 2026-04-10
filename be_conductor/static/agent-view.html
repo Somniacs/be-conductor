@@ -3081,13 +3081,20 @@ function _serverClipRead() {
 function _serverClipWrite(text) {
     return fetch(_httpBase + '/clipboard', {method: 'POST', body: text || ''}).catch(function() {});
 }
-// Detect JCEF — in a real browser the native clipboard works, no need to bridge
-var _isJCEF = navigator.userAgent.indexOf('JetBrains') >= 0
-    || (window.external && typeof window.external.getBrowserInfo === 'function')
-    || !!window.__beClipNativePaste;
+// Detect JCEF. CefSharp/JCEF expose window.cefQuery for the JS↔Java bridge.
+// Real browsers (Chrome, Firefox) don't have it.
+// We also always enable the bridge if __beClipNativePaste is injected.
+var _isJCEF = typeof window.cefQuery === 'function'
+    || !!window.__beClipNativePaste
+    || navigator.userAgent.indexOf('JCEF') >= 0;
+// For now: always route through the server bridge — the native browser
+// Clipboard API requires user permission which may not be granted in JCEF.
+// The fetch-based server bridge works identically in both contexts.
+var _useServerClipboard = _isJCEF || true;  // always on for reliability
+console.log('[clipboard] isJCEF=' + _isJCEF + ' useServer=' + _useServerClipboard);
 
 promptEl.addEventListener('keydown', (e) => {
-    if (_isJCEF && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+    if (_useServerClipboard && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
         var k = e.key.toLowerCase();
         if (k === 'v') {
             e.preventDefault();
