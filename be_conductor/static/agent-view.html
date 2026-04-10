@@ -1753,34 +1753,30 @@ function _stopNavBlink() {
     navDownBtn.style.opacity = navDownBtn.disabled ? '0.25' : '0.7';
 }
 
-// Detect manual scroll — if user scrolls to bottom, stop blinking
+// Track near-bottom state via scroll event instead of reading on every frame.
+// Reading scrollHeight forces synchronous layout — very expensive with 1000+ messages.
+var _isNearBottom = true;
 messagesEl.addEventListener('scroll', function() {
-    if (messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 50) {
-        _stopNavBlink();
-    }
-});
+    _isNearBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 100;
+    if (_isNearBottom) _stopNavBlink();
+}, {passive: true});
 
 function autoScroll() {
     // Spinner stays where setBusy placed it — do NOT move it here.
-    // appendChild on an already-attached node would move it to the wrong
-    // group when current-group changes (user sends new message mid-stream).
-    // NOTE: _updateGroupLines() is NOT called here — it's too expensive
-    // for large sessions. It's called explicitly after content changes.
-    var nearBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 100;
-    if (nearBottom) {
+    // NOTE: _updateGroupLines() and _updateNavButtons() are NOT called here —
+    // they're too expensive for large sessions. They're called explicitly
+    // after content changes (new messages) instead of on every scroll frame.
+    if (_isNearBottom) {
         messagesEl.scrollTop = messagesEl.scrollHeight;
         _stopNavBlink();
     } else if (_importantEvent) {
-        // Scroll once for important events, then clear
         messagesEl.scrollTop = messagesEl.scrollHeight;
+        _isNearBottom = true;
         _stopNavBlink();
         _importantEvent = false;
     } else if (busy) {
-        // Scrolled up during output — blink but don't pull down
         _startNavBlink();
     }
-    // Update navigation buttons
-    if (typeof _updateNavButtons === 'function') _updateNavButtons();
 }
 
 // --- Message navigation (jump between user questions) ---
@@ -2855,9 +2851,10 @@ function connect() {
                 }
             } else {
                 renderEvent(msg);
-                // Update dot connecting lines after content changes (throttled via rAF)
+                // Update dot lines and nav buttons after content changes (not on every stream delta)
                 if (msg.type === 'assistant_message' || msg.type === 'user_message' || msg.type === 'result') {
                     _updateGroupLines();
+                    if (typeof _updateNavButtons === 'function') _updateNavButtons();
                 }
             }
         } catch (err) {
