@@ -1257,8 +1257,8 @@ function renderEvent(event) {
                 attHtml += '<img src="data:' + escHtml(a.type) + ';base64,' + a.data + '" style="max-width:200px;max-height:150px;border-radius:6px;margin-top:6px;cursor:pointer;display:block;" data-att-idx="' + ai + '">';
             }
         });
-        var lineCount = (content.match(/\n/g) || []).length + 1;
-        var isLong = lineCount > 4 || content.length > 300;
+        // Character count only — O(1), no regex parsing per render
+        var isLong = content.length > 600;
         var baseStyle = 'padding:10px 14px;background:var(--user-bg);border-radius:8px;border-left:3px solid var(--accent);white-space:pre-wrap;line-height:1.5;';
         if (isQueued) {
             div.innerHTML = `<div style="${baseStyle}opacity:0.6;"><span style="float:right;font-size:10px;color:var(--accent);">queued</span>${escHtml(content)}${attHtml}</div>`;
