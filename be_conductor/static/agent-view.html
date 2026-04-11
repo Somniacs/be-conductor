@@ -371,6 +371,17 @@ window.addEventListener('message', function(e) {
         promptEl.focus({ preventScroll: true });
         // Move cursor to start for ArrowUp so history check (selectionStart===0) passes
         if (key === 'ArrowUp') promptEl.selectionStart = promptEl.selectionEnd = 0;
+        // Shift+Enter (or Enter on touch) from the extra keys bar → insert newline.
+        // Synthesized KeyboardEvents don't mutate textarea contents, so we do it manually.
+        if (key === 'Enter' && e.data.shiftKey) {
+            var start = promptEl.selectionStart || 0;
+            var end = promptEl.selectionEnd || 0;
+            var cur = promptEl.value;
+            promptEl.value = cur.slice(0, start) + '\n' + cur.slice(end);
+            promptEl.selectionStart = promptEl.selectionEnd = start + 1;
+            promptEl.dispatchEvent(new Event('input', {bubbles: true}));
+            return;
+        }
         var opts = {key: key, bubbles: true, cancelable: true};
         if (e.data.shiftKey) opts.shiftKey = true;
         if (e.data.ctrlKey) opts.ctrlKey = true;
