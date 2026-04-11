@@ -1347,8 +1347,9 @@ function renderEvent(event) {
                 el.className = 'msg msg-claude msg-claude-dot';
                 el.style.cssText = 'line-height:1.6;color:#e0e0e0;position:relative;';
                 el.innerHTML = _mdToHtml(block.text);
-                // Add copy + view buttons for longer text blocks
-                if (block.text.split('\n').length > 5 || block.text.length > 300) {
+                // Add copy + view buttons for longer text blocks.
+                // Character count only — O(1), no string parsing per render.
+                if (block.text.length > 600) {
                     var btnRow = document.createElement('div');
                     // On touch devices (no hover), always show the buttons.
                     // On desktop, fade in on hover.
