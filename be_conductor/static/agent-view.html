@@ -3134,6 +3134,12 @@ promptEl.addEventListener('keydown', (e) => {
         return;
     }
     if (e.key === 'Enter' && !e.shiftKey) {
+        // On touch devices: Enter inserts a newline, send via the send button
+        // (physical keyboards use Shift+Enter for newline, Enter to send).
+        var _isTouchDevice = window.matchMedia && window.matchMedia('(hover: none)').matches;
+        if (_isTouchDevice) {
+            return;  // let the textarea insert the newline naturally
+        }
         e.preventDefault();
         e.stopPropagation();
         const hasText = promptEl.value.trim().length > 0;
