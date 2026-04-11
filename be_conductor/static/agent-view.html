@@ -1284,6 +1284,7 @@ function renderEvent(event) {
                 '<div class="user-msg-btns" style="position:sticky;bottom:8px;display:flex;gap:4px;margin-top:6px;z-index:5;">' +
                 '<button class="user-msg-view" style="background:var(--code-bg);border:1px solid var(--border);border-radius:4px;padding:3px 6px;cursor:pointer;color:var(--muted);font-size:11px;display:flex;align-items:center;gap:4px;"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="10" rx="1"/><path d="M5 13v1M11 13v1M4 14h8"/></svg>View</button>' +
                 '<button class="user-msg-copy" style="background:var(--code-bg);border:1px solid var(--border);border-radius:4px;padding:3px 6px;cursor:pointer;color:var(--muted);font-size:11px;display:flex;align-items:center;gap:4px;"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="5" width="8" height="8" rx="1"/><path d="M5 11H4a1 1 0 01-1-1V4a1 1 0 011-1h6a1 1 0 011 1v1"/></svg>Copy</button>' +
+                '<button class="user-msg-fold" title="Fold" style="background:var(--code-bg);border:1px solid var(--border);border-radius:4px;padding:3px 6px;cursor:pointer;color:var(--muted);font-size:11px;display:flex;align-items:center;gap:4px;"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 6l4-3 4 3"/><path d="M4 10l4 3 4-3"/></svg>Fold</button>' +
                 '</div></div>' + attHtml + '</div>';
             var preview = div.querySelector('.user-msg-preview');
             var body = div.querySelector('.user-msg-body');
@@ -1291,8 +1292,8 @@ function renderEvent(event) {
                 body.style.display = 'block';
                 preview.style.display = 'none';
             });
-            body.addEventListener('click', function(e) {
-                if (e.target.closest('.user-msg-view') || e.target.closest('.user-msg-copy')) return;
+            div.querySelector('.user-msg-fold').addEventListener('click', function(e) {
+                e.stopPropagation();
                 body.style.display = 'none';
                 preview.style.display = 'block';
             });
