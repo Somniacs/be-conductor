@@ -3830,6 +3830,9 @@
                 if (p.element) p.element.classList.toggle('panel-focused', p.id === id);
             });
             renderSessionList();
+            // Tell the newly-focused agent iframe the current sticky
+            // modifier state so its textarea Enter handler knows about it.
+            _broadcastEkModsToAgent();
             // If keyboard is open (mobile), the CSS :has(.panel-focused)
             // just swapped which panel is visible — refit + scroll cursor.
             const panelsEl = document.getElementById('panels');
@@ -5180,10 +5183,28 @@
             _applyEkState();
         }
 
+        // Broadcast current modifier state to the focused agent iframe so
+        // its soft-keyboard Enter handler can see a sticky Shift and insert
+        // a newline instead of sending.
+        function _broadcastEkModsToAgent() {
+            const panel = _getFocusedPanel();
+            if (!panel || panel._sessionType !== 'agent') return;
+            const iframe = panel._agentIframe;
+            if (iframe && iframe.contentWindow) {
+                iframe.contentWindow.postMessage({
+                    type: 'extraKeyMods',
+                    shiftKey: _ekMods.shift,
+                    ctrlKey: _ekMods.ctrl,
+                    altKey: _ekMods.alt,
+                }, '*');
+            }
+        }
+
         function toggleModifier(mod) {
             _ekMods[mod] = !_ekMods[mod];
             const btn = document.getElementById('ek-' + mod);
             if (btn) btn.classList.toggle('modifier-active', _ekMods[mod]);
+            _broadcastEkModsToAgent();
         }
 
         function _clearModifiers() {
@@ -5196,6 +5217,7 @@
             if (ctrlBtn) ctrlBtn.classList.remove('modifier-active');
             if (altBtn) altBtn.classList.remove('modifier-active');
             if (shiftBtn) shiftBtn.classList.remove('modifier-active');
+            _broadcastEkModsToAgent();
         }
 
         function sendKey(key) {
@@ -9892,6 +9914,12 @@
         // Handle messages from agent iframe
         window.addEventListener('message', (e) => {
             if (!e.data) return;
+            // Agent iframe consumed sticky shift for a newline — clear the
+            // visual toggle on the extra-keys bar to match.
+            if (e.data.type === 'agentClearEkMods') {
+                _clearModifiers();
+                return;
+            }
             // Handle session-resumed from agent-view iframe
             if (e.data.type === 'session-resumed') {
                 const { oldId, newId, name } = e.data;

@@ -12,6 +12,8 @@ All notable changes to be-conductor are documented here.
 
 ### Fixed
 
+- **Fold button on expanded user messages actually folds** — the button was added but didn't respond to clicks because the SVG icon was swallowing the click event. Clicks on the icon now register on the button
+- **Soft-keyboard Enter respects sticky Shift from the extra-keys bar** — toggling Shift on the extra-keys bar and then pressing Enter on the phone's virtual keyboard now inserts a newline in the agent input instead of sending. The Shift toggle also clears automatically after the newline, matching the rest of the bar's behavior
 - **Installs actually restart the running server** — previously `install.sh` / `install.ps1` called `be-conductor up` after installing, which just prints "already running" and does nothing. The old server kept running with the old version, so the dashboard update banner would come back immediately after an update. Now the install scripts detect a running server and call `restart -f` to pick up the new version
 - **JetBrains plugin.xml and VS Code package.json versions are in sync** — the committed files were stale (showing 0.3.44 and 0.3.45). Now tracked in lockstep with `pyproject.toml` so releases don't ship mismatched metadata
 - **Context ring shows correct value on resumed sessions** — opening a resumed session briefly showed absurd numbers like "5999K · 100%" because `model_usage` is cumulative across all API calls in the session history, not the current context size. Now uses per-turn `usage` (the actual context sent to the API) and ignores stale values during history replay
