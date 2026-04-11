@@ -9,6 +9,8 @@ All notable changes to be-conductor are documented here.
 - **Link Device from the agent view** — the "..." settings popup in the agent view now has a "Link Device" option that shows a QR code with the server URL (Tailscale name/IP preferred). Previously only available from the dashboard sidebar, so IDE plugin users had no way to link a phone or other device
 - **Ctrl+Shift+Enter sends as BTW** — in any session, press Ctrl+Shift+Enter in the input to send the current text as a side-question (BTW) message that bypasses the normal queue. Same as typing `/btw …` but without the prefix
 - **View/Copy buttons visible on touch devices** — the sticky View/Copy buttons on long Claude responses now show by default on phones and tablets (where there's no hover). Desktop still fades them in on hover
+- **`<thinking>` tags in text render as a Thoughts block** — when the model writes `<thinking>...</thinking>` inline in a text response (instead of using the dedicated thinking channel), it's now rendered as a collapsed Thoughts block matching the regular thinking UI instead of showing the raw tags
+- **`be-conductor upgrade-sdk` command** — upgrades `claude-agent-sdk` to the latest PyPI version inside the same Python that runs the CLI (which is also the Python the server subprocess uses). The install scripts now call this automatically after reinstalling, so the SDK in the server's Python stays current even when it's a different Python than the pipx venv
 
 ### Fixed
 

@@ -702,6 +702,17 @@ function _mdToHtml(text) {
     h = h.replace(/&lt;details&gt;/gi, '<details style="margin:8px 0;border:1px solid #30363d;border-radius:6px;overflow:hidden;">');
     h = h.replace(/&lt;\/details&gt;/gi, '</details>');
     h = h.replace(/&lt;summary&gt;([\s\S]*?)&lt;\/summary&gt;/gi, '<summary style="padding:6px 10px;background:var(--tool-header);cursor:pointer;user-select:none;font-size:13px;">$1</summary>');
+    // Recover <thinking>...</thinking> blocks from text output and render
+    // them as a collapsed Thoughts block matching the regular thinking UI.
+    h = h.replace(/&lt;thinking&gt;([\s\S]*?)&lt;\/thinking&gt;/gi, function(_, inner) {
+        return '<details style="margin:8px 0;border:1px solid #2d333b;border-radius:6px;overflow:hidden;">' +
+            '<summary style="padding:5px 10px;background:#1a1a2e;color:var(--muted);font-size:12px;cursor:pointer;user-select:none;list-style:none;">' +
+            '<strong style="color:#a0a0c0;">Thoughts</strong>' +
+            '</summary>' +
+            '<div style="padding:10px 12px;background:#12121f;max-height:300px;overflow-y:auto;font-size:12px;color:#a0a0c0;line-height:1.5;white-space:pre-wrap;">' +
+            inner.trim() +
+            '</div></details>';
+    });
     // Make file paths clickable
     h = makeFileLinksClickable(h);
     return h;
