@@ -1305,6 +1305,40 @@ def shutdown(force):
     sys.exit(1)
 
 
+@cli.command("upgrade-sdk")
+def upgrade_sdk():
+    """Upgrade claude-agent-sdk in the Python that runs this CLI.
+
+    This is the same interpreter (sys.executable) that the server
+    subprocess uses.  Run this after upgrading be-conductor so the
+    agent SDK in the server's Python stays current with PyPI.
+    """
+    click.echo(f"Upgrading claude-agent-sdk in {sys.executable}...")
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--upgrade",
+             "--quiet", "claude-agent-sdk"],
+            capture_output=True, text=True, timeout=180,
+        )
+        if result.returncode == 0:
+            try:
+                from importlib.metadata import version as _v
+                click.echo(f"claude-agent-sdk {_v('claude-agent-sdk')} OK")
+            except Exception:
+                click.echo("claude-agent-sdk upgraded OK")
+        else:
+            err = (result.stderr or result.stdout or "").strip().splitlines()
+            tail = "\n".join(err[-5:]) if err else "unknown error"
+            click.echo(f"Upgrade failed: {tail}", err=True)
+            sys.exit(1)
+    except subprocess.TimeoutExpired:
+        click.echo("Upgrade timed out after 180s", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Upgrade failed: {e}", err=True)
+        sys.exit(1)
+
+
 @cli.command()
 @click.option("--force", "-f", is_flag=True, help="Skip active-session warning")
 def restart(force):

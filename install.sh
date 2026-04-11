@@ -223,6 +223,16 @@ fi
 
 echo ""
 
+# ── Upgrade claude-agent-sdk in the server's Python ─────────────────
+# The server subprocess uses whatever Python runs the `be-conductor`
+# CLI (sys.executable).  pipx inject only touches the pipx venv,
+# which may not be the same Python — so also upgrade via the CLI
+# helper which runs `pip install --upgrade` inside sys.executable.
+if command -v "$PROJECT" &>/dev/null; then
+    echo "Upgrading claude-agent-sdk in the server's Python..."
+    "$PROJECT" upgrade-sdk 2>/dev/null || true
+fi
+
 # ── Restart any running server so the new version takes effect ──────
 # Without this, `up` would see the old process still running and do
 # nothing, leaving the dashboard stuck showing the old version.
