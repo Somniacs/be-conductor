@@ -3927,6 +3927,9 @@ function updateModeUI() {
     document.documentElement.style.setProperty('--mode-color', color);
     modeBtn.style.borderColor = '';
     modeBtn.style.color = '';
+    // Refresh send button color — its inline style depends on modeIdx and
+    // otherwise stays stale until the next keystroke in the input.
+    if (typeof updateSendBtn === 'function') updateSendBtn();
 }
 
 function updateEffortUI() {
