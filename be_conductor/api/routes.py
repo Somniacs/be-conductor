@@ -92,7 +92,13 @@ async def _broadcast_notification(event: NotificationEvent):
     })
     dead: list[WebSocket] = []
     delivered = 0
-    for ws in list(_notification_ws):
+    # Only deliver to WebSockets subscribed to the SAME session — otherwise
+    # every open agent-view gets a notification badge for events in unrelated
+    # sessions.  The dashboard panels already filter by session_id on the
+    # client side, so this is safe for both paths.
+    for ws, sid in list(_notification_ws.items()):
+        if sid != event.session_id:
+            continue
         try:
             await ws.send_text(msg)
             delivered += 1

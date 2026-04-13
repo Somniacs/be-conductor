@@ -2896,6 +2896,12 @@ function connect() {
             } else if (msg.type === 'ping') {
                 return;
             } else if (msg.type === 'notification') {
+                // Ignore notifications meant for a different session —
+                // otherwise every open agent-view shows a badge for events
+                // in unrelated sessions.
+                if (msg.session_id && msg.session_id !== SESSION_ID) {
+                    return;
+                }
                 // Server notification — ack if focused (suppresses webhook)
                 var _notifOn = localStorage.getItem('agent-view-notif') !== 'off';
                 if (document.hasFocus()) {
