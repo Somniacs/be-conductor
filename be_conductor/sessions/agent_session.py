@@ -1100,47 +1100,56 @@ class AgentSession:
         self._input_queue.put_nowait(msg)
 
     async def _send_btw(self, text: str) -> None:
-        """Answer a /btw question using SDK query() — parallel, no API key needed.
+        """Answer a /btw question using a forked SDK subprocess.
 
-        Uses the same OAuth auth as the main agent. Runs as an independent
-        one-shot conversation with context from recent history.
-        Fully ephemeral — nothing saved to disk.
+        Spawns a second CLI subprocess that resumes the main session with
+        ``fork_session=True``, so it starts with the full conversation
+        history of the running agent but writes to a throwaway forked
+        session id.  Runs truly in parallel with the main agent — the
+        user gets an answer without waiting for the current turn to end.
+
+        Fully ephemeral: no history file is saved for the fork.
         """
-        from claude_agent_sdk import query, ClaudeAgentOptions, AssistantMessage, TextBlock
+        from claude_agent_sdk import (
+            query, ClaudeAgentOptions, AssistantMessage, TextBlock,
+        )
 
         self._broadcast_event({"type": "btw_start", "text": text})
 
         try:
-            # Build context from recent non-btw history
-            context_lines = []
-            for ev in self._message_history[-30:]:
-                if ev.get("btw"):
-                    continue
-                if ev.get("type") == "user_message":
-                    context_lines.append("User: " + (ev.get("content", ""))[:300])
-                elif ev.get("type") == "assistant_message":
-                    for b in ev.get("content", []):
-                        if b.get("type") == "text":
-                            context_lines.append("Assistant: " + b.get("text", "")[:300])
-                            break
-            context = "\n\n".join(context_lines[-20:])
-
-            prompt = (
-                "You have the following conversation context:\n\n"
-                f"{context}\n\n---\n"
-                "The user has a quick side question. Be concise.\n\n"
-                f"Question: {text}"
-            )
-
-            options = ClaudeAgentOptions(
-                tools=[],          # no tools
-                max_turns=1,       # one-shot
-                system_prompt=(
-                    "You are answering a quick side question about an ongoing "
-                    "coding session. Be concise and direct. You have NO tool "
-                    "access."
-                ),
-            )
+            # Fall back to context-free one-shot if we don't yet have a
+            # session id to resume (agent just started, no turn finished).
+            resume_id = self.resume_id
+            if resume_id:
+                options = ClaudeAgentOptions(
+                    cwd=self.cwd or ".",
+                    resume=resume_id,
+                    fork_session=True,   # don't overwrite the parent session
+                    max_turns=1,         # one-shot
+                    can_use_tool=None,   # parent callback doesn't apply here
+                    permission_mode="bypassPermissions",
+                    include_partial_messages=False,
+                    setting_sources=["user", "project"],
+                    system_prompt=(
+                        "The user is asking a quick side question while "
+                        "an agent turn is running.  Answer using the "
+                        "context of the conversation so far.  Be concise "
+                        "and direct.  Do not use tools — just answer."
+                    ),
+                )
+                prompt = text
+            else:
+                options = ClaudeAgentOptions(
+                    cwd=self.cwd or ".",
+                    max_turns=1,
+                    permission_mode="bypassPermissions",
+                    system_prompt=(
+                        "You are answering a quick side question about a "
+                        "coding session that has just started.  Be "
+                        "concise and direct.  Do not use tools."
+                    ),
+                )
+                prompt = text
 
             response_text = ""
             async for message in query(prompt=prompt, options=options):
