@@ -1024,15 +1024,15 @@ function renderEvent(event) {
         if (event.pending_plan_review && !_replayingHistory) {
             setBusy(false);
             showPlanModal(event.pending_plan_review.plan || '(empty plan)', function(answer) {
+                // Backend broadcasts `settings` when the mode actually
+                // changes — don't touch modeIdx optimistically here.
                 if (answer.startsWith('feedback:')) {
                     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type: 'answer', text: answer.slice(9)}));
                     setBusy(true);
                 } else if (answer === 'approved') {
-                    modeIdx = 0; updateModeUI();
                     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type: 'answer', text: 'approved'}));
                     setBusy(true);
                 } else if (answer === 'rejected') {
-                    modeIdx = 0; updateModeUI();
                     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type: 'answer', text: 'rejected'}));
                     setBusy(true);
                 }
@@ -1657,25 +1657,23 @@ function renderEvent(event) {
             setBusy(false);
 
             showPlanModal(planContent, function(answer) {
+                // Don't touch modeIdx here — the backend is the single
+                // source of truth for permission_mode and broadcasts a
+                // `settings` event whenever the mode actually changes.
+                // On approve it flips to "default" → UI button updates.
+                // On reject / feedback it stays in plan mode → button stays.
                 if (answer.startsWith('feedback:')) {
-                    // User typed feedback in the free text input
                     var text = answer.slice(9);
                     if (ws && ws.readyState === WebSocket.OPEN) {
                         ws.send(JSON.stringify({type: 'answer', text: text}));
                     }
                     setBusy(true);
                 } else if (answer === 'approved') {
-                    // Agent exits plan mode — switch UI to Ask mode
-                    modeIdx = 0;
-                    updateModeUI();
                     if (ws && ws.readyState === WebSocket.OPEN) {
                         ws.send(JSON.stringify({type: 'answer', text: 'approved'}));
                     }
                     setBusy(true);
                 } else if (answer === 'rejected') {
-                    // Plan rejected — agent leaves plan mode
-                    modeIdx = 0;
-                    updateModeUI();
                     if (ws && ws.readyState === WebSocket.OPEN) {
                         ws.send(JSON.stringify({type: 'answer', text: 'rejected'}));
                     }
@@ -2842,15 +2840,15 @@ function connect() {
                     var _pc = _pendingPlanReview.plan || '(empty plan)';
                     setBusy(false);
                     showPlanModal(_pc, function(answer) {
+                        // Backend drives mode via `settings` broadcast —
+                        // don't touch modeIdx optimistically.
                         if (answer.startsWith('feedback:')) {
                             if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type: 'answer', text: answer.slice(9)}));
                             setBusy(true);
                         } else if (answer === 'approved') {
-                            modeIdx = 0; updateModeUI();
                             if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type: 'answer', text: 'approved'}));
                             setBusy(true);
                         } else if (answer === 'rejected') {
-                            modeIdx = 0; updateModeUI();
                             if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type: 'answer', text: 'rejected'}));
                             setBusy(true);
                         }
