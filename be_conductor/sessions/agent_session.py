@@ -225,15 +225,19 @@ class AgentSession:
             except asyncio.TimeoutError:
                 answer = "rejected"
 
-            # Exit plan mode → switch back to default
-            self._current_mode = "default"
-            self._agent_options["permission_mode"] = "default"
-            self._pending_mode_change = "default"
-            self._broadcast_settings()
+            # Only leave plan mode on explicit approval.  Reject / feedback /
+            # cancel must keep the agent in plan mode so it has to propose
+            # again — otherwise the agent treats free-text feedback as tacit
+            # approval and starts editing files.
             if answer.lower() in ("approve", "approved", "yes", "ok"):
-                return {}  # Allow the tool to proceed (no decision = continue)
-            else:
-                return {"decision": "block", "reason": answer}
+                self._current_mode = "default"
+                self._agent_options["permission_mode"] = "default"
+                self._pending_mode_change = "default"
+                self._broadcast_settings()
+                return {}  # Allow the tool to proceed
+            # Stay in plan mode — block the ExitPlanMode call and forward
+            # the user's feedback to the model as the block reason.
+            return {"decision": "block", "reason": answer}
 
         # SDK permission callback — the SDK decides WHEN to ask (based on
         # permission_mode), this callback decides HOW to show the prompt.
