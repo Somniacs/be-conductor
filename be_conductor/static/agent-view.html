@@ -3188,11 +3188,16 @@ promptEl.addEventListener('keydown', (e) => {
             try { window.parent.postMessage({type: 'agentClearEkMods'}, '*'); } catch (ignored) {}
             return;
         }
-        // On touch devices: Enter inserts a newline, send via the send button
-        // (physical keyboards use Shift+Enter for newline, Enter to send).
-        var _isTouchDevice = window.matchMedia && window.matchMedia('(hover: none)').matches;
-        if (_isTouchDevice) {
-            return;  // let the textarea insert the newline naturally
+        // On soft keyboards (phones/tablets): Enter inserts a newline and
+        // the user sends via the button. Physical keyboards fire Enter with
+        // keyCode/which === 13; soft keyboards typically fire 229 or 0 on
+        // Android Chrome, because IME composition eats the real keycode.
+        // `e.code` is unreliable in JCEF (empty even for physical keys), so
+        // rely on keyCode which is consistent across desktop browsers,
+        // Chrome/Firefox, JCEF, and Safari.
+        var _isPhysicalEnter = (e.keyCode === 13 || e.which === 13);
+        if (!_isPhysicalEnter) {
+            return;  // soft-keyboard Enter — let the textarea insert \n
         }
         e.preventDefault();
         e.stopPropagation();
