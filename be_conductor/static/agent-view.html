@@ -1150,21 +1150,19 @@ function renderEvent(event) {
             }
             var _newText = event.text || '';
             _streamBubbleRaw += _newText;
-            _streamBubblePendingText = (_streamBubblePendingText || '') + _newText;
-            // Incremental append instead of full re-render — O(1) per frame
-            // instead of O(n). Final markdown render happens once on assistant_message.
+            // Render markdown live. The server coalesces deltas at ~200 chars,
+            // and rAF throttles to one paint. _mdToHtml on a few KB is fast.
+            // Reading raw plain text while Claude is typing is hard on the eyes
+            // (headings, lists, code fences all show as ASCII until the final
+            // message lands) — render every update so the live bubble looks
+            // the same as the finalized one.
             if (!_streamRenderPending) {
                 _streamRenderPending = true;
                 requestAnimationFrame(function() {
                     var _b = document.getElementById('stream-bubble');
-                    if (_b && _streamBubblePendingText) {
-                        if (_b.firstChild && _b.firstChild.nodeType === 3) {
-                            _b.firstChild.appendData(_streamBubblePendingText);
-                        } else {
-                            _b.appendChild(document.createTextNode(_streamBubblePendingText));
-                        }
+                    if (_b) {
+                        _b.innerHTML = _mdToHtml(_streamBubbleRaw);
                     }
-                    _streamBubblePendingText = '';
                     _streamRenderPending = false;
                     autoScroll();
                 });
@@ -3099,7 +3097,6 @@ var _streamThinkingRaw = '';  // accumulated thinking text for live rendering
 var _streamBlockType = '';  // current streaming block type (text/thinking)
 var _streamRenderPending = false;  // throttle: true while rAF is pending
 var _streamThinkPending = false;   // throttle: true while thinking rAF is pending
-var _streamBubblePendingText = ''; // text to append next frame
 var _streamThinkPendingText = '';  // thinking text to append next frame
 // No auto-resize — textarea uses min-height/max-height + internal scroll.
 // Previous JS resize forced a reflow of the entire messages area on every
