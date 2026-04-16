@@ -518,10 +518,21 @@ class AgentSession:
                         "content": initial,
                         "turn_id": initial_turn_id,
                     })
+                    # _processing MUST be cleared on every exit path — the
+                    # outer send_input() routes follow-up prompts to the
+                    # _pending_prompts queue instead of _input_queue while
+                    # this flag is True, so leaving it stuck after an
+                    # exception turns the session into a zombie that
+                    # accepts prompts but never executes them (session
+                    # appears "running" but won't kick off — the symptom
+                    # we saw on a long-running agent). try/finally makes
+                    # the reset exception-safe.
                     self._processing = True
-                    await client.query(initial)
-                    await self._stream_response(client)
-                    self._processing = False
+                    try:
+                        await client.query(initial)
+                        await self._stream_response(client)
+                    finally:
+                        self._processing = False
 
                 # Process any messages that were queued during initial prompt
                 while self._pending_prompts and self.status == "running":
@@ -559,16 +570,29 @@ class AgentSession:
                                 "content": text,
                                 "turn_id": turn_id,
                             })
+                        # See the initial-prompt block for why this try/
+                        # finally matters: a raised exception after setting
+                        # _processing=True used to leave the flag stuck,
+                        # wedging send_input() into queuing every future
+                        # prompt into _pending_prompts forever.
                         self._processing = True
-                        if attachments:
-                            prompt_with_files = self._build_prompt_with_attachments(
-                                text, attachments
-                            )
-                            await client.query(prompt_with_files)
-                        else:
-                            await client.query(text)
-                        await self._stream_response(client, is_btw=is_btw)
-                        self._processing = False
+                        try:
+                            if attachments:
+                                prompt_with_files = self._build_prompt_with_attachments(
+                                    text, attachments
+                                )
+                                await client.query(prompt_with_files)
+                            else:
+                                await client.query(text)
+                            await self._stream_response(client, is_btw=is_btw)
+                        finally:
+                            self._processing = False
+                            # Clear the BTW flag unconditionally — if the
+                            # turn errored mid-stream on a BTW, leaving
+                            # this True would tag the next normal turn's
+                            # events as BTW and route them to the wrong
+                            # panel.
+                            self._current_turn_btw = False
                         # Notify clients the turn is complete — ensures
                         # the frontend removes the spinner even if the
                         # result event was missed or delayed.
@@ -1146,15 +1170,21 @@ class AgentSession:
         })
 
         self._processing = True
-        if attachments:
-            prompt_with_files = self._build_prompt_with_attachments(
-                text, attachments
-            )
-            await client.query(prompt_with_files)
-        else:
-            await client.query(text)
-        await self._stream_response(client)
-        self._processing = False
+        try:
+            if attachments:
+                prompt_with_files = self._build_prompt_with_attachments(
+                    text, attachments
+                )
+                await client.query(prompt_with_files)
+            else:
+                await client.query(text)
+            await self._stream_response(client)
+        finally:
+            # Same invariant as the main turn loop — see comments there.
+            # Without this, an exception during a queued-prompt turn left
+            # _processing=True and subsequent sends piled into the
+            # pending queue with no consumer.
+            self._processing = False
 
     def _broadcast_close(self) -> None:
         for queue in list(self.subscribers):
