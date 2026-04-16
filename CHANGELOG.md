@@ -2,6 +2,20 @@
 
 All notable changes to be-conductor are documented here.
 
+## v0.3.52
+
+### Fixed
+
+- **Answers no longer show up one turn late on large sessions** — when the server emitted an assistant message, it synchronously wrote the entire message history (sometimes megabytes on long sessions) to disk on the event loop *before* flushing to the WebSocket. That could stall WS sends for long enough that the turn's response didn't appear until the next prompt was sent. The history save is now coalesced and written in the background on a thread, and subscribers are notified first so events reach the UI immediately
+- **Streaming responses render markdown live** — headings, lists, code fences, bold, italics and links now format while Claude is still typing, instead of showing raw ASCII that only "snapped" to formatted markdown when the turn finished. The rendering is still throttled to one paint per frame so typing in the input stays smooth
+- **Fold button on expanded user messages actually folds** — the button was added but didn't respond to clicks because the SVG icon was swallowing the click event. Clicks on the icon now register on the button
+- **Soft-keyboard Enter respects sticky Shift from the extra-keys bar** — toggling Shift on the extra-keys bar and then pressing Enter on the phone's virtual keyboard now inserts a newline in the agent input instead of sending. The Shift toggle also clears automatically after the newline, matching the rest of the bar's behavior
+- **Desktop Enter still sends in JetBrains and on touchscreen laptops** — the soft-keyboard newline detection was using `(hover: none)` which falsely matches touchscreen laptops, and JCEF in JetBrains reports an empty `e.code` for Enter. Now uses `keyCode === 13` to tell a real physical Enter from a soft-keyboard Enter, so Enter sends everywhere except on phones/tablets
+
+### Changed
+
+- **Bundled Claude Agent SDK upgraded to 0.1.59** (CLI 2.1.105). No API changes on our side — this is a CLI bundle refresh from the upstream SDK
+
 ## v0.3.51
 
 ### New
