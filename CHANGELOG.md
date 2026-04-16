@@ -4,6 +4,10 @@ All notable changes to be-conductor are documented here.
 
 ## v0.3.52
 
+### New
+
+- **Copy button on fenced code blocks** — every \`\`\` code block in an assistant response now has a Copy button in its top-right corner. Click it to put the code on the system clipboard. Works with any content (quotes, ampersands, entities) because the button reads from the rendered block itself, not an HTML attribute. In the JetBrains plugin it goes through the existing clipboard bridge so it writes to the real OS clipboard, not JCEF's isolated one
+
 ### Fixed
 
 - **Answers no longer show up one turn late on large sessions** — when the server emitted an assistant message, it synchronously wrote the entire message history (sometimes megabytes on long sessions) to disk on the event loop *before* flushing to the WebSocket. That could stall WS sends for long enough that the turn's response didn't appear until the next prompt was sent. The history save is now coalesced and written in the background on a thread, and subscribers are notified first so events reach the UI immediately

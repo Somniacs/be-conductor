@@ -618,10 +618,19 @@ function escHtml(s) {
 function _mdToHtml(text) {
     if (!text) return '';
     let h = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-    // Fenced code blocks
+    // Fenced code blocks. Each block gets a header row (lang label on the
+    // left if present, Copy button on the right). The raw code is rendered
+    // inside the <pre><code> — the click delegate reads textContent of the
+    // sibling <pre> instead of a data attribute, which means no attribute
+    // escaping bugs are possible even for code containing quotes, entities,
+    // or exotic whitespace.
     h = h.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
-        const label = lang ? `<div style="font-size:11px;color:#666;padding:4px 10px;background:var(--tool-header);border-radius:6px 6px 0 0;border-bottom:1px solid var(--border);">${lang}</div>` : '';
-        return `<div style="margin:8px 0;border-radius:6px;overflow:hidden;border:1px solid var(--border);">${label}<pre style="margin:0;padding:10px 12px;background:var(--code-bg);overflow-x:auto;font-size:13px;line-height:1.45;color:var(--fg);"><code>${code}</code></pre></div>`;
+        const copyBtn = '<button class="md-copy-btn" title="Copy" style="background:transparent;border:1px solid var(--border);border-radius:4px;padding:2px 8px;cursor:pointer;color:var(--muted);font-size:11px;display:inline-flex;align-items:center;gap:4px;"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="pointer-events:none;"><rect x="5" y="5" width="8" height="8" rx="1"/><path d="M5 11H4a1 1 0 01-1-1V4a1 1 0 011-1h6a1 1 0 011 1v1"/></svg>Copy</button>';
+        const langLabel = lang
+            ? '<span style="font-size:11px;color:#666;">' + lang + '</span>'
+            : '<span></span>';
+        const header = '<div style="display:flex;align-items:center;justify-content:space-between;padding:4px 10px;background:var(--tool-header);border-radius:6px 6px 0 0;border-bottom:1px solid var(--border);">' + langLabel + copyBtn + '</div>';
+        return `<div class="md-code-block" style="margin:8px 0;border-radius:6px;overflow:hidden;border:1px solid var(--border);">${header}<pre style="margin:0;padding:10px 12px;background:var(--code-bg);overflow-x:auto;font-size:13px;line-height:1.45;color:var(--fg);"><code>${code}</code></pre></div>`;
     });
     // Tables: detect lines starting with |
     h = h.replace(/((?:^\|.+\|$\n?)+)/gm, (tableBlock) => {
@@ -1789,6 +1798,39 @@ function _drawRunLines(dots) {
 }
 // Recalculate lines when any <details> toggles (expand/collapse changes dot positions)
 messagesEl.addEventListener('toggle', function() { _updateGroupLines(); }, true);
+
+// Copy button on fenced code blocks rendered by _mdToHtml. Event delegation
+// survives re-renders during streaming (the button DOM is recreated on
+// every rAF tick, the handler lives on messagesEl). The code payload lives
+// inside the sibling <pre><code> — we read its textContent so no attribute
+// escaping can go wrong no matter what characters the code contains.
+messagesEl.addEventListener('click', function(e) {
+    var btn = e.target.closest && e.target.closest('.md-copy-btn');
+    if (!btn) return;
+    e.stopPropagation();
+    e.preventDefault();
+    var block = btn.closest('.md-code-block');
+    var pre = block && block.querySelector('pre');
+    var text = pre ? pre.textContent : '';
+    var _restore = btn.innerHTML;
+    var _done = function(ok) {
+        btn.innerHTML = ok
+            ? '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="#3fb950" stroke-width="2" style="pointer-events:none;"><path d="M3 8l3 3 7-7"/></svg>Copied'
+            : '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="#f85149" stroke-width="2" style="pointer-events:none;"><path d="M4 4l8 8M12 4l-8 8"/></svg>Failed';
+        setTimeout(function() { btn.innerHTML = _restore; }, 1500);
+    };
+    // JCEF-friendly path: the explicit bridge (window.__beClipWrite) goes to
+    // the OS clipboard via Java AWT even when JCEF's JS Clipboard API is
+    // isolated. Fall back to the browser API when the bridge isn't present.
+    if (window.__beClipWrite) {
+        try { window.__beClipWrite(text); _done(true); return; } catch (_) {}
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function() { _done(true); }, function() { _done(false); });
+    } else {
+        _done(false);
+    }
+});
 
 var _blinkingNav = false;
 var _importantEvent = false;   // set by question, result, session_end — triggers scroll even when not at bottom
