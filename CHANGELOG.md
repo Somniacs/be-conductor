@@ -7,6 +7,7 @@ All notable changes to be-conductor are documented here.
 ### New
 
 - **Copy button on fenced code blocks** — every \`\`\` code block in an assistant response now has a Copy button in its top-right corner. Click it to put the code on the system clipboard. Works with any content (quotes, ampersands, entities) because the button reads from the rendered block itself, not an HTML attribute. In the JetBrains plugin it goes through the existing clipboard bridge so it writes to the real OS clipboard, not JCEF's isolated one
+- **Claude Opus 4.7 is now in the model picker** — after upgrading the bundled Claude Agent SDK to 0.1.60 (CLI 2.1.111), the "Default (recommended)" model is now **Opus 4.7 with 1M context** (was Opus 4.6). The picker pulls straight from the SDK so the label updates automatically on restart — nothing to change in settings. A new `xhigh` effort level is available on Opus 4.7 from the CLI side; it isn't surfaced in the GUI effort dots yet, but the CLI picker and the SDK both honor it
 
 ## v0.3.52
 
