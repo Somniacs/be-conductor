@@ -2037,6 +2037,10 @@ async def _stream_agent(ws: WebSocket, session: Any):
 
     queue = session.subscribe()
 
+    # Local import so the trace bool is read via module state; we don't
+    # want to duplicate the env-var parsing here.
+    from be_conductor.sessions.agent_session import _ws_trace as _bc_ws_trace
+
     async def writer():
         try:
             while True:
@@ -2056,7 +2060,11 @@ async def _stream_agent(ws: WebSocket, session: Any):
                     break
                 try:
                     await ws.send_json(event)
+                    _bc_ws_trace("send", getattr(session, "id", ""), event,
+                                 f"qlen={queue.qsize()}")
                 except Exception:
+                    _bc_ws_trace("send", getattr(session, "id", ""), event,
+                                 "SEND_FAILED")
                     break
         except Exception:
             pass

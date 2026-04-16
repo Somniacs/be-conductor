@@ -19,6 +19,31 @@ log = logging.getLogger(__name__)
 
 BUFFER_MAX_BYTES = 1_000_000
 
+# WebSocket trace. Set BC_WS_TRACE=1 in the environment to get a line on
+# stderr for every event emitted to subscriber queues and every event
+# actually sent on the wire. Each line includes a monotonic millisecond
+# timestamp, the session id prefix, the event type, and — for emits —
+# the queue depth. Compare emit/send timestamps to find where latency
+# lives: server-side backpressure (gap between emit and send) vs.
+# client-side stall (no gap, but browser renders late). Off by default;
+# the check is a single module-level bool read per event.
+import os as _os_env
+_BC_WS_TRACE = _os_env.getenv("BC_WS_TRACE", "").strip() not in ("", "0", "false", "False")
+_BC_WS_TRACE_T0 = time.monotonic()
+
+
+def _ws_trace(direction: str, session_id: str, event: dict, extra: str = "") -> None:
+    """Emit a ws-trace line. Cheap no-op when BC_WS_TRACE is unset."""
+    if not _BC_WS_TRACE:
+        return
+    import sys as _sys
+    ms = int((time.monotonic() - _BC_WS_TRACE_T0) * 1000)
+    etype = event.get("type", "?") if isinstance(event, dict) else "?"
+    sid = (session_id or "?")[:8]
+    suffix = (" " + extra) if extra else ""
+    print(f"[ws-trace] {ms:>8}ms {direction:<4} sid={sid} type={etype}{suffix}",
+          file=_sys.stderr, flush=True)
+
 # Reuse the ANSI-stripping regex from session.py
 _ANSI_RE = re.compile(
     r'\x1b'
@@ -1003,8 +1028,11 @@ class AgentSession:
         for queue in list(self.subscribers):
             try:
                 queue.put_nowait(event)
+                _ws_trace("bcst", self.id, event, f"qlen={queue.qsize()}")
             except asyncio.QueueFull:
                 log.warning("Dropped broadcast event (queue full): %s", event.get("type"))
+                _ws_trace("bcst", self.id, event,
+                          f"qlen={queue.qsize()} QUEUE_FULL_DROPPED=1")
 
     def _emit_event(self, event: dict) -> None:
         """Broadcast a structured event and append to console buffer.
@@ -1027,8 +1055,14 @@ class AgentSession:
         for queue in list(self.subscribers):
             try:
                 queue.put_nowait(event)
+                _ws_trace("emit", self.id, event, f"qlen={queue.qsize()}")
             except asyncio.QueueFull:
-                # Coalesce: drain and re-enqueue recent items
+                # Queue was already full. Drain + re-enqueue last 100 so
+                # we keep the tail, but note: older events, possibly
+                # including the matching stream_start/deltas for the
+                # current turn, are LOST here. Every time this fires is
+                # a potential "swallowed answer" event — the trace line
+                # makes it visible.
                 merged: list[dict] = []
                 try:
                     while not queue.empty():
@@ -1036,11 +1070,15 @@ class AgentSession:
                 except asyncio.QueueEmpty:
                     pass
                 merged.append(event)
-                for item in merged[-100:]:
+                dropped = max(0, len(merged) - 100)
+                kept = merged[-100:]
+                for item in kept:
                     try:
                         queue.put_nowait(item)
                     except asyncio.QueueFull:
                         break
+                _ws_trace("emit", self.id, event,
+                          f"qlen={queue.qsize()} QUEUE_FULL_DROPPED={dropped}")
 
         # 2) In-memory bookkeeping (history list, console buffer).
         # BTW events are ephemeral — broadcast only, don't save to history
