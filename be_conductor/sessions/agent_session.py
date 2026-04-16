@@ -1354,11 +1354,15 @@ class AgentSession:
                     return info['models']
             except Exception:
                 pass
-        # Fallback — common Claude models
+        # Fallback used only when the SDK didn't answer. Intentionally
+        # version-free: baking a specific 4.x number here silently lies
+        # when the CLI has moved on. The real labels (with the current
+        # version) come from the SDK's get_server_info() whenever it's
+        # reachable, which is the normal case.
         return [
-            {"value": "default", "displayName": "Default (Opus 4.6)", "description": "Most capable, 1M context"},
-            {"value": "sonnet", "displayName": "Sonnet 4.6", "description": "Best for everyday tasks"},
-            {"value": "haiku", "displayName": "Haiku 4.5", "description": "Fastest for quick answers"},
+            {"value": "default", "displayName": "Default", "description": "Most capable (SDK unavailable — picker will refresh)"},
+            {"value": "sonnet", "displayName": "Sonnet", "description": "Best for everyday tasks"},
+            {"value": "haiku", "displayName": "Haiku", "description": "Fastest for quick answers"},
         ]
 
     def _broadcast_settings(self) -> None:

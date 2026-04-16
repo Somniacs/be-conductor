@@ -81,9 +81,18 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--fo
 .mode-item { padding: 8px 14px; cursor: pointer; display: flex; align-items: flex-start; gap: 10px; }
 .mode-item:hover { background: #2a2f3a; }
 .mode-item.active { background: #1a2744; }
-.effort-toggle { display: flex; gap: 2px; background: var(--code-bg); border-radius: 8px; padding: 2px; border: 1px solid var(--border); }
-.effort-btn { background: transparent; color: var(--muted); border: none; border-radius: 6px; padding: 2px 8px; font-size: 11px; cursor: pointer; font-weight: 500; }
-.effort-btn.active { background: #2563eb; color: white; }
+/* Effort slider — inline pill with a blue fill from the left to the
+   active step, dimmer dots at each remaining step, and a white handle
+   ball riding the fill's leading edge. Entire pill is clickable; each
+   dot is its own click target via absolute positioning. No text labels
+   below — the parent row label shows the current effort in words. */
+.effort-slider { position: relative; width: 100px; height: 18px; user-select: none; flex-shrink: 0; cursor: pointer; }
+.effort-slider-track { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); height: 12px; background: rgba(255,255,255,0.08); border-radius: 999px; overflow: hidden; }
+.effort-slider-fill  { position: absolute; inset: 0 auto 0 0; background: #2563eb; border-radius: 999px; transition: width 0.15s ease; }
+.effort-slider-dots  { position: absolute; inset: 0; display: flex; align-items: center; justify-content: space-between; padding: 0 6px; pointer-events: none; }
+.effort-slider-dot   { width: 4px; height: 4px; border-radius: 50%; background: rgba(255,255,255,0.45); pointer-events: auto; cursor: pointer; }
+.effort-slider-dot.filled { background: rgba(255,255,255,0.85); }
+.effort-slider-handle { position: absolute; top: 50%; width: 14px; height: 14px; border-radius: 50%; background: #e8e8e8; box-shadow: 0 1px 2px rgba(0,0,0,0.4); transform: translate(-50%, -50%); transition: left 0.15s ease; pointer-events: none; }
 .attachment-preview { display: none; gap: 6px; padding: 4px 8px; flex-shrink: 0; overflow-x: auto; flex-wrap: wrap; }
 .drag-over #input-box { border-color: #4a6cf7 !important; background: #1a2744 !important; }
 .drag-over::after { content: 'Drop files here'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(26,39,68,0.9); color: #4a6cf7; font-size: 14px; font-weight: 500; border-radius: 10px; pointer-events: none; z-index: 10; }
@@ -1013,7 +1022,7 @@ function renderEvent(event) {
     if (etype === 'settings') {
         _hideLoading();  // settings always arrives after history — safe to hide
         var modeMap = {default: 0, acceptEdits: 1, plan: 2};
-        var effortMap = {low: 0, medium: 1, high: 2, max: 3};
+        var effortMap = {low: 0, medium: 1, high: 2, xhigh: 3, max: 4};
         if (event.mode in modeMap) { modeIdx = modeMap[event.mode]; updateModeUI(); }
         if (event.effort in effortMap) { effortIdx = effortMap[event.effort]; updateEffortUI(); }
         if (event.model) _currentModel = event.model;
@@ -3736,7 +3745,27 @@ const MODES = [
     {value: 'plan', label: 'Plan mode', desc: 'Claude will explore the code and present a plan before editing',
      icon: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="2" width="10" height="12" rx="1.5"/><path d="M6 5.5h4M6 8h4M6 10.5h2.5"/></svg>'},
 ];
-const EFFORTS = ['low', 'medium', 'high', 'max'];
+// xhigh is Opus 4.7-only; on other models the SDK will reject it and the
+// error surfaces in the session. Listing it here makes it selectable.
+const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+// Human-readable labels for the selected-effort banner and tooltips.
+const EFFORT_LABELS = {low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max'};
+// Short single-character marks for the effort toggle buttons. "X" stands
+// out from H / M / L / M by first letter and matches the Claude CLI's
+// X-high naming.
+// Button marks — mostly single char for compact dots. "MX" is two chars
+// because M alone collides with medium; the extra width is fine at the
+// end of the row.
+const EFFORT_MARKS = {low: 'L', medium: 'M', high: 'H', xhigh: 'X', max: 'MX'};
+// Short hover explanations so users know what each level costs them in
+// latency / thinking time. Matches how the Claude CLI describes them.
+const EFFORT_TOOLTIPS = {
+    low: 'Low — fastest responses, minimal thinking. Best for simple edits.',
+    medium: 'Medium — balanced latency and thinking. Default for most tasks.',
+    high: 'High — more thinking before answering. Better on tricky reasoning.',
+    xhigh: 'Extra high — substantially more thinking. Opus 4.7 only; SDK rejects on other models.',
+    max: 'Max — the model thinks as long as it needs. Slowest and highest quality.',
+};
 let modeIdx = 0;
 let effortIdx = 2;
 
@@ -3779,23 +3808,60 @@ effortRow.innerHTML = `
     <div style="color:var(--muted);flex-shrink:0;">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12V10M6 12V7M9 12V5M12 12V3"/></svg>
     </div>
-    <div style="flex:1;font-size:13px;color:#e0e0e0;">Effort</div>`;
+    <div id="effort-row-label" style="flex:1;font-size:13px;color:#e0e0e0;">Effort</div>`;
+// Build the slider: pill track with blue fill from left to the active
+// step, white dots at every step (dim past the handle, bright before),
+// and a larger white handle ball sitting on the active step. Each dot
+// is individually clickable; clicking elsewhere on the pill maps to
+// the nearest step so the whole strip feels like a real slider.
 const effortToggle = document.createElement('div');
-effortToggle.className = 'effort-toggle';
+effortToggle.className = 'effort-slider';
+const effortTrack = document.createElement('div');
+effortTrack.className = 'effort-slider-track';
+const effortFill = document.createElement('div');
+effortFill.className = 'effort-slider-fill';
+effortTrack.appendChild(effortFill);
+effortToggle.appendChild(effortTrack);
+
+const effortDots = document.createElement('div');
+effortDots.className = 'effort-slider-dots';
 EFFORTS.forEach((e, idx) => {
-    const btn = document.createElement('button');
-    btn.className = 'effort-btn' + (idx === effortIdx ? ' active' : '');
-    btn.textContent = e.charAt(0).toUpperCase();
-    btn.title = e.charAt(0).toUpperCase() + e.slice(1) + ' effort';
-    btn.addEventListener('click', () => {
+    const dot = document.createElement('div');
+    dot.className = 'effort-slider-dot';
+    dot.title = EFFORT_TOOLTIPS[e] || ((EFFORT_LABELS[e] || e) + ' effort');
+    dot.dataset.effort = String(idx);
+    dot.addEventListener('click', (ev) => {
+        ev.stopPropagation();
         effortIdx = idx;
         updateEffortUI();
         if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({type: 'set_effort', effort: EFFORTS[idx]}));
         }
     });
-    effortToggle.appendChild(btn);
+    effortDots.appendChild(dot);
 });
+effortToggle.appendChild(effortDots);
+
+const effortHandle = document.createElement('div');
+effortHandle.className = 'effort-slider-handle';
+effortToggle.appendChild(effortHandle);
+
+// Click anywhere else on the pill → snap to the nearest step.
+effortToggle.addEventListener('click', (ev) => {
+    if (ev.target !== effortToggle && ev.target !== effortTrack && ev.target !== effortFill) return;
+    const rect = effortToggle.getBoundingClientRect();
+    const x = ev.clientX - rect.left;
+    const n = EFFORTS.length;
+    const step = n > 1 ? Math.round((x / rect.width) * (n - 1)) : 0;
+    const clamped = Math.max(0, Math.min(n - 1, step));
+    if (clamped === effortIdx) return;
+    effortIdx = clamped;
+    updateEffortUI();
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({type: 'set_effort', effort: EFFORTS[clamped]}));
+    }
+});
+
 effortRow.appendChild(effortToggle);
 modePopup.appendChild(effortRow);
 
@@ -3860,7 +3926,11 @@ function _getModelLabel(val) {
     for (var i = 0; i < _availableModels.length; i++) {
         if (_availableModels[i].value === val) return _availableModels[i].displayName;
     }
-    return 'Default (Opus 4.6)';
+    // Don't bake a specific version number into a fallback — the SDK is the
+    // source of truth for display names. A stale "(Opus 4.6)" here made the
+    // UI lie when the bundled CLI actually offered Opus 4.7. Fall back to
+    // a version-free label.
+    return val === 'default' ? 'Default' : (val || 'Default');
 }
 function _updateModelSelect() {
     var label = document.getElementById('model-current-label');
@@ -3972,9 +4042,26 @@ function updateModeUI() {
 }
 
 function updateEffortUI() {
-    const btns = effortToggle.children;
-    for (let i = 0; i < btns.length; i++) {
-        btns[i].className = 'effort-btn' + (i === effortIdx ? ' active' : '');
+    // Fill + handle share a position: 0% at the leftmost step, 100% at
+    // the rightmost. For n=5 steps the handle sits at 0/25/50/75/100%.
+    const n = EFFORTS.length;
+    const pct = n > 1 ? (effortIdx / (n - 1)) * 100 : 0;
+    if (effortFill) effortFill.style.width = pct + '%';
+    if (effortHandle) effortHandle.style.left = pct + '%';
+    // Dots: bright up to and including the active step, dim after.
+    if (effortDots) {
+        const dots = effortDots.children;
+        for (let i = 0; i < dots.length; i++) {
+            dots[i].className = 'effort-slider-dot' + (i <= effortIdx ? ' filled' : '');
+        }
+    }
+    // Row label mirrors the slash-menu format: "Effort (Extra high)".
+    // Deliberately no model name here — the model picker sits in the
+    // same popup so users already know which one is selected.
+    const rowLabel = document.getElementById('effort-row-label');
+    if (rowLabel) {
+        const effName = EFFORT_LABELS[EFFORTS[effortIdx]] || EFFORTS[effortIdx];
+        rowLabel.textContent = 'Effort (' + effName + ')';
     }
 }
 
@@ -4405,7 +4492,8 @@ function _renderEffortWidget() {
         var color = active ? '#e0e0e0' : '#555';
         return '<span style="display:inline-block;width:' + size + 'px;height:' + size + 'px;border-radius:50%;background:' + color + ';cursor:pointer;vertical-align:middle;" data-effort="' + i + '"></span>';
     }).join('');
-    return '<div class="slash-item" style="cursor:default;">Effort (' + EFFORTS[effortIdx].charAt(0).toUpperCase() + EFFORTS[effortIdx].slice(1) + ')<span style="margin-left:auto;display:flex;align-items:center;gap:6px;">' + dots + '</span></div>';
+    var curLabel = EFFORT_LABELS[EFFORTS[effortIdx]] || EFFORTS[effortIdx];
+    return '<div class="slash-item" style="cursor:default;">Effort (' + curLabel + ')<span style="margin-left:auto;display:flex;align-items:center;gap:6px;">' + dots + '</span></div>';
 }
 
 function _renderModelWidget() {
