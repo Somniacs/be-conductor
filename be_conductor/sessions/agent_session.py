@@ -121,6 +121,8 @@ class AgentSession:
 
         # Structured message history (for replay to new subscribers)
         self._message_history: list[dict] = []
+        self._history_dirty = False
+        self._history_saver_task: asyncio.Task | None = None
         self._load_history()
 
         # SDK state
@@ -595,6 +597,16 @@ class AgentSession:
                 "exit_code": self.exit_code,
             })
             self._broadcast_close()
+            # Stop the background history saver — it will flush any pending
+            # dirty state on cancel.
+            saver = getattr(self, "_history_saver_task", None)
+            if saver is not None and not saver.done():
+                saver.cancel()
+                try:
+                    await saver
+                except (asyncio.CancelledError, Exception):
+                    pass
+            self._history_saver_task = None
             if self._on_exit:
                 await self._on_exit(self.id)
 
@@ -894,19 +906,74 @@ class AgentSession:
                 pass
 
     def _save_history(self) -> None:
-        """Persist message history to disk."""
-        import json as _json
+        """Mark history dirty — actual disk write happens in the background
+        saver loop so the event loop is never blocked on file I/O. On long
+        sessions the JSON is megabytes; writing it synchronously on every
+        event delayed WebSocket flushes enough that assistant messages
+        appeared to arrive only on the next turn.
+        """
+        self._history_dirty = True
+        self._ensure_history_saver()
+
+    def _ensure_history_saver(self) -> None:
+        if getattr(self, "_history_saver_task", None) is not None:
+            return
         try:
-            path = self._history_path()
-            path.write_text(
-                _json.dumps(self._message_history, ensure_ascii=False,
-                            default=str),
-                encoding="utf-8",
-            )
-        except Exception as e:
-            import sys
-            print(f"[be-conductor] _save_history failed for {self.id}: {e}",
-                  file=sys.stderr)
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No running loop (startup path) — best effort sync write.
+            self._write_history_sync()
+            self._history_dirty = False
+            return
+        self._history_saver_task = loop.create_task(self._history_saver_loop())
+
+    async def _history_saver_loop(self) -> None:
+        """Background loop that flushes dirty history to disk.
+
+        Coalesces multiple dirty flags into one write and runs the actual
+        file I/O on a thread so the event loop stays responsive.
+        """
+        try:
+            while True:
+                if not getattr(self, "_history_dirty", False):
+                    await asyncio.sleep(0.1)
+                    continue
+                self._history_dirty = False
+                try:
+                    snapshot = list(self._message_history)
+                    path = self._history_path()
+                    await asyncio.to_thread(self._write_history_snapshot, path, snapshot)
+                except Exception as e:
+                    import sys
+                    print(
+                        f"[be-conductor] _save_history failed for {self.id}: {e}",
+                        file=sys.stderr,
+                    )
+                await asyncio.sleep(0.2)
+        except asyncio.CancelledError:
+            # Final flush on shutdown
+            if getattr(self, "_history_dirty", False):
+                try:
+                    self._write_history_sync()
+                except Exception:
+                    pass
+            raise
+
+    @staticmethod
+    def _write_history_snapshot(path, snapshot) -> None:
+        import json as _json
+        path.write_text(
+            _json.dumps(snapshot, ensure_ascii=False, default=str),
+            encoding="utf-8",
+        )
+
+    def _write_history_sync(self) -> None:
+        import json as _json
+        path = self._history_path()
+        path.write_text(
+            _json.dumps(self._message_history, ensure_ascii=False, default=str),
+            encoding="utf-8",
+        )
 
     def delete_history(self) -> None:
         """Remove persisted history file."""
@@ -940,7 +1007,13 @@ class AgentSession:
                 log.warning("Dropped broadcast event (queue full): %s", event.get("type"))
 
     def _emit_event(self, event: dict) -> None:
-        """Broadcast a structured event and append to console buffer."""
+        """Broadcast a structured event and append to console buffer.
+
+        Subscribers (WebSocket clients) are notified FIRST — before any
+        disk I/O or notification routing — so the frontend sees events
+        with zero latency even if the history file is large or the disk
+        is slow. History persistence is now async via _save_history().
+        """
         event = self._json_safe(event)
         event.setdefault("timestamp", time.time())
         # Tag with current turn ID for query/response grouping
@@ -949,13 +1022,34 @@ class AgentSession:
             event['turn_id'] = turn_id
             if getattr(self, '_current_turn_btw', False):
                 event['btw'] = True
+
+        # 1) Fan out to subscribers FIRST — this is the hot path.
+        for queue in list(self.subscribers):
+            try:
+                queue.put_nowait(event)
+            except asyncio.QueueFull:
+                # Coalesce: drain and re-enqueue recent items
+                merged: list[dict] = []
+                try:
+                    while not queue.empty():
+                        merged.append(queue.get_nowait())
+                except asyncio.QueueEmpty:
+                    pass
+                merged.append(event)
+                for item in merged[-100:]:
+                    try:
+                        queue.put_nowait(item)
+                    except asyncio.QueueFull:
+                        break
+
+        # 2) In-memory bookkeeping (history list, console buffer).
         # BTW events are ephemeral — broadcast only, don't save to history
         if not event.get('btw'):
             self._message_history.append(event)
-            self._save_history()
+            self._save_history()  # marks dirty, background task writes
         self._append_console(event)
 
-        # Fire notification for events that need user attention
+        # 3) External notifications — don't block the fan-out above.
         etype = event.get("type")
         if etype in ("question", "error", "plan_review") and self._notifier:
             import asyncio
@@ -980,24 +1074,6 @@ class AgentSession:
                 asyncio.ensure_future(self._notifier._manager.notify(notif))
             except Exception:
                 pass
-
-        for queue in list(self.subscribers):
-            try:
-                queue.put_nowait(event)
-            except asyncio.QueueFull:
-                # Coalesce: drain and re-enqueue recent items
-                merged: list[dict] = []
-                try:
-                    while not queue.empty():
-                        merged.append(queue.get_nowait())
-                except asyncio.QueueEmpty:
-                    pass
-                merged.append(event)
-                for item in merged[-100:]:
-                    try:
-                        queue.put_nowait(item)
-                    except asyncio.QueueFull:
-                        break
 
     def _append_console(self, event: dict) -> None:
         text = _format_event_ansi(event)
