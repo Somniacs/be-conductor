@@ -2,7 +2,7 @@
   "name": "be-conductor-launcher",
   "displayName": "be-conductor",
   "description": "Launch AI agent sessions from VS Code via be-conductor (https://github.com/somniacs/be-conductor)",
-  "version": "0.3.52",
+  "version": "0.3.53",
   "publisher": "somniacs",
   "license": "MIT",
   "repository": {

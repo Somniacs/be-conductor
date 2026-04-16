@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <plugins>
-    <plugin id="com.somniacs.beconductor" url="https://github.com/somniacs/be-conductor/releases/latest/download/be-conductor-jetbrains.zip" version="0.3.52"/>
+    <plugin id="com.somniacs.beconductor" url="https://github.com/somniacs/be-conductor/releases/latest/download/be-conductor-jetbrains.zip" version="0.3.53"/>
 </plugins>
