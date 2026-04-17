@@ -2,14 +2,17 @@ package com.somniacs.beconductor.agent;
 
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.Disposer;
 import com.intellij.ui.jcef.JBCefApp;
 import com.intellij.ui.jcef.JBCefBrowser;
+import com.intellij.ui.jcef.JBCefBrowserBase;
 import com.intellij.ui.jcef.JBCefClient;
 import com.intellij.ui.jcef.JBCefJSQuery;
 import com.intellij.util.ui.JBUI;
 import com.somniacs.beconductor.api.ServerRegistry;
 import org.cef.browser.CefBrowser;
 import org.cef.browser.CefFrame;
+import org.cef.handler.CefLoadHandler;
 import org.cef.handler.CefLoadHandlerAdapter;
 
 import javax.swing.*;
@@ -27,6 +30,8 @@ import java.nio.charset.StandardCharsets;
 public class AgentSessionPanel extends JPanel implements Disposable {
 
     private JBCefBrowser browser;
+    private JBCefClient client;                 // owned per-panel
+    private CefLoadHandler bridgeLoadHandler;   // kept so we can removeLoadHandler
 
     public AgentSessionPanel(Project project, String serverKey, String sessionId) {
         super(new BorderLayout());
@@ -47,7 +52,19 @@ public class AgentSessionPanel extends JPanel implements Disposable {
             // hierarchy — avoids black screen when used inside tool windows.
             SwingUtilities.invokeLater(() -> {
                 if (browser != null) return; // guard against double-init
-                browser = new JBCefBrowser(url);
+                // Own the JBCefClient per-panel so every handler + JSQuery
+                // attached to it is released when the panel is disposed.
+                // Previously we borrowed the shared application-wide
+                // default client, which retained 4 JSQueries + 1 load
+                // handler per open/close cycle. That was the source of
+                // the Rider memory growth over a long day of use.
+                client = JBCefApp.getInstance().createClient();
+                Disposer.register(this, client);
+                browser = JBCefBrowser.createBuilder()
+                        .setClient(client)
+                        .setUrl(url)
+                        .build();
+                Disposer.register(this, browser);
                 installClipboardBridge(browser);
                 add(browser.getComponent(), BorderLayout.CENTER);
                 revalidate();
@@ -87,19 +104,23 @@ public class AgentSessionPanel extends JPanel implements Disposable {
      */
     private void installClipboardBridge(JBCefBrowser b) {
         try {
-            // Bridge: __beClipNativePaste() — calls CEF's native paste which
-            // reads from the OS clipboard and inserts at the focused element.
-            JBCefJSQuery pasteQuery = JBCefJSQuery.create(b);
+            // All four JSQueries and the load handler are attached to the
+            // per-panel client (owned in the outer scope). Registering
+            // each JSQuery with Disposer tracks intent explicitly — the
+            // client's disposal also clears them, but an explicit
+            // register makes this audit-safe the next time someone
+            // touches the code.
+            JBCefJSQuery pasteQuery = JBCefJSQuery.create((JBCefBrowserBase) b);
+            Disposer.register(this, pasteQuery);
             pasteQuery.addHandler(_ignored -> {
                 try {
-                    // Use CEF's native paste — same as right-click → Paste
                     b.getCefBrowser().getFocusedFrame().paste();
                 } catch (Exception ignored) {}
                 return null;
             });
 
-            // __beClipNativeCopy() — CEF's native copy from focused element to OS clipboard
-            JBCefJSQuery copyQuery = JBCefJSQuery.create(b);
+            JBCefJSQuery copyQuery = JBCefJSQuery.create((JBCefBrowserBase) b);
+            Disposer.register(this, copyQuery);
             copyQuery.addHandler(_ignored -> {
                 try {
                     b.getCefBrowser().getFocusedFrame().copy();
@@ -107,8 +128,8 @@ public class AgentSessionPanel extends JPanel implements Disposable {
                 return null;
             });
 
-            // __beClipNativeCut() — CEF's native cut
-            JBCefJSQuery cutQuery = JBCefJSQuery.create(b);
+            JBCefJSQuery cutQuery = JBCefJSQuery.create((JBCefBrowserBase) b);
+            Disposer.register(this, cutQuery);
             cutQuery.addHandler(_ignored -> {
                 try {
                     b.getCefBrowser().getFocusedFrame().cut();
@@ -116,8 +137,8 @@ public class AgentSessionPanel extends JPanel implements Disposable {
                 return null;
             });
 
-            // Also expose AWT-based read/write as fallback for messages-area copy
-            JBCefJSQuery awtWriteQuery = JBCefJSQuery.create(b);
+            JBCefJSQuery awtWriteQuery = JBCefJSQuery.create((JBCefBrowserBase) b);
+            Disposer.register(this, awtWriteQuery);
             awtWriteQuery.addHandler(text -> {
                 try {
                     Clipboard sys = Toolkit.getDefaultToolkit().getSystemClipboard();
@@ -126,8 +147,12 @@ public class AgentSessionPanel extends JPanel implements Disposable {
                 return null;
             });
 
-            // Inject bridge functions into the page after it loads
-            b.getJBCefClient().addLoadHandler(new CefLoadHandlerAdapter() {
+            // Inject bridge functions via a handler attached to the owned
+            // client. The handler reference is kept on the panel so
+            // dispose() can removeLoadHandler before the client itself
+            // is disposed — making the handler's closure (which
+            // retains all four JSQueries above) unreachable promptly.
+            bridgeLoadHandler = new CefLoadHandlerAdapter() {
                 @Override
                 public void onLoadEnd(CefBrowser cefBrowser, CefFrame frame, int httpStatusCode) {
                     if (!frame.isMain()) return;
@@ -138,7 +163,8 @@ public class AgentSessionPanel extends JPanel implements Disposable {
                         + "window.__beClipWrite = function(text) {" + awtWriteQuery.inject("text") + "};";
                     cefBrowser.executeJavaScript(js, cefBrowser.getURL(), 0);
                 }
-            }, b.getCefBrowser());
+            };
+            client.addLoadHandler(bridgeLoadHandler, b.getCefBrowser());
         } catch (Throwable t) {
             // Older IDE builds may not expose these APIs — fall back to
             // context menu paste. Don't crash the plugin.
@@ -147,9 +173,19 @@ public class AgentSessionPanel extends JPanel implements Disposable {
 
     @Override
     public void dispose() {
-        if (browser != null) {
-            browser.dispose();
-            browser = null;
+        // Remove our load handler from the client before Disposer fires —
+        // drops the only strong reference to the handler's closure (which
+        // retained four JSQueries). The client, browser, and JSQueries
+        // were all registered as Disposer children, so Disposer.dispose
+        // walks them in reverse-registration order.
+        if (client != null && bridgeLoadHandler != null && browser != null) {
+            try {
+                client.removeLoadHandler(bridgeLoadHandler, browser.getCefBrowser());
+            } catch (Throwable ignored) {}
         }
+        bridgeLoadHandler = null;
+        Disposer.dispose(this);
+        browser = null;
+        client = null;
     }
 }
