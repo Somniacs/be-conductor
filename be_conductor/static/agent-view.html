@@ -207,6 +207,25 @@ const params = new URLSearchParams(location.search);
 let SESSION_ID = params.get('session') || window.__SESSION_ID || '';
 const WS_BASE = params.get('ws') || window.__WS_BASE || location.origin.replace(/^http/, 'ws');
 
+// Client-side WS trace. Mirror of the server's BC_WS_TRACE. Enable by
+// appending ?trace=1 (or trace=ws) to the agent-view URL. When on, every
+// incoming WS event logs: arrival time, parse time, render time, and
+// for assistant_message / result / stream_stop, the gap between arrival
+// and paint. Compared against the server's [ws-trace] log lines this
+// tells us whether the browser received the event late (WS stalled), on
+// time but rendered slow (main-thread backpressure), or rendered fast
+// but didn't paint (browser-level issue). Off by default; when off the
+// only cost is a boolean test per event.
+const _TRACE_WS = params.get('trace') === '1' || params.get('trace') === 'ws';
+const _TRACE_T0 = performance.now();
+function _wsTrace(tag, event, extra) {
+    if (!_TRACE_WS) return;
+    var ms = Math.round(performance.now() - _TRACE_T0);
+    var t = event && event.type ? event.type : '?';
+    // Keep messages compact so long sessions don't drown the console.
+    console.log('[ws-trace] ' + String(ms).padStart(8) + 'ms ' + tag.padEnd(6) + ' type=' + t + (extra ? ' ' + extra : ''));
+}
+
 // --- Theme ---
 const THEMES = {
     default: {
@@ -2842,8 +2861,16 @@ function connect() {
 
     ws.onmessage = (e) => {
         if (typeof e.data !== 'string') return;
+        // Trace arrival BEFORE parse so stalls in JSON.parse (huge
+        // history payloads) show up as a gap between recv and parsed.
+        // The event type isn't available yet — log raw byte length.
+        if (_TRACE_WS) {
+            var _msRecv = Math.round(performance.now() - _TRACE_T0);
+            console.log('[ws-trace] ' + String(_msRecv).padStart(8) + 'ms recv   bytes=' + e.data.length);
+        }
         try {
             const msg = JSON.parse(e.data);
+            _wsTrace('parsed', msg, 'bytes=' + e.data.length);
             if (msg.type === 'history') {
                 const allMsgs = msg.messages || [];
                 _replayingHistory = true;
@@ -2960,11 +2987,28 @@ function connect() {
                     // Don't ack — let webhook fire (Telegram/Signal/etc.)
                 }
             } else {
+                _wsTrace('render', msg);
+                var _rt0 = _TRACE_WS ? performance.now() : 0;
                 renderEvent(msg);
                 // Update dot lines and nav buttons after content changes (not on every stream delta)
                 if (msg.type === 'assistant_message' || msg.type === 'user_message' || msg.type === 'result') {
                     _updateGroupLines();
                     if (typeof _updateNavButtons === 'function') _updateNavButtons();
+                }
+                if (_TRACE_WS) {
+                    var _rdur = Math.round(performance.now() - _rt0);
+                    _wsTrace('done', msg, 'renderMs=' + _rdur);
+                    // Double rAF = end of next paint. If this timestamp is
+                    // far after 'done', the browser's paint was delayed —
+                    // classic symptom of main-thread pressure on huge DOMs.
+                    // Only trace this for turn-terminal events to keep
+                    // log volume manageable during streaming.
+                    if (msg.type === 'assistant_message' || msg.type === 'result') {
+                        var _paintT = performance.now();
+                        requestAnimationFrame(() => requestAnimationFrame(() => {
+                            _wsTrace('painted', msg, 'paintMs=' + Math.round(performance.now() - _paintT));
+                        }));
+                    }
                 }
             }
         } catch (err) {
