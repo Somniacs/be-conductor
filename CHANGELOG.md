@@ -13,6 +13,8 @@ All notable changes to be-conductor are documented here.
 
 ### Fixed
 
+- **Stray "OPENCODE" bar at the bottom of the agent view** — a leftover provider badge was rendering as a blue bar below the message input area instead of next to the title. Removed; the agent name in the welcome header already covers it
+- **"OpenCode • default" header for some sessions** — sessions whose system_init didn't carry a model would display the literal placeholder "default". Now reads just "OpenCode" until a real model is known
 - **OpenCode tools now run in the directory you picked** — the bash tool was reporting be-conductor's own working directory instead of the cwd you set in the new-session dialog. Sessions now scope OpenCode to the picked directory, so `pwd`, file lookups, and edits all happen where you expect
 - **Provider auth errors are visible in the chat** — when OpenAI rejects a model for your account tier (e.g. "gpt-5.5-pro is not supported when using Codex with a ChatGPT account"), the rejection used to silently produce an empty bubble + zero-cost turn complete. The actual error message now appears as a red error block in the chat
 - **No more stray "claude" first message in OpenCode sessions** — the new-session dialog was inadvertently using the PTY command dropdown ("claude") as the initial prompt for agent sessions, so OpenCode answered a one-word prompt of "claude" before the user typed anything. Agent sessions now start empty — type your first message in the agent view
