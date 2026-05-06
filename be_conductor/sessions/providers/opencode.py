@@ -166,6 +166,227 @@ async def _is_reachable(url: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Per-URL singleton SSE pump
+#
+# The OpenCode server's `GET /event` is one logical event stream per
+# server. Empirically (verified on opencode 1.14.39), opening more than
+# one concurrent SSE subscriber against the same server causes events
+# to vanish — only the first or last subscriber gets them, the others
+# starve. So when multiple be-conductor sessions point at the same
+# OpenCode server, they cannot each open their own subscriber.
+#
+# The pump below holds **one** subscription per (URL, password) and
+# fans out events to per-session asyncio.Queues. Each provider
+# registers its session id and pulls only events that match.
+#
+# A symptom of the previous code: a second simultaneous OpenCode
+# session received `system_init` and `turn_end` markers (locally
+# emitted by the orchestrator) but no `message.part.*` events
+# in between, leaving turns visibly blank in the chat even though
+# the model produced a real answer on the OpenCode side.
+# ---------------------------------------------------------------------------
+
+
+class _SsePump:
+    """One SSE subscription per (OpenCode server, directory) pair,
+    fanning events out to per-session queues.
+
+    OpenCode 1.14.39's `GET /event` is **project-scoped** — events for
+    a session are only delivered to subscribers that opened the stream
+    with the same `directory` (= project) the session was created in.
+    A single SSE subscriber can therefore only see events for sessions
+    in one directory. If be-conductor has sessions in multiple
+    directories, we need one pump per directory.
+    """
+
+    # How long to buffer events for a session id that hasn't attached
+    # yet — covers the race between session.create returning the id and
+    # pump.attach() being called.
+    _EARLY_BUFFER_TTL = 5.0
+    _EARLY_BUFFER_PER_SESSION = 200
+
+    def __init__(
+        self,
+        base_url: str,
+        password: str | None,
+        directory: str | None,
+    ) -> None:
+        self._base_url = base_url
+        self._password = password
+        self._directory = directory
+        self._client: Any = None  # opencode_ai.Opencode
+        # session_id -> asyncio.Queue[dict]   (raw OpenCode events)
+        self._subscribers: dict[str, asyncio.Queue] = {}
+        # session_id -> [(monotonic_time, event_dict), ...]
+        # Buffer for events whose sid we know but which haven't been
+        # claimed by an attach() call yet. Drained on attach.
+        self._early: dict[str, list[tuple[float, dict]]] = {}
+        self._lock = asyncio.Lock()
+        self._task: asyncio.Task | None = None
+
+    async def _ensure_started(self) -> None:
+        if self._task is not None and not self._task.done():
+            return
+        # Lazy-construct the SDK client.
+        from opencode_ai import Opencode
+        headers: dict[str, str] = {}
+        if self._password:
+            headers["Authorization"] = f"Bearer {self._password}"
+        self._client = Opencode(
+            base_url=self._base_url,
+            timeout=180,
+            default_headers=headers or None,
+        )
+        self._task = asyncio.create_task(self._run())
+
+    async def attach(self, session_id: str) -> asyncio.Queue:
+        """Register a per-session queue and start the pump if needed."""
+        async with self._lock:
+            if session_id in self._subscribers:
+                # Reattachment — drain the old queue but keep the same
+                # one so currently-suspended consumers don't lose
+                # their queue reference.
+                return self._subscribers[session_id]
+            q: asyncio.Queue = asyncio.Queue(maxsize=10000)
+            self._subscribers[session_id] = q
+            await self._ensure_started()
+            # Drain any events buffered before this attach — these
+            # arrive between session.create returning the id and the
+            # caller getting around to attach(). Without this drain,
+            # the message.updated events that set up role tracking
+            # are silently dropped and parts arrive without a known
+            # role, getting filtered out as "user".
+            buffered = self._early.pop(session_id, None)
+            if buffered:
+                for _t, ev in buffered:
+                    try:
+                        q.put_nowait(ev)
+                    except asyncio.QueueFull:
+                        break
+            return q
+
+    async def detach(self, session_id: str) -> None:
+        async with self._lock:
+            self._subscribers.pop(session_id, None)
+            if not self._subscribers and self._task is not None:
+                self._task.cancel()
+                with suppress(asyncio.CancelledError, Exception):
+                    await self._task
+                self._task = None
+
+    @property
+    def client(self) -> Any:
+        # The SDK client is shared; providers reuse it for session.create,
+        # session.prompt, session.abort, session.permissions.respond, etc.
+        return self._client
+
+    async def _run(self) -> None:
+        """The hot loop — open the subscription, dispatch events."""
+        loop = asyncio.get_running_loop()
+        try:
+            # Pass directory= so OpenCode delivers events for sessions
+            # in this project. Without it, the server filters us to
+            # its own cwd's project and we see nothing for sessions
+            # in other directories.
+            kwargs = {}
+            if self._directory:
+                kwargs["directory"] = self._directory
+            stream_cm = await loop.run_in_executor(
+                None, lambda: self._client.event.list(**kwargs),
+            )
+        except Exception as e:
+            log.warning("opencode SSE pump failed to open stream: %s", e)
+            return
+
+        try:
+            stream_iter = stream_cm.__enter__()
+
+            def next_event():
+                try:
+                    return next(iter(stream_iter))
+                except StopIteration:
+                    return None
+
+            while True:
+                ev = await loop.run_in_executor(None, next_event)
+                if ev is None:
+                    break
+                evd = ev.model_dump() if hasattr(ev, "model_dump") else ev
+
+                # Identify the session this event belongs to.
+                props = evd.get("properties", {}) or {}
+                sid = (
+                    props.get("sessionID")
+                    or (props.get("part") or {}).get("session_id")
+                    or (props.get("info") or {}).get("session_id")
+                )
+
+                # Fan-out:
+                #   - server-level events (no sid): broadcast to all
+                #   - sid matches an attached subscriber: deliver
+                #   - sid present but no subscriber yet: buffer for a
+                #     short window (covers the attach race)
+                async with self._lock:
+                    if not sid:
+                        targets = list(self._subscribers.values())
+                        buffer_for: str | None = None
+                    elif sid in self._subscribers:
+                        targets = [self._subscribers[sid]]
+                        buffer_for = None
+                    else:
+                        targets = []
+                        buffer_for = sid
+
+                if targets:
+                    for q in targets:
+                        try:
+                            q.put_nowait(evd)
+                        except asyncio.QueueFull:
+                            log.warning(
+                                "opencode SSE per-session queue full; dropping event %s",
+                                evd.get("type"),
+                            )
+                elif buffer_for is not None:
+                    now = asyncio.get_running_loop().time()
+                    async with self._lock:
+                        buf = self._early.setdefault(buffer_for, [])
+                        # Trim old/oversized.
+                        cutoff = now - self._EARLY_BUFFER_TTL
+                        buf[:] = [(t, e) for (t, e) in buf if t >= cutoff]
+                        if len(buf) >= self._EARLY_BUFFER_PER_SESSION:
+                            buf.pop(0)
+                        buf.append((now, evd))
+        except asyncio.CancelledError:
+            with suppress(Exception):
+                stream_cm.__exit__(None, None, None)
+            raise
+        except Exception as e:
+            log.warning("opencode SSE pump errored: %s", e)
+        finally:
+            with suppress(Exception):
+                stream_cm.__exit__(None, None, None)
+
+
+# (url, password, directory) -> pump
+_pumps: dict[tuple[str, str | None, str | None], _SsePump] = {}
+_pumps_lock = asyncio.Lock()
+
+
+async def _get_pump(
+    base_url: str,
+    password: str | None,
+    directory: str | None,
+) -> _SsePump:
+    key = (base_url, password, directory)
+    async with _pumps_lock:
+        pump = _pumps.get(key)
+        if pump is None:
+            pump = _SsePump(base_url, password, directory)
+            _pumps[key] = pump
+        return pump
+
+
+# ---------------------------------------------------------------------------
 # OpenCodeProvider
 # ---------------------------------------------------------------------------
 
@@ -225,7 +446,9 @@ class OpenCodeProvider:
         }
 
         # Set in start()
-        self._client: Any = None  # opencode_ai.Opencode
+        self._client: Any = None  # opencode_ai.Opencode (shared via pump)
+        self._pump: _SsePump | None = None
+        self._raw_q: asyncio.Queue | None = None  # raw OpenCode events for this session
         self._session_id: str | None = None
         self._event_queue: asyncio.Queue[AgentEvent] = asyncio.Queue()
         self._stream_task: asyncio.Task | None = None
@@ -251,21 +474,25 @@ class OpenCodeProvider:
 
         # Lazy import: be-conductor must run without `opencode-ai` installed.
         try:
-            from opencode_ai import Opencode
+            import opencode_ai  # noqa: F401  (raises ImportError if missing)
         except ImportError as e:
             raise RuntimeError(
                 "opencode-ai is not installed. Run: "
                 "`pip install -e '.[opencode]'` from the be-conductor repo."
             ) from e
 
-        headers: dict[str, str] = {}
-        if self._password:
-            headers["Authorization"] = f"Bearer {self._password}"
-        self._client = Opencode(
-            base_url=self._url,
-            timeout=180,
-            default_headers=headers or None,
-        )
+        # Use the per-(URL, directory) singleton SSE pump and its shared
+        # SDK client. Two reasons for the singleton:
+        #   1) Multiple concurrent SSE subscribers to the same OpenCode
+        #      server starve each other (only one wins).
+        #   2) OpenCode 1.14.39's /event stream is project-scoped — we
+        #      must pass `directory=` matching the session's directory
+        #      or we get no events at all.
+        # Pumps are keyed by directory so be-conductor sessions in
+        # different cwds get their own subscription and don't collide.
+        self._pump = await _get_pump(self._url, self._password, self._cwd)
+        await self._pump._ensure_started()
+        self._client = self._pump.client
 
         # Create a fresh session on the server, scoped to the
         # be-conductor session's working directory. Without `directory=`
@@ -282,6 +509,9 @@ class OpenCodeProvider:
         self._session_id = s.id
         log.info("opencode: created session %s in %s", self._session_id, self._cwd)
 
+        # Now that we know our session id, attach to the pump.
+        self._raw_q = await self._pump.attach(self._session_id)
+
         # Emit the system_init event so the orchestrator can broadcast
         # capabilities + current model to the frontend.
         await self._event_queue.put({
@@ -294,7 +524,8 @@ class OpenCodeProvider:
             "agent": self._default_agent,
         })
 
-        # Start the SSE event subscriber.
+        # Drain raw events from the pump and translate them into
+        # AgentEvents on self._event_queue.
         self._stream_task = asyncio.create_task(self._consume_stream())
 
     async def stop(self) -> None:
@@ -302,11 +533,18 @@ class OpenCodeProvider:
             return
         self._closed = True
 
-        # End the SSE subscriber.
+        # End our local stream-translator task.
         if self._stream_task is not None:
             self._stream_task.cancel()
             with suppress(asyncio.CancelledError, Exception):
                 await self._stream_task
+
+        # Detach from the singleton SSE pump. If we were the last
+        # session attached, the pump's underlying SSE subscription is
+        # closed too.
+        if self._pump is not None and self._session_id is not None:
+            with suppress(Exception):
+                await self._pump.detach(self._session_id)
 
         # Best-effort delete on server (keeps things tidy).
         if self._client is not None and self._session_id is not None:
@@ -548,13 +786,12 @@ class OpenCodeProvider:
         return self._default_provider_id, model
 
     async def _consume_stream(self) -> None:
-        """Subscribe to OpenCode's global event stream, filter to our
-        session, translate to AgentEvent, push onto the queue.
+        """Drain raw OpenCode events delivered by the singleton SSE
+        pump (filtered to this session_id), translate to AgentEvents,
+        push onto self._event_queue.
 
         Runs as a long-lived task. Cancelled by stop().
         """
-        loop = asyncio.get_running_loop()
-
         # Coalescing buffers for stream_delta events. OpenCode emits
         # one event per token; without batching we'd flood the
         # WebSocket the same way the Claude path used to before
@@ -582,48 +819,24 @@ class OpenCodeProvider:
                 delta_buf[(part_id, field)] = ""
             delta_buf.clear()
 
-        def open_stream():
-            return self._client.event.list()
-
         try:
-            stream_cm = await loop.run_in_executor(None, open_stream)
-        except Exception as e:
-            await self._event_queue.put({
-                "type": "error",
-                "error": f"opencode event stream failed to open: {e}",
-            })
-            return
-
-        try:
-            # The SDK's Stream is a context manager around an iterator.
-            # Iterate in a thread to avoid blocking the event loop.
-            stream_iter = stream_cm.__enter__()
-
-            def next_event():
-                try:
-                    return next(iter(stream_iter))
-                except StopIteration:
-                    return None
-
             while not self._closed:
-                ev = await loop.run_in_executor(None, next_event)
-                if ev is None:
+                if self._raw_q is None:
                     break
-                evd = ev.model_dump() if hasattr(ev, "model_dump") else ev
-
-                # Filter to our session.
+                evd = await self._raw_q.get()
                 props = evd.get("properties", {}) or {}
+                etype = evd.get("type", "")
+                # Pump already filters to our session_id, but
+                # cross-session "server.*" events may come through.
+                # Skip anything not relevant to our session unless it's
+                # a known server-level event we want to react to.
                 sess_id = (
                     props.get("sessionID")
                     or (props.get("part") or {}).get("session_id")
                     or (props.get("info") or {}).get("session_id")
                 )
-                # Server-level events (server.connected, server.heartbeat)
-                # have no session — skip.
                 if sess_id and sess_id != self._session_id:
                     continue
-
-                etype = evd.get("type", "")
 
                 # Translate OpenCode events to AgentEvents.
                 # Strategy: keep it small and faithful. Every event we
@@ -800,18 +1013,16 @@ class OpenCodeProvider:
             await flush_deltas()
 
         except asyncio.CancelledError:
-            # Normal teardown.
+            # Normal teardown — flush deltas so the last bit of
+            # streamed text isn't lost.
             with suppress(Exception):
-                stream_cm.__exit__(None, None, None)
+                await flush_deltas()
             raise
         except Exception as e:
             await self._event_queue.put({
                 "type": "error",
                 "error": f"opencode event stream errored: {e}",
             })
-        finally:
-            with suppress(Exception):
-                stream_cm.__exit__(None, None, None)
 
 
 def _safe_dump(obj: Any) -> dict:
