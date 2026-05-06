@@ -38,7 +38,7 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--fo
 #drag-handle div { width: 24px; height: 2px; background: var(--border); border-radius: 1px; opacity: 0.4; }
 #drag-handle:hover div { opacity: 0.8; }
 #input-area { flex-shrink: 0; background: var(--bg-secondary); border-top: 1px solid var(--border); padding: 8px 12px; position: relative; }
-#input-box { display: flex; flex-direction: column; background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px; padding: 0; transition: border-color 0.2s; }
+#input-box { position: relative; display: flex; flex-direction: column; background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px; padding: 0; transition: border-color 0.2s; }
 #input-box:focus-within { border-color: var(--mode-color, var(--border)); }
 #input-toolbar { display: flex; align-items: center; gap: 0; padding: 2px 4px; border-top: 1px solid var(--border); border-radius: 0 0 10px 10px; }
 #prompt { width: 100%; resize: none; background: transparent; color: var(--fg); border: none; outline: none; padding: 8px 12px; font-family: inherit; font-size: 13px; min-height: 38px; max-height: 200px; line-height: 1.4; overflow-y: auto; }
@@ -172,14 +172,14 @@ summary[style*="list-style:none"]::-webkit-details-marker { display: none; }
 <div id="input-area">
     <div class="slash-popup" id="slash-popup"></div>
     <div class="attachment-preview" id="attach-preview"></div>
-    <!-- Read-only pill above the input box, right-aligned to the
-         message box's right edge. Shows the current model so the
-         user always sees what they're talking to ("Claude Opus 4.7",
-         "OpenCode • GPT-5.5", etc.). Hidden until system_init lands. -->
-    <div id="model-pill-wrap" style="display:flex; justify-content:flex-end; margin-bottom:4px; pointer-events:none;">
-        <span id="model-pill" style="display:none; font-size:10px; color:var(--muted); background:transparent; border:1px solid var(--border); border-radius:999px; padding:1px 8px; line-height:1.4; white-space:nowrap;"></span>
-    </div>
     <div id="input-box">
+        <!-- Read-only model label sitting inside the message box,
+             top-right, transparent — visible like a watermark. Shows
+             which model is talking ("Claude Opus 4.7", "OpenCode •
+             GPT-5.5", etc.). pointer-events:none keeps clicks /
+             selection routed through to the textarea below. Hidden
+             until system_init lands. -->
+        <span id="model-pill" style="display:none; position:absolute; top:6px; right:10px; font-size:10px; color:var(--muted); background:transparent; line-height:1.4; white-space:nowrap; pointer-events:none; z-index:2; opacity:0.7;"></span>
         <textarea id="prompt" rows="1" placeholder="Message Claude..."></textarea>
         <div id="input-toolbar">
             <button class="attach-btn" id="attach-btn" title="Attach file or image">
@@ -3761,19 +3761,23 @@ function _agentShortName(provider, model) {
     return 'Claude';
 }
 
-// Right-aligned read-only pill above the input box. Always reflects
-// the *current* model in human-readable form.
+// Read-only model label sitting inside the message box at the top-
+// right, like a watermark. Always reflects the current model in
+// human-readable form.
 function _setModelPill(provider, model) {
     var pill = document.getElementById('model-pill');
     if (!pill) return;
     if (!model && provider === 'claude') {
         // Legacy Claude session that hasn't broadcast a settings
-        // event yet — leave the pill empty rather than show a bare
+        // event yet — leave the label empty rather than show a bare
         // "Claude" with no model info.
         pill.style.display = 'none';
         return;
     }
     pill.textContent = _agentDisplayName(provider, model);
+    // Keep the inline position styling intact — only flip from
+    // 'none' (hidden) to '' (default, which becomes 'inline' for a
+    // span; combined with position:absolute that's what we want).
     pill.style.display = '';
 }
 

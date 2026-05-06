@@ -432,6 +432,7 @@ class OpenCodeProvider:
             Capability.MULTI_STEP_TURN,
             Capability.COST_REPORTING,
             Capability.TOKEN_USAGE,
+            Capability.CONTEXT_USAGE,  # we synthesise this from per-turn tokens + model.limit.context
             Capability.MODEL_SWITCHING,
             Capability.AGENT_SWITCHING,
             Capability.CANCEL,
@@ -441,8 +442,7 @@ class OpenCodeProvider:
             # Not advertised (would lie):
             #   PERMISSION_MODES, PRE_TOOL_APPROVAL, PLAN_REVIEW,
             #   EFFORT_LEVELS, ADAPTIVE_THINKING, COMPACT_BOUNDARY,
-            #   RATE_LIMIT_EVENTS, SUBAGENTS, SKILLS, BTW_SIDECHANNEL,
-            #   CONTEXT_USAGE
+            #   RATE_LIMIT_EVENTS, SUBAGENTS, SKILLS, BTW_SIDECHANNEL
         }
 
         # Set in start()
@@ -465,6 +465,19 @@ class OpenCodeProvider:
         # the user prompt — the orchestrator handles user echoes
         # separately and doesn't want them streamed.
         self._msg_role: dict[str, str] = {}
+        # Most recent input-token count from a step-finish event.
+        # OpenCode reports input tokens per step = "tokens of context
+        # the model saw on this turn", which is the right value for a
+        # context-window utilization indicator (re-sent history is not
+        # additive across turns). Combined with self._model_context_limit
+        # below this powers get_context_usage().
+        self._last_input_tokens: int = 0
+        self._last_total_tokens: int = 0
+        # The current model's context window (e.g. 400_000 for gpt-5.5).
+        # Looked up lazily from app.providers() the first time we need it.
+        # Map: "providerID/modelID" -> limit_in_tokens.
+        self._context_limits: dict[str, int] = {}
+        self._context_limits_loaded: bool = False
 
     # ----- lifecycle --------------------------------------------------
 
@@ -770,9 +783,76 @@ class OpenCodeProvider:
         self._default_agent = agent
 
     async def get_context_usage(self) -> dict:
-        # Not advertised — the abstraction's `Capability.CONTEXT_USAGE`
-        # flag is absent. Orchestrator should never call this.
-        raise NotImplementedError("OpenCode does not expose live context usage")
+        """Synthesise a context-window utilization figure for OpenCode.
+
+        OpenCode's SDK doesn't expose a `get_context_usage()` like the
+        Claude SDK does. But we have what we need to compute it:
+          - `step-finish.tokens.input` from the most recent turn = how
+            many tokens of context the model just received.
+          - `app.providers().models[<id>].limit.context` = the model's
+            maximum context window.
+        Combined, that's an honest "% used" indicator. Returned in a
+        Claude-shaped envelope so the existing frontend ring just
+        works.
+        """
+        return await self._build_context_usage() or {}
+
+    async def _build_context_usage(self) -> dict | None:
+        """Build a context_usage dict from cached state. Returns None
+        if we don't yet have enough data (no turn has run yet, or no
+        limit known for the current model)."""
+        if self._last_input_tokens <= 0:
+            return None
+        await self._ensure_context_limits_loaded()
+        model_key = f"{self._default_provider_id}/{self._default_model_id}"
+        limit = self._context_limits.get(model_key)
+        # Frontend ring expects: total_input_tokens, total_cache_read_tokens,
+        # total_cache_write_tokens, max_input_tokens, percentage.
+        # We map our single "input" number into total_input_tokens.
+        out: dict[str, Any] = {
+            "total_input_tokens": self._last_input_tokens,
+            "total_cache_read_tokens": 0,
+            "total_cache_write_tokens": 0,
+        }
+        if limit and limit > 0:
+            out["max_input_tokens"] = int(limit)
+            out["percentage"] = round(100.0 * self._last_input_tokens / float(limit), 2)
+        return out
+
+    async def _ensure_context_limits_loaded(self) -> None:
+        """Lazy-load model context windows from app.providers(). Cached
+        for the lifetime of this provider instance."""
+        if self._context_limits_loaded:
+            return
+        if self._client is None:
+            return
+        loop = asyncio.get_running_loop()
+        try:
+            resp = await loop.run_in_executor(None, self._client.app.providers)
+        except Exception as e:
+            log.warning("opencode: failed to load model limits: %s", e)
+            self._context_limits_loaded = True  # don't retry on every turn
+            return
+        d = resp.model_dump() if hasattr(resp, "model_dump") else resp
+        plist = (d.get("providers") or []) if isinstance(d, dict) else []
+        for prov in plist:
+            pid = prov.get("id") or ""
+            models = prov.get("models") or {}
+            if not isinstance(models, dict):
+                continue
+            for mid, meta in models.items():
+                if not isinstance(meta, dict):
+                    continue
+                limit_obj = meta.get("limit") or {}
+                ctx_limit = limit_obj.get("context") if isinstance(limit_obj, dict) else None
+                if ctx_limit:
+                    try:
+                        self._context_limits[f"{pid}/{mid}"] = int(ctx_limit)
+                    except (TypeError, ValueError):
+                        pass
+        self._context_limits_loaded = True
+        log.info("opencode: loaded context limits for %d models",
+                 len(self._context_limits))
 
     async def respond_to_permission(
         self, request_id: str, decision: str,
@@ -1052,8 +1132,26 @@ class OpenCodeProvider:
                                 "output": str(state.get("error") or ""),
                                 "is_error": True,
                             })
-                    # step-start / step-finish / file / snapshot —
-                    # not surfaced to the wire protocol for v1.
+                    # step-finish carries token usage — capture for
+                    # the context-usage indicator. We don't surface
+                    # step boundaries themselves to the wire protocol.
+                    if pt == "step-finish":
+                        toks = part.get("tokens") or {}
+                        try:
+                            self._last_input_tokens = int(toks.get("input") or 0)
+                            self._last_total_tokens = int(toks.get("total") or 0)
+                        except (TypeError, ValueError):
+                            pass
+                        # Also broadcast a context_usage event so the
+                        # frontend can update its ring without polling.
+                        usage = await self._build_context_usage()
+                        if usage:
+                            await self._event_queue.put({
+                                "type": "context_usage",
+                                "data": usage,
+                            })
+                    # step-start / file / snapshot — not surfaced to
+                    # the wire protocol for v1.
                     continue
 
                 if etype.startswith("permission."):
