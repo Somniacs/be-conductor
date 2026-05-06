@@ -172,6 +172,13 @@ summary[style*="list-style:none"]::-webkit-details-marker { display: none; }
 <div id="input-area">
     <div class="slash-popup" id="slash-popup"></div>
     <div class="attachment-preview" id="attach-preview"></div>
+    <!-- Read-only pill above the input box, right-aligned to the
+         message box's right edge. Shows the current model so the
+         user always sees what they're talking to ("Claude Opus 4.7",
+         "OpenCode • GPT-5.5", etc.). Hidden until system_init lands. -->
+    <div id="model-pill-wrap" style="display:flex; justify-content:flex-end; margin-bottom:4px; pointer-events:none;">
+        <span id="model-pill" style="display:none; font-size:10px; color:var(--muted); background:transparent; border:1px solid var(--border); border-radius:999px; padding:1px 8px; line-height:1.4; white-space:nowrap;"></span>
+    </div>
     <div id="input-box">
         <textarea id="prompt" rows="1" placeholder="Message Claude..."></textarea>
         <div id="input-toolbar">
@@ -482,23 +489,45 @@ var _providerCaps = null;  // null = no gating (Claude); Set = gate
 function _applyProviderGating() {
     if (!_providerCaps) return;
     var has = function(c) { return _providerCaps.has(c); };
-    // Hide controls that don't apply to this provider.
+
     function hide(id) {
         var el = document.getElementById(id);
         if (el) el.style.display = 'none';
     }
+
+    // ---- Input toolbar widgets ----
+    // Context ring (in the input toolbar). Claude reports a percentage;
+    // OpenCode doesn't expose context usage, so hide.
+    if (!has('context_usage')) hide('context-indicator');
+
+    // Mode button ("Ask Mode" / permission-mode popup). Claude has
+    // these; OpenCode's `agent` concept is shaped differently and
+    // doesn't fit this UI, so hide for now.
+    if (!has('permission_modes')) hide('mode-btn');
+
+    // ---- Inside the mode popup ----
+    // Even if mode-btn is hidden, gate the rows in case the popup is
+    // opened via some other path (history replay etc.).
     if (!has('effort_levels')) hide('effort-row');
     if (!has('adaptive_thinking')) hide('adaptive-thinking-row');
-    if (!has('context_usage')) hide('context-ring-wrap');
+
+    // ---- Plan review ----
     if (!has('plan_review')) {
-        // Plan-review modal is event-triggered; nothing to hide preemptively.
+        // Plan-review is event-triggered; nothing to hide preemptively.
     }
-    // The provider + model are already shown in the welcome header
-    // ("OpenCode • <model> · ♭conductor"), so no separate badge is
-    // needed. An earlier version of this code appended a badge to
-    // document.body (because there's no `.title-bar` element to use
-    // as a parent), which rendered as a stray "OPENCODE" bar at the
-    // very bottom of the page below the input. Removed.
+
+    // ---- BTW side-channel ----
+    // The btw panel itself is hidden by default and only opened on a
+    // btw_start event, so no preemptive hide needed. But if a user
+    // tried Ctrl+Shift+Enter in an OpenCode session, the keyboard
+    // handler would still fire — that's a follow-up gating job in
+    // the keydown handler (out of scope here; the panel won't break
+    // anything if it doesn't open).
+
+    // ---- Stale badge cleanup ----
+    // Earlier versions appended a "OPENCODE" badge to document.body
+    // and it rendered as a bar at the very bottom of the page. The
+    // pill in the input toolbar replaces it.
     var stale = document.getElementById('provider-badge');
     if (stale && stale.parentNode) stale.parentNode.removeChild(stale);
 }
@@ -1098,11 +1127,14 @@ function renderEvent(event) {
         if (event.effort in effortMap) { effortIdx = effortMap[event.effort]; updateEffortUI(); }
         if (event.model) {
             _currentModel = event.model;
-            // Refresh the agent label in the welcome header so the
-            // user sees the *current* model, not the one chosen at
-            // session-creation time.
+            // Refresh the agent label in the welcome header and the
+            // model pill so the user sees the *current* model, not
+            // the one chosen at session-creation time.
             if (typeof _setWelcomeLabel === 'function') {
                 _setWelcomeLabel(_providerName, _currentModel);
+            }
+            if (typeof _setModelPill === 'function') {
+                _setModelPill(_providerName, _currentModel);
             }
         }
         if (event.models && event.models.length) { _availableModels = event.models; if (typeof _updateModelSelect === 'function') _updateModelSelect(); }
@@ -1862,6 +1894,7 @@ function renderEvent(event) {
         // for sessions whose system_init predated the model field.
         // Better to show just "OpenCode" than a confusing label.
         _setWelcomeLabel(_providerName, event.model);
+        _setModelPill(_providerName, event.model);
         _applyProviderGating();
 
     } else if (etype === 'turn_start') {
@@ -3649,6 +3682,58 @@ welcome.innerHTML = `<div style="font-size:15px;color:#e0e0e0;font-weight:500;">
     + `<div class="agent-cwd" style="font-size:12px;color:var(--muted);margin-top:4px;"></div>`;
 messagesEl.appendChild(welcome);
 
+// Map a raw model id to a human-readable label.
+//   'claude-opus-4-7'         -> 'Claude Opus 4.7'
+//   'claude-sonnet-4-6'       -> 'Claude Sonnet 4.6'
+//   'openai/gpt-5.5'          -> 'GPT-5.5'
+//   'openai/gpt-5.3-codex'    -> 'GPT-5.3 Codex'
+//   'google/gemini-2.5-pro'   -> 'Gemini 2.5 Pro'
+// Anything we don't recognise gets a tidied-up version of the raw id.
+function _humanModelLabel(model) {
+    if (!model) return '';
+    var raw = String(model).trim();
+    // Strip provider/ prefix if present.
+    var bare = raw;
+    var slash = raw.indexOf('/');
+    if (slash !== -1) bare = raw.slice(slash + 1);
+
+    // Claude family — turn 'claude-opus-4-7' into 'Claude Opus 4.7'.
+    if (bare.toLowerCase().indexOf('claude') === 0) {
+        var parts = bare.split('-').slice(1);  // skip leading 'claude'
+        if (parts.length >= 3) {
+            // last two are major-minor (e.g. '4', '7')
+            var version = parts.slice(-2).join('.');
+            var family = parts.slice(0, -2)
+                .map(function(p) { return p.charAt(0).toUpperCase() + p.slice(1); })
+                .join(' ');
+            return ('Claude ' + family + ' ' + version).trim();
+        }
+        return 'Claude ' + bare.slice('claude-'.length);
+    }
+    // GPT family.
+    if (bare.toLowerCase().indexOf('gpt-') === 0) {
+        // 'gpt-5.5' -> 'GPT-5.5'; 'gpt-5.3-codex' -> 'GPT-5.3 Codex'
+        var rest = bare.slice('gpt-'.length).split('-');
+        var head = 'GPT-' + rest[0];
+        if (rest.length > 1) {
+            head += ' ' + rest.slice(1)
+                .map(function(p) { return p.charAt(0).toUpperCase() + p.slice(1); })
+                .join(' ');
+        }
+        return head;
+    }
+    // Gemini.
+    if (bare.toLowerCase().indexOf('gemini') === 0) {
+        var g = bare.split('-').map(function(p) {
+            if (/^\d/.test(p)) return p;
+            return p.charAt(0).toUpperCase() + p.slice(1);
+        }).join(' ');
+        return g;
+    }
+    // Fallback — replace dashes with spaces and title-case word starts.
+    return bare;
+}
+
 // Compose the short display name for the current agent. Used in the
 // welcome header and as a verb-form ("X is responding…", "Message X")
 // in placeholders and waiting indicators.
@@ -3657,19 +3742,39 @@ function _agentDisplayName(provider, model) {
     // provider — never fall back to a placeholder string like 'default'
     // (an earlier version did, which rendered as "OpenCode • default"
     // and looked like a misconfiguration).
-    if (provider === 'opencode') return model ? 'OpenCode • ' + model : 'OpenCode';
-    if (provider && provider !== 'claude') return model ? (provider + ' • ' + model) : provider;
-    return 'Claude';
+    if (provider === 'opencode') {
+        return model ? 'OpenCode • ' + _humanModelLabel(model) : 'OpenCode';
+    }
+    if (provider && provider !== 'claude') {
+        return model ? (provider + ' • ' + _humanModelLabel(model)) : provider;
+    }
+    return model ? _humanModelLabel(model) : 'Claude';
 }
 function _agentShortName(provider, model) {
     // Used in conversational placeholders ("Message X…") — short.
     if (provider === 'opencode') {
-        // Prefer the bare model id for brevity ("gpt-5.5" beats "openai/gpt-5.5").
-        if (model && model.indexOf('/') !== -1) return model.split('/')[1];
-        return model || 'OpenCode';
+        if (model) return _humanModelLabel(model);
+        return 'OpenCode';
     }
     if (provider && provider !== 'claude') return provider;
+    if (model) return _humanModelLabel(model);
     return 'Claude';
+}
+
+// Right-aligned read-only pill above the input box. Always reflects
+// the *current* model in human-readable form.
+function _setModelPill(provider, model) {
+    var pill = document.getElementById('model-pill');
+    if (!pill) return;
+    if (!model && provider === 'claude') {
+        // Legacy Claude session that hasn't broadcast a settings
+        // event yet — leave the pill empty rather than show a bare
+        // "Claude" with no model info.
+        pill.style.display = 'none';
+        return;
+    }
+    pill.textContent = _agentDisplayName(provider, model);
+    pill.style.display = '';
 }
 
 // Update the agent label in the welcome header. Called from

@@ -590,11 +590,29 @@ class OpenCodeProvider:
         provider_id, model_id = self._parse_model(model)
         agent_name = agent or self._default_agent
 
-        parts: list[dict[str, Any]] = [{"type": "text", "text": text}]
-        # Attachments — TODO future work: map be-conductor's attachment
-        # dicts onto OpenCode's FilePart / FilePartSource shapes. For
-        # v1 we ignore them. Documented as a known limitation.
-        # TODO(phase-c): attachments → OpenCode FilePart conversion
+        # Attachments — be-conductor sends each attachment as
+        # {name, type (mime), data (base64)}. We translate:
+        #   - image/* -> OpenCode `file` part with a data: URL,
+        #     so vision-capable models see the image natively.
+        #   - text/* and small unknown text-like blobs -> inline
+        #     into the text prompt. Cheap and works for any model.
+        #   - everything else -> save to a temp file and tell the
+        #     model where it is, same approach as Claude. Only
+        #     useful when the agent has a Read/Bash tool that can
+        #     fetch the path.
+        text_addendum = ""
+        file_parts: list[dict[str, Any]] = []
+        if attachments:
+            text_addendum = self._attachments_to_parts(attachments, file_parts)
+
+        parts: list[dict[str, Any]] = []
+        # Image / file parts come first so the model sees them
+        # before the user's question text.
+        parts.extend(file_parts)
+        full_text = (text or "")
+        if text_addendum:
+            full_text = (full_text + "\n\n" + text_addendum).strip() if full_text else text_addendum
+        parts.append({"type": "text", "text": full_text})
 
         kwargs: dict[str, Any] = {
             "parts": parts,
@@ -776,6 +794,90 @@ class OpenCodeProvider:
             )
 
     # ----- internals --------------------------------------------------
+
+    def _attachments_to_parts(
+        self,
+        attachments: list[dict],
+        file_parts: list[dict],
+    ) -> str:
+        """Translate be-conductor's attachment dicts to OpenCode prompt
+        parts. Returns text to append to the prompt for non-image
+        attachments. Mutates `file_parts` in place for image attachments.
+
+        be-conductor's attachment shape (from agent-view.html):
+            {name: str, type: str (mime), data: str (base64)}
+        """
+        import base64
+        import tempfile
+        import uuid as _uuid
+        from pathlib import Path
+
+        text_lines: list[str] = []
+        prompt_uid = _uuid.uuid4().hex[:8]
+
+        for idx, att in enumerate(attachments or []):
+            mime = (att.get("type") or "application/octet-stream")
+            name = att.get("name") or f"attachment-{idx}"
+            data = att.get("data") or ""
+
+            if mime.startswith("image/"):
+                # Native FilePart with a data: URL — vision-capable
+                # models (gpt-5.x with vision, claude-via-opencode,
+                # gemini, etc.) get the image directly. data was
+                # already base64-encoded by the frontend.
+                file_parts.append({
+                    "type": "file",
+                    "mime": mime,
+                    "url": f"data:{mime};base64,{data}",
+                    "filename": name,
+                })
+                continue
+
+            if mime.startswith("text/") or mime in (
+                "application/json",
+                "application/x-yaml",
+                "application/xml",
+            ):
+                # Inline small text-ish files into the prompt.
+                try:
+                    raw = base64.b64decode(data)
+                    decoded = raw.decode("utf-8", errors="replace")
+                except Exception:
+                    decoded = "(failed to decode)"
+                # Cap at 64 KB to avoid blowing up the context with
+                # accidentally-huge files.
+                MAX = 64 * 1024
+                truncated = ""
+                if len(decoded) > MAX:
+                    decoded = decoded[:MAX]
+                    truncated = "\n\n[…truncated by be-conductor at 64 KB]"
+                text_lines.append(
+                    f"[Attached file: {name}]\n```\n{decoded}{truncated}\n```"
+                )
+                continue
+
+            # Binary or unknown — save to temp dir and tell the model
+            # the path. Only useful when the agent has tool access
+            # to read it (Read / Bash). Same pattern as Claude's
+            # attachment handling.
+            try:
+                raw = base64.b64decode(data)
+                tmp_dir = Path(tempfile.gettempdir()) / "be-conductor-uploads"
+                tmp_dir.mkdir(exist_ok=True)
+                # Unique prefix per prompt so multiple attachments
+                # with the same filename don't collide (browsers love
+                # naming everything "Screenshot.png").
+                safe_name = f"{prompt_uid}-{idx:02d}-{name}"
+                tmp_path = tmp_dir / safe_name
+                tmp_path.write_bytes(raw)
+                text_lines.append(
+                    f"[Attached file: {name}] saved to: {tmp_path}\n"
+                    f"Use the bash or read tool to access it if relevant."
+                )
+            except Exception:
+                text_lines.append(f"[Attached file: {name} — failed to save]")
+
+        return "\n\n".join(text_lines)
 
     def _parse_model(self, model: str | None) -> tuple[str, str]:
         if not model:
