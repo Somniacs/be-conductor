@@ -135,6 +135,8 @@ class ProviderAgentSession:
         self._stream_task: asyncio.Task | None = None
         self._input_queue: asyncio.Queue[dict] = asyncio.Queue()
         self._processing = False
+        # Most recent permission request id (for answer_question routing).
+        self._last_permission_request_id: str = ""
 
         # Turn-id tagging
         self._turn_prefix = uuid.uuid4().hex[:6]
@@ -260,6 +262,66 @@ class ProviderAgentSession:
 
     def get_message_count(self) -> int:
         return len(self._message_history)
+
+    # ------------------------------------------------------------------
+    # Runtime model & agent control (mirrors AgentSession.set_*_async API)
+    # ------------------------------------------------------------------
+
+    async def set_model_async(self, model: str) -> None:
+        """Switch the active model for subsequent turns.
+
+        Delegates to the provider, then updates agent_options and
+        broadcasts a settings event so all subscribed clients refresh
+        the header / model picker.
+        """
+        try:
+            await self._provider.set_model(model)
+        except NotImplementedError:
+            return
+        self._agent_options["model"] = model
+        self._broadcast_event({
+            "type": "settings",
+            "model": model,
+            "provider": self._provider.name,
+        })
+
+    async def set_effort(self, effort: str) -> None:
+        # Most providers don'''t have an effort dial; accept and store
+        # for the ones that might. No-op at the provider level for now.
+        self._agent_options["effort"] = effort
+
+    async def get_models(self) -> list[dict]:
+        """Return the model catalogue from the underlying provider."""
+        try:
+            return await self._provider.list_models()
+        except NotImplementedError:
+            return []
+        except Exception as e:
+            log.warning("provider list_models failed: %s", e)
+            return []
+
+    async def get_context_usage(self) -> dict:
+        try:
+            return await self._provider.get_context_usage()
+        except NotImplementedError:
+            return {}
+        except Exception:
+            return {}
+
+    def answer_question(self, answer: str) -> None:
+        """Reply to the most recent permission_request event.
+
+        v1: relies on the provider holding state (only one in-flight
+        request at a time). The orchestrator tracks the most recent
+        request_id from permission_request events.
+        """
+        try:
+            request_id = self._last_permission_request_id
+            asyncio.ensure_future(
+                self._provider.respond_to_permission(request_id, answer),
+            )
+        except Exception:
+            pass
 
     def cli_connected(self, client_id: str) -> None:
         self.cli_attach_count += 1
@@ -439,6 +501,12 @@ class ProviderAgentSession:
                 # don't double-emit from the provider.
                 if ev.get("type") == "session_end":
                     continue
+                # Track the most recent permission request so a later
+                # answer_question call routes to the right id.
+                if ev.get("type") == "permission_request":
+                    rid = ev.get("request_id")
+                    if rid:
+                        self._last_permission_request_id = rid
                 self._emit_event(dict(ev))
         except asyncio.CancelledError:
             raise

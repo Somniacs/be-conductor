@@ -471,6 +471,44 @@ async def get_config():
     }
 
 
+@router.get("/agent-providers/{provider}/models")
+async def get_provider_models(provider: str):
+    """Return the model catalogue for a given agent provider, used by
+    the new-session dialog to populate the model dropdown.
+
+    Currently only `opencode` is supported. The endpoint connects to
+    the configured OpenCode server, lists configured providers and
+    their models, and returns a flat catalogue of one entry per model.
+
+    On any error (OpenCode unreachable, SDK not installed, etc.) an
+    empty list is returned so the dialog can fall back gracefully —
+    the user can still pick "Claude" or use a free-text override.
+    """
+    if provider != "opencode":
+        return {"models": []}
+    try:
+        from be_conductor.sessions.providers.opencode import OpenCodeProvider
+    except Exception:
+        return {"models": []}
+    p = OpenCodeProvider()
+    # We need just enough state to call list_models without spawning
+    # the server or creating a session. Construct the SDK client
+    # directly and skip start().
+    try:
+        from opencode_ai import Opencode
+        headers = {}
+        if p._password:
+            headers["Authorization"] = f"Bearer {p._password}"
+        p._client = Opencode(
+            base_url=p._url, timeout=10,
+            default_headers=headers or None,
+        )
+        models = await p.list_models()
+        return {"models": models, "url": p._url}
+    except Exception as e:
+        return {"models": [], "error": str(e)}
+
+
 @router.get("/browse")
 async def browse_directory(path: str = "~"):
     """List subdirectories of a given path for the directory picker."""

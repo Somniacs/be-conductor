@@ -2720,12 +2720,21 @@
                     <!-- Provider selector — only visible for agent sessions.
                          "claude" is the default; switching to "opencode"
                          routes the session through the OpenCode adapter. -->
+                    <!-- Provider selector — only visible for agent sessions.
+                         "claude" is the default; entries below are appended
+                         dynamically from the running OpenCode's model
+                         catalogue (one per provider/model combination). -->
                     <div id="provider-row" style="display:none; margin-top:14px;">
                         <label>Agent</label>
                         <select id="new-provider" onchange="onProviderChange()">
                             <option value="claude">Claude (native)</option>
-                            <option value="opencode">OpenCode (gpt-5.5, gemini, etc.)</option>
+                            <!-- additional <option> entries injected by
+                                 _populateOpenCodeAgentDropdown() -->
                         </select>
+                        <div id="provider-status" style="font-size:11px; color:var(--muted); margin-top:4px;"></div>
+                        <!-- Free-text override for power users — only
+                             shown when the user picks the explicit
+                             "OpenCode (custom model)" option below. -->
                         <div id="provider-opencode-fields" style="display:none; margin-top:8px;">
                             <label style="font-size:12px; color:#888;">Model (provider/model)</label>
                             <input type="text" id="new-opencode-model"
@@ -8088,6 +8097,10 @@
                 if (worktreePreview) worktreePreview.style.display = 'none';
                 if (resumeTokenRow) resumeTokenRow.style.display = 'none';
                 if (providerRow) providerRow.style.display = '';
+                // Populate the model dropdown the first time we show it,
+                // so the user sees actual OpenCode models (not just
+                // "OpenCode" generically). Cached for the page lifetime.
+                _populateOpenCodeAgentDropdown();
             } else {
                 if (cmdRow) cmdRow.style.display = '';
                 if (cmdLabel) cmdLabel.style.display = '';
@@ -8097,12 +8110,61 @@
             validateNewSession();
         }
 
+        // Populate the agent dropdown with one entry per OpenCode model,
+        // sourced from /agent-providers/opencode/models. The first entry
+        // (Claude) stays static. Called when the dialog flips to "agent"
+        // session type. Cached after the first successful fetch.
+        var _opencodeDropdownPopulated = false;
+        async function _populateOpenCodeAgentDropdown() {
+            if (_opencodeDropdownPopulated) return;
+            const sel = document.getElementById('new-provider');
+            const status = document.getElementById('provider-status');
+            if (!sel) return;
+            if (status) status.textContent = 'Loading OpenCode models…';
+            try {
+                const r = await fetch('/agent-providers/opencode/models');
+                const data = await r.json();
+                const models = (data && data.models) || [];
+                if (models.length === 0) {
+                    // Fallback — keep Claude as the only choice plus a
+                    // free-text "custom model" entry the user can fill in.
+                    const opt = document.createElement('option');
+                    opt.value = 'opencode:custom';
+                    opt.textContent = 'OpenCode (custom model — type below)';
+                    sel.appendChild(opt);
+                    if (status) {
+                        status.textContent = data && data.error
+                            ? 'OpenCode unreachable: ' + data.error
+                            : 'OpenCode not running. Start `opencode serve --port 7798` to see models.';
+                    }
+                } else {
+                    models.forEach(function(m) {
+                        const opt = document.createElement('option');
+                        // value encodes both that this is opencode and which
+                        // model. createSession() splits on the first colon.
+                        opt.value = 'opencode:' + (m.value || (m.provider_id + '/' + m.model_id));
+                        opt.textContent = 'OpenCode • ' + (m.label || m.value);
+                        sel.appendChild(opt);
+                    });
+                    if (status) {
+                        status.textContent = 'OpenCode at ' + (data.url || '127.0.0.1:7798') + ' — ' + models.length + ' models';
+                    }
+                }
+                _opencodeDropdownPopulated = true;
+            } catch (e) {
+                if (status) status.textContent = 'OpenCode catalogue lookup failed: ' + e;
+            }
+        }
+
         function onProviderChange() {
             const sel = document.getElementById('new-provider');
             const ocFields = document.getElementById('provider-opencode-fields');
-            if (ocFields) {
-                ocFields.style.display = (sel && sel.value === 'opencode') ? '' : 'none';
-            }
+            // The free-text model field is only useful when the user
+            // explicitly picks the "custom model" option (no model
+            // returned from the catalogue) or when the catalogue is
+            // empty entirely.
+            const showCustom = sel && sel.value === 'opencode:custom';
+            if (ocFields) ocFields.style.display = showCustom ? '' : 'none';
         }
 
         function setResumeSubMode(sub) {
@@ -8572,18 +8634,33 @@
                 if (!name) return;
                 const cwd = selectedCwd || null;
                 const providerSel = document.getElementById('new-provider');
-                const provider = providerSel ? providerSel.value : 'claude';
+                const providerVal = providerSel ? providerSel.value : 'claude';
                 body = { name, command: command || 'Hello', cwd, session_type: 'agent' };
-                if (provider && provider !== 'claude') {
+                // Dropdown values:
+                //   "claude"                  -> native Claude (no agent_options.provider)
+                //   "opencode:custom"         -> OpenCode + free-text model from input
+                //   "opencode:<provider>/<m>" -> OpenCode + specific model
+                if (providerVal && providerVal !== 'claude') {
+                    let modelStr = '';
+                    let provider = 'claude';
+                    if (providerVal === 'opencode:custom') {
+                        provider = 'opencode';
+                        const el = document.getElementById('new-opencode-model');
+                        modelStr = (el && el.value || '').trim();
+                    } else if (providerVal.indexOf('opencode:') === 0) {
+                        provider = 'opencode';
+                        modelStr = providerVal.slice('opencode:'.length);
+                    } else {
+                        // Unknown — pass straight through.
+                        provider = providerVal;
+                    }
                     const opts = { provider };
-                    if (provider === 'opencode') {
-                        const modelEl = document.getElementById('new-opencode-model');
-                        const modelStr = (modelEl && modelEl.value || '').trim();
-                        if (modelStr.includes('/')) {
-                            const [pid, mid] = modelStr.split('/', 2);
-                            opts.opencode_provider_id = pid;
-                            opts.opencode_model_id = mid;
-                        } else if (modelStr) {
+                    if (provider === 'opencode' && modelStr) {
+                        if (modelStr.indexOf('/') !== -1) {
+                            const slash = modelStr.indexOf('/');
+                            opts.opencode_provider_id = modelStr.slice(0, slash);
+                            opts.opencode_model_id = modelStr.slice(slash + 1);
+                        } else {
                             opts.opencode_model_id = modelStr;
                         }
                     }

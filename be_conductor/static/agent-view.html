@@ -1101,7 +1101,15 @@ function renderEvent(event) {
         var effortMap = {low: 0, medium: 1, high: 2, xhigh: 3, max: 4};
         if (event.mode in modeMap) { modeIdx = modeMap[event.mode]; updateModeUI(); }
         if (event.effort in effortMap) { effortIdx = effortMap[event.effort]; updateEffortUI(); }
-        if (event.model) _currentModel = event.model;
+        if (event.model) {
+            _currentModel = event.model;
+            // Refresh the agent label in the welcome header so the
+            // user sees the *current* model, not the one chosen at
+            // session-creation time.
+            if (typeof _setWelcomeLabel === 'function') {
+                _setWelcomeLabel(_providerName, _currentModel);
+            }
+        }
         if (event.models && event.models.length) { _availableModels = event.models; if (typeof _updateModelSelect === 'function') _updateModelSelect(); }
         if (event.adaptive_thinking && event.adaptive_thinking !== _adaptiveThinking) {
             _adaptiveThinking = event.adaptive_thinking;
@@ -1850,6 +1858,10 @@ function renderEvent(event) {
         // module-level _providerCaps and used by gating helpers below.
         _providerName = event.provider || 'claude';
         _providerCaps = new Set((event.capabilities || []));
+        if (event.model) {
+            _currentModel = event.model;
+        }
+        _setWelcomeLabel(_providerName, event.model || _currentModel);
         _applyProviderGating();
 
     } else if (etype === 'turn_start') {
@@ -2868,7 +2880,12 @@ function _closeBtwPanel() {
 function setBusy(b) {
     busy = b;
     updateSendBtn();
-    promptEl.placeholder = b ? 'Queue another message...' : 'Message Claude...';
+    // Default placeholder — overridden below if a provider-specific
+    // one was set by _setWelcomeLabel.
+    var defaultPh = promptEl.dataset && promptEl.dataset.agentPlaceholder
+        ? promptEl.dataset.agentPlaceholder
+        : 'Message Claude...';
+    promptEl.placeholder = b ? 'Queue another message...' : defaultPh;
     const _verbs = [
         'Composing', 'Orchestrating', 'Harmonizing', 'Conducting', 'Arranging',
         'Counterpointing', 'Modulating', 'Embellishing', 'Transposing', 'Cadencing',
@@ -3621,13 +3638,56 @@ function connect() {
     ws.onerror = () => {};
 }
 
-// Welcome header
+// Welcome header. The agent label defaults to "Claude" but is
+// rewritten dynamically when system_init arrives (provider sessions)
+// or when a settings event broadcasts a model change. See
+// _setWelcomeLabel below — that's the single source of truth.
 const welcome = document.createElement('div');
 welcome.id = 'agent-welcome';
 welcome.style.cssText = 'padding:16px 0 12px;border-bottom:1px solid #21262d;margin-bottom:12px;';
-welcome.innerHTML = `<div style="font-size:15px;color:#e0e0e0;font-weight:500;"><span style="color:#4a6cf7;">Claude</span> <span style="color:var(--muted);font-weight:400;">&middot;</span> &#x266d;conductor</div>`
+welcome.innerHTML = `<div style="font-size:15px;color:#e0e0e0;font-weight:500;"><span id="agent-welcome-label" style="color:#4a6cf7;">Claude</span> <span style="color:var(--muted);font-weight:400;">&middot;</span> &#x266d;conductor</div>`
     + `<div class="agent-cwd" style="font-size:12px;color:var(--muted);margin-top:4px;"></div>`;
 messagesEl.appendChild(welcome);
+
+// Compose the short display name for the current agent. Used in the
+// welcome header and as a verb-form ("X is responding…", "Message X")
+// in placeholders and waiting indicators.
+function _agentDisplayName(provider, model) {
+    if (provider === 'opencode') return 'OpenCode • ' + (model || 'opencode');
+    if (provider && provider !== 'claude') return provider + (model ? (' • ' + model) : '');
+    return 'Claude';
+}
+function _agentShortName(provider, model) {
+    // Used in conversational placeholders ("Message X…") — short.
+    if (provider === 'opencode') {
+        // Prefer the bare model id for brevity ("gpt-5.5" beats "openai/gpt-5.5").
+        if (model && model.indexOf('/') !== -1) return model.split('/')[1];
+        return model || 'OpenCode';
+    }
+    if (provider && provider !== 'claude') return provider;
+    return 'Claude';
+}
+
+// Update the agent label in the welcome header. Called from
+// system_init (initial provider+model) and settings (mid-session
+// model switch). Also refreshes the prompt placeholder + waiting
+// spinner text so they stop saying "Claude" for non-Claude sessions.
+function _setWelcomeLabel(provider, model) {
+    var el = document.getElementById('agent-welcome-label');
+    if (el) el.textContent = _agentDisplayName(provider, model);
+    // Refresh the prompt placeholder.
+    var p = document.getElementById('prompt');
+    if (p) {
+        var ph = 'Message ' + _agentShortName(provider, model) + '...';
+        // Don't clobber the "Queue another message..." placeholder set
+        // by the busy state — only update when we're not in that mode.
+        if (!p.placeholder || p.placeholder.indexOf('Queue') !== 0) {
+            p.placeholder = ph;
+        }
+        // Stash so the busy-toggle code can pick it up next time.
+        p.dataset.agentPlaceholder = ph;
+    }
+}
 
 // Show connecting placeholder
 const placeholder = document.createElement('div');

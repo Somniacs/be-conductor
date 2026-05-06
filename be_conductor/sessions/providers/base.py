@@ -477,6 +477,23 @@ class AgentProvider(Protocol):
         """
         ...
 
+    async def list_models(self) -> list[dict]:
+        """Return the catalogue of models this provider can route to.
+
+        Each entry is a dict with at least `value` (canonical model
+        identifier the orchestrator passes back to `set_model`) and
+        `label` (display name). Optional fields: `provider_id`,
+        `model_id`, `description`, `default` (bool — pre-selected
+        in UI), `current` (bool — currently active for this
+        session).
+
+        Only meaningful with `Capability.MODEL_SWITCHING`. Providers
+        without dynamic routing should still return their static list
+        (Claude returns its model family). Providers with no choice
+        return an empty list.
+        """
+        ...
+
     async def set_agent(self, agent: str) -> None:
         """Change the active agent / mode for subsequent turns.
 

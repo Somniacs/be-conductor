@@ -274,13 +274,15 @@ class OpenCodeProvider:
         log.info("opencode: created session %s", self._session_id)
 
         # Emit the system_init event so the orchestrator can broadcast
-        # capabilities to the frontend.
+        # capabilities + current model to the frontend.
         await self._event_queue.put({
             "type": "system_init",
             "provider": self.name,
             "capabilities": sorted(self.capabilities),
             "session_id": self._session_id,
             "subtype": "init",
+            "model": f"{self._default_provider_id}/{self._default_model_id}",
+            "agent": self._default_agent,
         })
 
         # Start the SSE event subscriber.
@@ -407,7 +409,59 @@ class OpenCodeProvider:
 
     async def set_model(self, model: str) -> None:
         # OpenCode routes model per-call; just update the default.
+        # The orchestrator broadcasts a `settings` event so the frontend
+        # header / picker refresh; we don't need to emit anything here.
         self._default_provider_id, self._default_model_id = self._parse_model(model)
+
+    async def list_models(self) -> list[dict]:
+        """Query OpenCode for the catalogue of models the user has
+        access to (i.e. providers they've authenticated).
+
+        Returns a flat list with one entry per model. The frontend
+        renders these as "OpenCode • <provider> / <model>".
+        """
+        if self._client is None:
+            return []
+        loop = asyncio.get_running_loop()
+        try:
+            resp = await loop.run_in_executor(None, self._client.app.providers)
+        except Exception as e:
+            log.warning("opencode: list_models failed: %s", e)
+            return []
+
+        d = resp.model_dump() if hasattr(resp, "model_dump") else resp
+        providers = d.get("providers") if isinstance(d, dict) else d
+        if not isinstance(providers, list):
+            return []
+
+        current = f"{self._default_provider_id}/{self._default_model_id}"
+        out: list[dict] = []
+        for prov in providers:
+            pid = prov.get("id") or ""
+            pname = prov.get("name") or pid
+            models = prov.get("models") or {}
+            # `models` is a dict keyed by model id; the value carries
+            # extra metadata (cost, context window, etc.) which we
+            # currently ignore.
+            if isinstance(models, dict):
+                model_ids = list(models.keys())
+            elif isinstance(models, list):
+                model_ids = [m.get("id") if isinstance(m, dict) else str(m)
+                             for m in models]
+            else:
+                model_ids = []
+            for mid in model_ids:
+                if not mid:
+                    continue
+                value = f"{pid}/{mid}"
+                out.append({
+                    "value": value,
+                    "label": f"{pname} / {mid}",
+                    "provider_id": pid,
+                    "model_id": mid,
+                    "current": value == current,
+                })
+        return out
 
     async def set_agent(self, agent: str) -> None:
         self._default_agent = agent
