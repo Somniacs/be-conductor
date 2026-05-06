@@ -242,6 +242,41 @@ class SessionRegistry:
                         except Exception:
                             pass
 
+    def _build_provider(
+        self,
+        provider_name: str,
+        cwd: str | None,
+        agent_options: dict,
+    ):
+        """Construct a concrete `AgentProvider` instance.
+
+        Centralised here so the per-provider import is lazy — failure
+        to import a provider's optional dependency (e.g.
+        `opencode-ai`) only affects that provider, not the registry
+        as a whole.
+        """
+        if provider_name == "opencode":
+            from be_conductor.sessions.providers.opencode import (
+                OpenCodeProvider,
+            )
+            return OpenCodeProvider(
+                cwd=cwd,
+                # Allow caller to override per-session if desired.
+                url=agent_options.get("opencode_url"),
+                password=agent_options.get("opencode_password"),
+                autostart=agent_options.get("opencode_autostart"),
+                default_provider_id=agent_options.get(
+                    "opencode_provider_id", "openai",
+                ),
+                default_model_id=agent_options.get(
+                    "opencode_model_id", "gpt-5.5",
+                ),
+                default_agent=agent_options.get(
+                    "opencode_agent", "build",
+                ),
+            )
+        raise ValueError(f"unknown agent provider: {provider_name!r}")
+
     async def _on_session_exit(self, session_id: str):
         """Called when a session's process exits."""
         session = self.sessions.pop(session_id, None)
@@ -345,18 +380,41 @@ class SessionRegistry:
         )
 
         if session_type == "agent":
-            from be_conductor.sessions.agent_session import AgentSession
-            session = AgentSession(
-                name=name,
-                prompt=command,
-                session_id=session_id,
-                cwd=session_cwd,
-                on_exit=self._on_session_exit,
-                env=env,
-                worktree=worktree_info,
-                notifier=notifier,
-                agent_options=agent_options,
-            )
+            # Provider-based agent sessions (OpenCode, etc.) dispatch
+            # to ProviderAgentSession; the existing Claude path
+            # remains unchanged when no provider is specified.
+            provider_name = (agent_options or {}).get("provider")
+            if provider_name and provider_name != "claude":
+                from be_conductor.sessions.provider_agent_session import (
+                    ProviderAgentSession,
+                )
+                provider = self._build_provider(
+                    provider_name, session_cwd, agent_options or {},
+                )
+                session = ProviderAgentSession(
+                    name=name,
+                    prompt=command,
+                    provider=provider,
+                    session_id=session_id,
+                    cwd=session_cwd,
+                    on_exit=self._on_session_exit,
+                    worktree=worktree_info,
+                    notifier=notifier,
+                    agent_options=agent_options,
+                )
+            else:
+                from be_conductor.sessions.agent_session import AgentSession
+                session = AgentSession(
+                    name=name,
+                    prompt=command,
+                    session_id=session_id,
+                    cwd=session_cwd,
+                    on_exit=self._on_session_exit,
+                    env=env,
+                    worktree=worktree_info,
+                    notifier=notifier,
+                    agent_options=agent_options,
+                )
         else:
             session = Session(
                 name=name,
