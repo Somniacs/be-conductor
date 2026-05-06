@@ -6,12 +6,13 @@ All notable changes to be-conductor are documented here.
 
 ### New
 
-- **Model pill above the input** — a small read-only label at the right edge of the message box shows which model you're currently talking to in a friendly form: "Claude Opus 4.7", "OpenCode • GPT-5.5", "OpenCode • GPT-5.3 Codex", etc. Updates if the model changes mid-session
+- **Model name shown inside the message field** — a small read-only label sits at the top-right of the message box like a watermark, showing which model you're currently talking to in a friendly form: "Claude Opus 4.7", "OpenCode • GPT-5.5", "OpenCode • GPT-5.3 Codex", etc. Transparent — won't intercept clicks or selection. Updates if the model changes mid-session
+- **Context usage for OpenCode sessions** — the context-window indicator (the small ring + token count in the input toolbar) now works for OpenCode sessions, not just Claude. Computed from each turn's input tokens divided by the model's documented context window (e.g. 400K for gpt-5.5). Updates after every turn
 - **Image attachments in OpenCode sessions** — paste or drop a screenshot into a session running on a vision-capable model (e.g. gpt-5.5) and the agent sees the image directly. Text files (`.txt`, `.json`, `.md`, etc.) are inlined into the prompt; binary files get saved to a temp dir and the agent is told where to find them. Same flow as Claude
 - **OpenCode as a second GUI agent** — the new-session dialog has an "Agent" picker that lists Claude alongside every model your local OpenCode is authenticated for. Each entry is a one-click choice — "OpenCode • OpenAI / gpt-5.5", "OpenCode • OpenAI / gpt-5.3-codex", "OpenCode • Google / Gemini …" — built on the fly from OpenCode's configured providers. The structured GUI view (chat bubbles, tool calls, streaming, cost) works for either agent
 - **Header shows the current model** — the welcome line at the top of an agent session no longer always says "Claude". For OpenCode sessions it shows "OpenCode • <model>"; if you switch models mid-session the header updates with it. The "Message …" prompt placeholder follows the same name
 - **OpenCode auto-starts when needed** — be-conductor will spawn `opencode serve` on `127.0.0.1:7798` if no OpenCode server is reachable, and re-use any server already running. Set `BC_OPENCODE_URL` to point at a different host (e.g. an AI workstation), `BC_OPENCODE_PASSWORD` for protected servers, or `BC_OPENCODE_AUTOSTART=false` to manage the server yourself
-- **Provider-aware UI** — Claude-only controls are hidden in OpenCode sessions instead of cluttering the input bar with broken buttons: the context-window indicator (token count + ring), the effort dial, the adaptive-thinking switch, and the "Ask Mode" permission popup all stay out of the way unless the agent actually supports them
+- **Provider-aware UI** — Claude-only controls are hidden in OpenCode sessions instead of cluttering the input bar with broken buttons: the effort dial, the adaptive-thinking switch, and the "Ask Mode" permission popup all stay out of the way unless the agent actually supports them
 
 ### Fixed
 
