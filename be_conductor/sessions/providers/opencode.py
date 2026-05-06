@@ -267,11 +267,20 @@ class OpenCodeProvider:
             default_headers=headers or None,
         )
 
-        # Create a fresh session on the server.
+        # Create a fresh session on the server, scoped to the
+        # be-conductor session's working directory. Without `directory=`
+        # OpenCode falls back to its own server process's cwd
+        # (typically be-conductor's launch dir) so tools run in the
+        # wrong place — bash's `pwd` reports be-conductor's path even
+        # though the dashboard advertised the user-picked cwd in the
+        # session header.
         loop = asyncio.get_running_loop()
-        s = await loop.run_in_executor(None, self._client.session.create)
+        s = await loop.run_in_executor(
+            None,
+            lambda: self._client.session.create(directory=self._cwd),
+        )
         self._session_id = s.id
-        log.info("opencode: created session %s", self._session_id)
+        log.info("opencode: created session %s in %s", self._session_id, self._cwd)
 
         # Emit the system_init event so the orchestrator can broadcast
         # capabilities + current model to the frontend.
@@ -353,6 +362,11 @@ class OpenCodeProvider:
             "parts": parts,
             "model": {"providerID": provider_id, "modelID": model_id},
             "agent": agent_name,
+            # Scope tool execution to the user-picked cwd. session.create
+            # already set this on the session, but passing it per-prompt
+            # too makes it explicit and survives any server-side default
+            # changes between OpenCode versions.
+            "directory": self._cwd,
         }
 
         async with self._send_lock:
@@ -384,9 +398,42 @@ class OpenCodeProvider:
             # individual deltas / parts have already streamed through
             # the SSE consumer.
             info = response.info
+
+            # If the model failed (auth, rate limit, content filter,
+            # etc.) OpenCode populates info.error and produces no text
+            # parts. The session.error event in the SSE stream usually
+            # carries the same info — but the SSE stream may race with
+            # the prompt() return on short turns, so we double-check
+            # here and emit a wire-protocol `error` event if needed.
+            err_obj = getattr(info, "error", None)
+            if err_obj is not None:
+                err_dump = _safe_dump(err_obj) or {}
+                name = err_dump.get("name") or type(err_obj).__name__
+                data = err_dump.get("data") or {}
+                msg = (
+                    data.get("message")
+                    or err_dump.get("message")
+                    or name
+                )
+                if name and msg and name not in msg:
+                    msg = f"{name}: {msg}"
+                await self._event_queue.put({
+                    "type": "error",
+                    "error": str(msg or "OpenCode reported an error"),
+                    "subtype": "provider_error",
+                    "payload": {"raw": err_dump},
+                })
+
+            stop_reason = getattr(info, "finish", None)
+            if not stop_reason:
+                # No finish reason + no error means OpenCode aborted
+                # silently. Tag the turn_end so the UI doesn't claim
+                # the agent finished cleanly.
+                stop_reason = "error" if err_obj is not None else "stop"
+
             await self._event_queue.put({
                 "type": "turn_end",
-                "stop_reason": getattr(info, "finish", "stop") or "stop",
+                "stop_reason": stop_reason,
                 "total_cost_usd": float(getattr(info, "cost", 0.0) or 0.0),
                 "usage": _safe_dump(getattr(info, "tokens", None)),
                 "model_usage": {
@@ -715,6 +762,36 @@ class OpenCodeProvider:
                             "request_id": info.get("id", ""),
                             "decision": info.get("response") or info.get("reply") or "",
                         })
+                    continue
+
+                if etype == "session.error":
+                    # OpenCode reports model-level / provider-level
+                    # failures (auth errors, rate limits, content
+                    # filtering, etc.) as session.error events with a
+                    # nested error payload. We were silently dropping
+                    # these — the symptom was an empty assistant
+                    # bubble + zero-cost turn_end with no UI
+                    # explanation. Surface as a wire `error` event
+                    # so the user sees what went wrong.
+                    err = props.get("error") or {}
+                    if not isinstance(err, dict):
+                        err = {"message": str(err)}
+                    name = err.get("name") or ""
+                    data = err.get("data") or {}
+                    msg = (
+                        data.get("message")
+                        or err.get("message")
+                        or name
+                        or "OpenCode reported an error"
+                    )
+                    if name and name not in msg:
+                        msg = f"{name}: {msg}"
+                    await self._event_queue.put({
+                        "type": "error",
+                        "error": msg,
+                        "subtype": "provider_error",
+                        "payload": {"raw": err},
+                    })
                     continue
 
                 # Anything else — leave silent.

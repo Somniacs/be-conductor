@@ -8630,12 +8630,22 @@
 
             let body;
             if (_newSessionType === 'agent') {
-                // Agent sessions: command = initial prompt
+                // Agent sessions: there's no separate "initial prompt"
+                // input in this dialog — `#new-command` is the PTY
+                // command dropdown ("claude" / "codex" / "aider"). For
+                // agent sessions we ignore that value entirely. Empty
+                // string = no initial turn; user types their first
+                // message in the agent view. (Previously the code
+                // passed the dropdown value as the prompt, which made
+                // OpenCode sessions answer the literal word "claude"
+                // as a one-token user message — visible in the chat
+                // bubble — and cost zero because the model produced
+                // no useful reply.)
                 if (!name) return;
                 const cwd = selectedCwd || null;
                 const providerSel = document.getElementById('new-provider');
                 const providerVal = providerSel ? providerSel.value : 'claude';
-                body = { name, command: command || 'Hello', cwd, session_type: 'agent' };
+                body = { name, command: '', cwd, session_type: 'agent' };
                 // Dropdown values:
                 //   "claude"                  -> native Claude (no agent_options.provider)
                 //   "opencode:custom"         -> OpenCode + free-text model from input

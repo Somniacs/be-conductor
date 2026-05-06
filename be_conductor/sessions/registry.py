@@ -156,9 +156,15 @@ class SessionRegistry:
         Matches the command's base executable against ALLOWED_COMMANDS entries
         and returns resume_pattern, resume_flag, and stop_sequence (if any).
         """
+        # Empty command — agent sessions can omit it (no initial prompt).
+        # Without this guard, shlex.split("")[0] raises IndexError and the
+        # whole /sessions/run endpoint returns 500 with "list index out of
+        # range".
+        if not command or not command.strip():
+            return {}
         try:
             base = shlex.split(command)[0]
-        except ValueError:
+        except (ValueError, IndexError):
             return {}
         for entry in cfg.ALLOWED_COMMANDS:
             try:
