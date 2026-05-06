@@ -3106,64 +3106,69 @@ function _foldExpanded() {
 }
 
 // Auto-fold during a long live session. Called at every `result` event.
-// If _seenEvents (the running list of events currently in the live DOM)
-// has grown past WINDOW_SIZE + EXPAND_CHUNK, peel the oldest EXPAND_CHUNK
-// events out of the visible window: push them into _olderEvents and
-// remove their DOM nodes from the top of messagesEl. This keeps long-
-// running sessions performant without the user having to manually fold.
 //
-// Critical invariants:
-//   - We never auto-fold while the user has expanded chunks visible
-//     (_expandedChunks.length > 0). The user is reading older content;
-//     yanking the older bucket out from under them would be confusing.
-//   - We only fire on the `result` boundary, never mid-stream, so we
-//     don't disturb in-flight rendering.
-//   - User's scroll position is preserved by adjusting scrollTop by the
-//     delta in scrollHeight, same trick as expand/fold.
+// Strategy: target visible MESSAGE COUNT, not raw event count. The
+// previous version triggered on _seenEvents.length and evicted the
+// number of message-class DOM nodes that happened to be in the
+// evicted event slice — but stream/system/settings events are 80%+
+// of the stream by count and produce no DOM, so two consecutive
+// `result` boundaries could legitimately push event count past 600
+// while only adding a handful of message-class DOM nodes. The eviction
+// then took the last cold-load messages with it, leaving the screen
+// almost empty — exactly the bug the user reported.
+//
+// New approach: only trigger when the DOM has more than
+// AUTOFOLD_HIGH_WATER message-class nodes, and only evict down to
+// AUTOFOLD_LOW_WATER. The screen always retains at least
+// AUTOFOLD_LOW_WATER (currently 150) messages so the user keeps a
+// strong sense of "where I am".
+//
+// Invariants:
+//   - Never fold while user has expanded chunks visible
+//   - Only fires on `result` boundary
+//   - Never empties the screen — always leaves at least
+//     AUTOFOLD_LOW_WATER message-class nodes visible
+//   - Scroll position preserved by height-delta
+const AUTOFOLD_HIGH_WATER = 350;  // start auto-folding when we have this many visible messages
+const AUTOFOLD_LOW_WATER = 200;   // fold down to this many
+
+function _countVisibleMessages() {
+    var welcomeEl = document.getElementById('agent-welcome');
+    var n = 0;
+    var node = messagesEl.firstChild;
+    while (node) {
+        var skip = (welcomeEl && node === welcomeEl) || (node === _olderStubEl);
+        if (!skip && node.classList && (
+            node.classList.contains('msg') ||
+            node.classList.contains('msg-user') ||
+            node.classList.contains('msg-claude') ||
+            node.classList.contains('msg-claude-dot') ||
+            node.classList.contains('msg-group')
+        )) {
+            n++;
+        }
+        node = node.nextSibling;
+    }
+    return n;
+}
+
 function _maybeAutoFold() {
-    if (_expandedChunks.length > 0) return;          // user is browsing back, don't disturb
-    if (_seenEvents.length <= WINDOW_SIZE + EXPAND_CHUNK) return;
-    // How many events to evict: bring _seenEvents back to roughly
-    // WINDOW_SIZE. Cap at EXPAND_CHUNK per call so we never roll a huge
-    // chunk in one go.
-    var excess = _seenEvents.length - WINDOW_SIZE;
-    var evictCount = Math.min(EXPAND_CHUNK, excess);
-    var evicted = _seenEvents.splice(0, evictCount);
-    // Find the boundary DOM node: the first node of the post-eviction
-    // visible window. We do this by walking the DOM children, skipping
-    // welcome and the older-stub bar, and counting the message-producing
-    // nodes that correspond to the evicted events. The nth such node is
-    // the new boundary.
-    //
-    // To find "the first DOM node that corresponds to the (evictCount+1)th
-    // message-event" we count all CHILD nodes that are .msg or .msg-group
-    // — these are what renderEvent's persistent-output branches create.
-    // System notices, error divs, and the older-stub also become children
-    // but they're not "messages" — including them in the count would skew
-    // eviction. We tolerate small drift by being conservative (under-evict
-    // is fine; over-evict is bad).
+    if (_expandedChunks.length > 0) return;
+    var visible = _countVisibleMessages();
+    if (visible <= AUTOFOLD_HIGH_WATER) return;
+    var toRemoveCount = visible - AUTOFOLD_LOW_WATER;
+    if (toRemoveCount <= 0) return;
     var welcomeEl = document.getElementById('agent-welcome');
     var node = messagesEl.firstChild;
     if (welcomeEl && node === welcomeEl) node = node.nextSibling;
     if (node === _olderStubEl) node = node.nextSibling;
-    // Count msg-class events in the evicted slice — that's how many
-    // message DOM nodes we expect to remove.
-    var evictedMsgCount = 0;
-    for (var ei = 0; ei < evicted.length; ei++) {
-        var et = evicted[ei].type;
-        if (et === 'user_message' || et === 'assistant_message' ||
-            et === 'queued_message' || et === 'error' ||
-            et === 'plan_review' || et === 'question_answered') {
-            evictedMsgCount++;
-        }
-    }
-    // Walk children and remove until we've removed evictedMsgCount
-    // message-class nodes. Other interleaved nodes (system notices, etc.)
-    // come along with them.
-    var removed = 0;
     var prevScrollHeight = messagesEl.scrollHeight;
     var prevScrollTop = messagesEl.scrollTop;
-    while (node && removed < evictedMsgCount) {
+    // Walk the children and remove from the top, counting how many
+    // msg-class nodes we've removed. Stop when we've reached toRemove.
+    var removedMsgs = 0;
+    var removedNodes = []; // for mapping back to events later
+    while (node && removedMsgs < toRemoveCount) {
         var next = node.nextSibling;
         var isMsg = node.classList && (
             node.classList.contains('msg') ||
@@ -3173,20 +3178,34 @@ function _maybeAutoFold() {
             node.classList.contains('msg-claude-dot')
         );
         messagesEl.removeChild(node);
-        if (isMsg) removed++;
+        removedNodes.push(node);
+        if (isMsg) removedMsgs++;
         node = next;
     }
-    // The remaining first non-welcome, non-stub node is the new window anchor
+    // Map back to events: pop the corresponding count of events off
+    // the front of _seenEvents. We use the count of msg-class events
+    // in the front slice that matches removedMsgs, then take everything
+    // before that point as evicted.
+    var evictUpToEventIdx = 0;
+    var msgsSeenInEvents = 0;
+    for (var i = 0; i < _seenEvents.length && msgsSeenInEvents < removedMsgs; i++) {
+        var et = _seenEvents[i].type;
+        if (et === 'user_message' || et === 'assistant_message' ||
+            et === 'queued_message' || et === 'error' ||
+            et === 'plan_review' || et === 'question_answered') {
+            msgsSeenInEvents++;
+        }
+        evictUpToEventIdx = i + 1;
+    }
+    var evicted = _seenEvents.splice(0, evictUpToEventIdx);
+    // The new window anchor is the first non-welcome, non-stub child
     var newAnchor = messagesEl.firstChild;
     if (welcomeEl && newAnchor === welcomeEl) newAnchor = newAnchor.nextSibling;
     if (newAnchor === _olderStubEl) newAnchor = newAnchor.nextSibling;
     _windowAnchor = newAnchor;
-    // Push evicted events into the older bucket — chronological order
-    // is preserved because evicted came off the front of _seenEvents,
-    // and the older bucket's tail is "most recently old".
     Array.prototype.push.apply(_olderEvents, evicted);
     _refreshOlderStub();
-    // Preserve scroll: the height shrank, so adjust scrollTop by the delta
+    // Preserve scroll
     var newScrollHeight = messagesEl.scrollHeight;
     messagesEl.scrollTop = Math.max(0, prevScrollTop - (prevScrollHeight - newScrollHeight));
     _userMsgsCacheDirty = true;
