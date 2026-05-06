@@ -22,6 +22,7 @@ All notable changes to be-conductor are documented here.
 
 ### Fixed
 
+- **Agent sessions stopped crashing on session start** — SDK 0.1.74 internally calls `list(allowed_tools)`, which throws if we pass `None`. We had been passing `None` from the default agent options. Now defaults to an empty list so the SDK's command builder doesn't trip
 - **Empty Thoughts boxes no longer appear** — Opus 4.7's default sets thinking display to "omitted", which used to show as a blank Thoughts row in the transcript. The renderer now drops the row when there's no thinking text, both for finalized blocks and live streaming ones. Combined with Auto-mode now asking for summarised thinking on 4.7+ (above), the Thoughts UI is useful again
 - **Effort / mode / model now display correctly on session reopen** — the persisted effort level (e.g. xhigh) was being saved to disk and actually used to launch the agent, but the UI showed the fallback "high" because the in-memory display state wasn't initialized from the saved value. Same root cause affected permission mode and model label. All three now hydrate from the persisted options the moment a session loads
 - **Show / Fold older messages keeps your scroll position** — clicking the "Show 200 older" or "▼ Fold (200)" button keeps your viewport on the same content; the chunk appears or disappears above you invisibly. Fold also reliably restores the original window — each expanded chunk is tagged with a unique id at expand time, so fold removes exactly the right nodes regardless of any intervening DOM mutation

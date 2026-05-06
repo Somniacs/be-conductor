@@ -499,9 +499,16 @@ class AgentSession:
         else:
             effective_sp = user_sp
 
+        # SDK 0.1.74 internally calls list(allowed_tools) which crashes
+        # when we pass None. Use an empty list when unset — same effect
+        # (no auto-allow rules) but doesn't trip the SDK.
+        _allowed_tools_val = self._agent_options.get("allowed_tools")
+        if _allowed_tools_val is None:
+            _allowed_tools_val = []
+
         opts_kwargs: dict = {
             "cwd": self.cwd or ".",
-            "allowed_tools": self._agent_options.get("allowed_tools"),
+            "allowed_tools": _allowed_tools_val,
             "permission_mode": "default",
             "can_use_tool": _can_use_tool,
             "system_prompt": effective_sp,
