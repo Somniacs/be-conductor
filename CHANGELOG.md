@@ -13,6 +13,7 @@ All notable changes to be-conductor are documented here.
 
 ### Fixed
 
+- **OpenCode sessions used to go silent** — opening a second OpenCode session, or any OpenCode session whose working directory wasn't be-conductor's own launch dir, would leave the chat empty after every prompt: turn_start arrived, "turn complete" appeared, but no actual reply. OpenCode was producing real answers on its side; be-conductor's event subscriber just wasn't seeing them (OpenCode's event stream is project-scoped and a single subscriber per server/directory is required). One shared subscriber per (server, directory) now multiplexes events across all open sessions, and replies appear correctly everywhere
 - **Stray "OPENCODE" bar at the bottom of the agent view** — a leftover provider badge was rendering as a blue bar below the message input area instead of next to the title. Removed; the agent name in the welcome header already covers it
 - **"OpenCode • default" header for some sessions** — sessions whose system_init didn't carry a model would display the literal placeholder "default". Now reads just "OpenCode" until a real model is known
 - **OpenCode tools now run in the directory you picked** — the bash tool was reporting be-conductor's own working directory instead of the cwd you set in the new-session dialog. Sessions now scope OpenCode to the picked directory, so `pwd`, file lookups, and edits all happen where you expect
