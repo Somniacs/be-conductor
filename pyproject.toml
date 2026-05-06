@@ -21,6 +21,12 @@ dependencies = [
 
 [project.optional-dependencies]
 agent = ["claude-agent-sdk>=0.1.0"]
+# OpenCode SDK is installed from the `next` branch of the upstream repo
+# because PyPI's `opencode-ai 0.1.0a36` is incompatible with current
+# OpenCode servers (sends an empty body where `{}` is required). The
+# `next` branch is auto-codegenned by Stainless and tracks the live
+# OpenCode API. See docs/planned/agent-abstraction.md (Track 1 findings).
+opencode = ["opencode-ai @ git+https://github.com/anomalyco/opencode-sdk-python.git@next"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["be_conductor", "cli"]
