@@ -1283,8 +1283,19 @@ function renderEvent(event) {
             if (_streamBlockType === 'thinking') {
                 var stEl = document.getElementById('stream-thinking');
                 if (stEl) {
-                    var det = stEl.querySelector('details');
-                    if (det) det.removeAttribute('open');
+                    // If no thinking text actually arrived (Opus 4.7+ with
+                    // display:"omitted" emits an empty thinking block), drop
+                    // the element entirely instead of leaving a blank
+                    // Thoughts box. The user can still toggle adaptive
+                    // thinking to "summarized" if they want visible thoughts.
+                    var contentEl = stEl.querySelector('.stream-think-content');
+                    var thinkText = contentEl ? (contentEl.textContent || '').trim() : '';
+                    if (!thinkText) {
+                        stEl.remove();
+                    } else {
+                        var det = stEl.querySelector('details');
+                        if (det) det.removeAttribute('open');
+                    }
                 }
             }
             _streamBlockType = '';

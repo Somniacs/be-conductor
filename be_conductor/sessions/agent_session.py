@@ -552,7 +552,30 @@ class AgentSession:
             opts_kwargs["env"].pop("CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING", None)
         elif adaptive == "off":
             opts_kwargs["env"]["CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING"] = "1"
-        # "auto" is the no-op default — env and SDK options pass through.
+        else:
+            # "auto" — for models where Anthropic's default is
+            # display:"omitted" (Opus 4.7+) the user sees an empty
+            # Thoughts box. Apply summarized transparently so the UI
+            # is useful out of the box. The frontend hides empty
+            # thinking blocks too, so there's no eyesore either way.
+            # User can still pick "Off" explicitly if they want this
+            # disabled. Env var still respected: if the user has set
+            # CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING, the CLI honors it
+            # and we don't override.
+            model_str = (self._agent_options.get("model") or "").lower()
+            is_opus_47_plus = (
+                "opus-4-7" in model_str or "opus-4-8" in model_str or
+                "opus-4-9" in model_str or "opus-5" in model_str
+            )
+            env_disabled = opts_kwargs["env"].get(
+                "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING", "").strip() not in (
+                "", "0", "false", "False"
+            )
+            if is_opus_47_plus and not env_disabled:
+                opts_kwargs.setdefault("thinking", {
+                    "type": "adaptive",
+                    "display": "summarized",
+                })
 
         # Raise the SDK subprocess stdout buffer cap. The default (1 MB)
         # is enough for normal chat but a single tool_result like
