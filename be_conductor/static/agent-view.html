@@ -3287,7 +3287,31 @@ function connect() {
                 // Show all at once — single reflow
                 messagesEl.style.display = '';
                 _hideLoading();
+                // Pin to bottom so the most recent log is visible. We do
+                // this in three passes — sync now, then two rAFs — to
+                // survive layout drift from subsequent code:
+                // _updateGroupLines injects dot-lines, _updateLastMsgBar
+                // does layout queries, and JCEF can return stale
+                // scrollHeight when style.display was just toggled. The
+                // last pass uses scrollIntoView on the actual last
+                // message which is more robust than scrollHeight math.
                 messagesEl.scrollTop = messagesEl.scrollHeight;
+                requestAnimationFrame(function() {
+                    messagesEl.scrollTop = messagesEl.scrollHeight;
+                    requestAnimationFrame(function() {
+                        messagesEl.scrollTop = messagesEl.scrollHeight;
+                        // Final defensive scroll-into-view on the actual
+                        // last message node — covers the case where some
+                        // other render path has left scrollTop short.
+                        var allChildren = messagesEl.children;
+                        var lastNode = allChildren.length > 0
+                            ? allChildren[allChildren.length - 1]
+                            : null;
+                        if (lastNode && lastNode.scrollIntoView) {
+                            try { lastNode.scrollIntoView({block: 'end'}); } catch (e) {}
+                        }
+                    });
+                });
                 // Update nav buttons now that elements are in the DOM.
                 // The cache was marked dirty by the user_message renders so
                 // _getUserMessages() will re-scan once on the first call.
