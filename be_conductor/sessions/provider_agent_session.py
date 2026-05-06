@@ -166,14 +166,26 @@ class ProviderAgentSession:
         self,
         text: str,
         attachments: list[dict] | None = None,
+        btw: bool = False,
     ) -> None:
-        """Public entry — enqueues a user prompt for processing."""
+        """Public entry — enqueues a user prompt for processing.
+
+        The ``btw`` flag is be-conductor's BTW side-channel marker.
+        Accepted here for signature compatibility with
+        ``AgentSession.send_input``. The OpenCode adapter doesn't
+        currently implement BTW, so the flag is silently ignored — but
+        accepting the keyword is required: without it, the WebSocket
+        prompt route's TypeError fallback was treating the entire
+        JSON envelope as the prompt text and rendering the raw JSON
+        as a user bubble in the UI.
+        """
         if self.status != "running":
             return
         try:
             self._input_queue.put_nowait({
                 "text": text,
                 "attachments": attachments or [],
+                "btw": bool(btw),
             })
         except asyncio.QueueFull:
             log.warning("ProviderAgentSession input queue full; dropping prompt")
