@@ -493,19 +493,14 @@ function _applyProviderGating() {
     if (!has('plan_review')) {
         // Plan-review modal is event-triggered; nothing to hide preemptively.
     }
-    // Add a small provider badge near the title bar so the user knows
-    // which agent is talking. Only added for non-Claude providers.
-    if (_providerName !== 'claude') {
-        var existing = document.getElementById('provider-badge');
-        if (!existing) {
-            var bar = document.querySelector('.title-bar') || document.body;
-            var badge = document.createElement('span');
-            badge.id = 'provider-badge';
-            badge.textContent = _providerName;
-            badge.style.cssText = 'display:inline-block; margin-left:8px; padding:1px 6px; background:var(--accent); color:#fff; border-radius:4px; font-size:10px; text-transform:uppercase; letter-spacing:0.5px; vertical-align:middle;';
-            bar.appendChild(badge);
-        }
-    }
+    // The provider + model are already shown in the welcome header
+    // ("OpenCode • <model> · ♭conductor"), so no separate badge is
+    // needed. An earlier version of this code appended a badge to
+    // document.body (because there's no `.title-bar` element to use
+    // as a parent), which rendered as a stray "OPENCODE" bar at the
+    // very bottom of the page below the input. Removed.
+    var stale = document.getElementById('provider-badge');
+    if (stale && stale.parentNode) stale.parentNode.removeChild(stale);
 }
 function updateContextRing(usage) {
     if (!usage) return;
@@ -1861,7 +1856,12 @@ function renderEvent(event) {
         if (event.model) {
             _currentModel = event.model;
         }
-        _setWelcomeLabel(_providerName, event.model || _currentModel);
+        // Pass the explicit model from the event if it's there. Don't
+        // fall back to _currentModel — it defaults to the literal
+        // string 'default' which would render as "OpenCode • default"
+        // for sessions whose system_init predated the model field.
+        // Better to show just "OpenCode" than a confusing label.
+        _setWelcomeLabel(_providerName, event.model);
         _applyProviderGating();
 
     } else if (etype === 'turn_start') {
@@ -3653,8 +3653,12 @@ messagesEl.appendChild(welcome);
 // welcome header and as a verb-form ("X is responding…", "Message X")
 // in placeholders and waiting indicators.
 function _agentDisplayName(provider, model) {
-    if (provider === 'opencode') return 'OpenCode • ' + (model || 'opencode');
-    if (provider && provider !== 'claude') return provider + (model ? (' • ' + model) : '');
+    // Show the model when we have one. Without a model, just show the
+    // provider — never fall back to a placeholder string like 'default'
+    // (an earlier version did, which rendered as "OpenCode • default"
+    // and looked like a misconfiguration).
+    if (provider === 'opencode') return model ? 'OpenCode • ' + model : 'OpenCode';
+    if (provider && provider !== 'claude') return model ? (provider + ' • ' + model) : provider;
     return 'Claude';
 }
 function _agentShortName(provider, model) {
