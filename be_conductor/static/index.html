@@ -2717,6 +2717,22 @@
                         <span class="worktree-status" id="worktree-status"></span>
                     </div>
                     <div class="worktree-branch-preview" id="worktree-branch-preview"></div>
+                    <!-- Provider selector — only visible for agent sessions.
+                         "claude" is the default; switching to "opencode"
+                         routes the session through the OpenCode adapter. -->
+                    <div id="provider-row" style="display:none; margin-top:14px;">
+                        <label>Agent</label>
+                        <select id="new-provider" onchange="onProviderChange()">
+                            <option value="claude">Claude (native)</option>
+                            <option value="opencode">OpenCode (gpt-5.5, gemini, etc.)</option>
+                        </select>
+                        <div id="provider-opencode-fields" style="display:none; margin-top:8px;">
+                            <label style="font-size:12px; color:#888;">Model (provider/model)</label>
+                            <input type="text" id="new-opencode-model"
+                                   placeholder="openai/gpt-5.5"
+                                   value="openai/gpt-5.5">
+                        </div>
+                    </div>
                 </div>
                 <div id="run-btn-container">
                     <button class="run-btn" id="run-btn" onclick="createSession()" disabled>Run</button>
@@ -8063,6 +8079,7 @@
             const worktreeRow = document.getElementById('worktree-row');
             const worktreePreview = document.getElementById('worktree-branch-preview');
             const resumeTokenRow = document.getElementById('resume-token-row');
+            const providerRow = document.getElementById('provider-row');
             if (type === 'agent') {
                 // Hide command dropdown, worktree, resume controls
                 if (cmdRow) cmdRow.style.display = 'none';
@@ -8070,12 +8087,22 @@
                 if (worktreeRow) worktreeRow.style.display = 'none';
                 if (worktreePreview) worktreePreview.style.display = 'none';
                 if (resumeTokenRow) resumeTokenRow.style.display = 'none';
+                if (providerRow) providerRow.style.display = '';
             } else {
                 if (cmdRow) cmdRow.style.display = '';
                 if (cmdLabel) cmdLabel.style.display = '';
                 if (worktreeRow) worktreeRow.style.display = '';
+                if (providerRow) providerRow.style.display = 'none';
             }
             validateNewSession();
+        }
+
+        function onProviderChange() {
+            const sel = document.getElementById('new-provider');
+            const ocFields = document.getElementById('provider-opencode-fields');
+            if (ocFields) {
+                ocFields.style.display = (sel && sel.value === 'opencode') ? '' : 'none';
+            }
         }
 
         function setResumeSubMode(sub) {
@@ -8544,7 +8571,24 @@
                 // Agent sessions: command = initial prompt
                 if (!name) return;
                 const cwd = selectedCwd || null;
+                const providerSel = document.getElementById('new-provider');
+                const provider = providerSel ? providerSel.value : 'claude';
                 body = { name, command: command || 'Hello', cwd, session_type: 'agent' };
+                if (provider && provider !== 'claude') {
+                    const opts = { provider };
+                    if (provider === 'opencode') {
+                        const modelEl = document.getElementById('new-opencode-model');
+                        const modelStr = (modelEl && modelEl.value || '').trim();
+                        if (modelStr.includes('/')) {
+                            const [pid, mid] = modelStr.split('/', 2);
+                            opts.opencode_provider_id = pid;
+                            opts.opencode_model_id = mid;
+                        } else if (modelStr) {
+                            opts.opencode_model_id = modelStr;
+                        }
+                    }
+                    body.agent_options = opts;
+                }
             } else if (_newSessionMode === 'resume') {
                 if (!name || !command) return;
                 const cmdConfig = allowedCommands.find(c => c.command === command);

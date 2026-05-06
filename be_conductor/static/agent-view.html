@@ -471,6 +471,42 @@ var _stats = {
 
 var _hasContextUsageEvent = false;  // true after first context_usage event
 var _showContextPopup = false;  // true when user explicitly requested the breakdown popup
+
+// Provider-aware capability gating. For Claude sessions (legacy), no
+// system_init event arrives and these stay at the defaults — every
+// widget visible. For provider-based sessions (OpenCode), system_init
+// announces the provider and capability set, and _applyProviderGating
+// hides widgets that aren't supported.
+var _providerName = 'claude';
+var _providerCaps = null;  // null = no gating (Claude); Set = gate
+function _applyProviderGating() {
+    if (!_providerCaps) return;
+    var has = function(c) { return _providerCaps.has(c); };
+    // Hide controls that don't apply to this provider.
+    function hide(id) {
+        var el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+    }
+    if (!has('effort_levels')) hide('effort-row');
+    if (!has('adaptive_thinking')) hide('adaptive-thinking-row');
+    if (!has('context_usage')) hide('context-ring-wrap');
+    if (!has('plan_review')) {
+        // Plan-review modal is event-triggered; nothing to hide preemptively.
+    }
+    // Add a small provider badge near the title bar so the user knows
+    // which agent is talking. Only added for non-Claude providers.
+    if (_providerName !== 'claude') {
+        var existing = document.getElementById('provider-badge');
+        if (!existing) {
+            var bar = document.querySelector('.title-bar') || document.body;
+            var badge = document.createElement('span');
+            badge.id = 'provider-badge';
+            badge.textContent = _providerName;
+            badge.style.cssText = 'display:inline-block; margin-left:8px; padding:1px 6px; background:var(--accent); color:#fff; border-radius:4px; font-size:10px; text-transform:uppercase; letter-spacing:0.5px; vertical-align:middle;';
+            bar.appendChild(badge);
+        }
+    }
+}
 function updateContextRing(usage) {
     if (!usage) return;
     // Don't update during history replay — the per-message usage is
@@ -1807,6 +1843,85 @@ function renderEvent(event) {
         _activeTasks = {};
         _renderTaskPanel();
         setBusy(false);
+
+    } else if (etype === 'system_init') {
+        // Provider session announce. Capture provider + capabilities so
+        // we can hide widgets the provider doesn't support. Stored in
+        // module-level _providerCaps and used by gating helpers below.
+        _providerName = event.provider || 'claude';
+        _providerCaps = new Set((event.capabilities || []));
+        _applyProviderGating();
+
+    } else if (etype === 'turn_start') {
+        // Provider-style turn start. Treat as the end of "ready" and
+        // beginning of "busy"; the actual content events follow.
+        setBusy(true);
+
+    } else if (etype === 'turn_end') {
+        // Provider-style turn complete. Mirrors `result` for legacy
+        // Claude sessions — surface cost / stop reason if present.
+        setBusy(false);
+        if (event.total_cost_usd != null || event.stop_reason) {
+            const cost = event.total_cost_usd
+                ? ' &middot; $' + Number(event.total_cost_usd).toFixed(4)
+                : '';
+            const reason = event.stop_reason
+                ? ' &middot; ' + escHtml(event.stop_reason)
+                : '';
+            const div = document.createElement('div');
+            div.className = 'msg';
+            div.style.cssText = 'padding:6px 14px;color:var(--muted);font-size:11px;';
+            div.innerHTML = 'turn complete' + reason + cost;
+            messagesEl.appendChild(div);
+        }
+
+    } else if (etype === 'tool_use_start' || etype === 'tool_use_progress' || etype === 'tool_use_end') {
+        // Provider-style tool calls. v1: render as a simple tool-block
+        // div (not yet pretty-formatted per tool name).
+        const toolName = event.tool || '?';
+        const tuId = event.tool_use_id || '';
+        let toolEl = document.getElementById('tool-' + tuId);
+        if (!toolEl) {
+            toolEl = document.createElement('div');
+            toolEl.id = 'tool-' + tuId;
+            toolEl.className = 'msg tool-block';
+            toolEl.style.cssText = 'padding:8px 14px; background:var(--tool-bg); border:1px solid var(--border); border-radius:8px; margin:6px 0; font-family:var(--font-mono); font-size:12px;';
+            messagesEl.appendChild(toolEl);
+        }
+        const status = etype === 'tool_use_end'
+            ? (event.is_error ? 'error' : 'done')
+            : (etype === 'tool_use_progress' ? 'running' : 'pending');
+        const inputJson = event.input
+            ? '<pre style="margin:4px 0; white-space:pre-wrap; color:var(--muted);">' + escHtml(JSON.stringify(event.input, null, 2)) + '</pre>'
+            : '';
+        const outputText = event.output
+            ? '<pre style="margin:4px 0; white-space:pre-wrap; color:' + (event.is_error ? 'var(--error)' : 'var(--success)') + ';">' + escHtml(String(event.output).slice(0, 4000)) + '</pre>'
+            : '';
+        toolEl.innerHTML = ''
+            + '<div style="font-weight:600; color:var(--accent);">' + escHtml(toolName) + ' <span style="color:var(--muted); font-weight:normal; font-size:11px;">[' + status + ']</span></div>'
+            + inputJson
+            + outputText;
+
+    } else if (etype === 'permission_request') {
+        // Provider-style permission ask. Use the question modal that
+        // already exists, with options matching the provider's vocab
+        // (OpenCode: once / always / reject).
+        if (typeof showQuestionModal === 'function') {
+            showQuestionModal({
+                question: 'Allow tool: ' + (event.tool || '?') + '?\n\n'
+                    + JSON.stringify(event.input || {}, null, 2),
+                options: [
+                    { label: 'Allow once', value: 'once' },
+                    { label: 'Always allow', value: 'always' },
+                    { label: 'Reject', value: 'reject' },
+                ],
+                request_id: event.request_id,
+                source: 'permission_request',
+            });
+        }
+
+    } else if (etype === 'permission_resolved') {
+        // No-op visually; modal closes via question_answered already.
 
     } else if (etype === 'error') {
         setBusy(false);
