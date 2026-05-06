@@ -28,6 +28,12 @@ agent = ["claude-agent-sdk>=0.1.0"]
 # OpenCode API. See docs/planned/agent-abstraction.md (Track 1 findings).
 opencode = ["opencode-ai @ git+https://github.com/anomalyco/opencode-sdk-python.git@next"]
 
+[tool.hatch.metadata]
+# Required so the `opencode` optional dependency can reference a Git URL.
+# (PyPI's published opencode-ai is broken against current OpenCode
+# servers — see docs/planned/agent-abstraction.md.)
+allow-direct-references = true
+
 [tool.hatch.build.targets.wheel]
 packages = ["be_conductor", "cli"]
 artifacts = ["be_conductor/static/**"]
