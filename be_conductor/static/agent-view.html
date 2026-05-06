@@ -629,6 +629,24 @@ let busy = false;
 let ws = null;
 let _replayingHistory = false;
 let _sessionCwd = '';
+
+// Windowed message rendering. On long sessions (4000+ events) bulk-replaying
+// the entire history into the DOM bogs Chrome down and makes JCEF
+// near-unusable. We render only the last WINDOW_SIZE events on initial load
+// and stash the rest in _olderEvents (in JS memory, not in DOM). A stub at
+// the top of #messages lets the user expand chunks of EXPAND_CHUNK older
+// events on demand, and fold them back when done.
+const WINDOW_SIZE = 400;
+const EXPAND_CHUNK = 200;
+let _olderEvents = [];        // events older than the current visible window
+let _expandedChunks = [];     // stack of expansion chunks, newest at the end. Each entry: {events: [...], firstNode, nextBoundary}
+let _olderStubEl = null;      // the .older-stub placeholder; null if no older events
+let _windowAnchor = null;     // first DOM node of the original visible window — fixed reference for the very last fold step
+// Running list of every event currently in the live (visible) window.
+// Seeded by the initial history slice; appended on every live ws.onmessage.
+// Used by auto-fold to know what to push back into _olderEvents when the
+// live DOM grows past WINDOW_SIZE + EXPAND_CHUNK.
+let _seenEvents = [];
 let _userDismissedQuestion = false;
 let retryCount = 0;
 const MAX_RETRIES = 10;
@@ -897,6 +915,8 @@ function renderEvent(event) {
         var pq = _pendingQuestion;
         setBusy(false);
         showQuestionModal(pq, (answer) => {
+            _pendingQuestion = null;
+            _hideQuestionBanner();
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({type: 'answer', text: answer}));
             }
@@ -1007,6 +1027,7 @@ function renderEvent(event) {
         div.setAttribute('data-queued', '1');
         div.innerHTML = '<div style="padding:10px 14px;background:var(--user-bg);border-radius:8px;border-left:3px solid var(--accent);white-space:pre-wrap;line-height:1.5;opacity:0.6;"><span style="float:right;font-size:10px;color:var(--accent);">queued</span>' + escHtml(content) + '</div>';
         messagesEl.appendChild(div);
+        _userMsgsCacheDirty = true;
         var group = document.createElement('div');
         group.className = 'msg-group';
         group.setAttribute('data-queued-group', '1');
@@ -1046,6 +1067,10 @@ function renderEvent(event) {
         if (event.effort in effortMap) { effortIdx = effortMap[event.effort]; updateEffortUI(); }
         if (event.model) _currentModel = event.model;
         if (event.models && event.models.length) { _availableModels = event.models; if (typeof _updateModelSelect === 'function') _updateModelSelect(); }
+        if (event.adaptive_thinking && event.adaptive_thinking !== _adaptiveThinking) {
+            _adaptiveThinking = event.adaptive_thinking;
+            if (typeof _updateAdaptiveSegment === 'function') _updateAdaptiveSegment();
+        }
         // Show pending question modal if backend reports one (late-joining client)
         if (event.pending_question && !_replayingHistory) {
             _pendingQuestion = event.pending_question;
@@ -1376,19 +1401,27 @@ function renderEvent(event) {
             });
         });
         messagesEl.appendChild(div);
+        _userMsgsCacheDirty = true;
         // Scroll once to show the new user message, then stay put
         if (!isQueued && !_replayingHistory) div.scrollIntoView({block: 'start', behavior: 'smooth'});
         // Update the sticky overlay bar with this message
         if (!isQueued && !_replayingHistory) _updateLastMsgBar(div, content);
         // Set this new message as the current nav position
         _navUserAction = false;
-        var allUserMsgs = _getUserMessages();
-        _navIdx = allUserMsgs.length - 1;
-        // Highlight only this one's inner box
-        allUserMsgs.forEach((m, i) => {
-            var inner = m.querySelector('div');
-            if (inner) inner.style.boxShadow = i === _navIdx ? 'inset 0 0 0 2px var(--accent)' : '';
-        });
+        // During history replay (initial bulk load AND mid-session expand of
+        // older events) we skip the per-message highlight loop entirely:
+        // it's O(n) and the only meaningful state at the end of replay is
+        // "_navIdx points to the very last user message". A single pass
+        // after replay handles that — see _replayingHistory cleanup below.
+        if (!_replayingHistory) {
+            var allUserMsgs = _getUserMessages();
+            _navIdx = allUserMsgs.length - 1;
+            // Highlight only this one's inner box
+            allUserMsgs.forEach((m, i) => {
+                var inner = m.querySelector('div');
+                if (inner) inner.style.boxShadow = i === _navIdx ? 'inset 0 0 0 2px var(--accent)' : '';
+            });
+        }
         // No groups — linear append. Everything goes to messagesEl in order.
         // Keep spinner below user messages
         _ensureThinkingLast();
@@ -1632,10 +1665,16 @@ function renderEvent(event) {
         // Track as pending (cleared by question_answered)
         _pendingQuestion = event;
         _importantEvent = true;
+        _importantEventKind = 'question';
 
         if (_replayingHistory) return;
         setBusy(false);
         showQuestionModal(event, (answer) => {
+            // Clear pending marker on any answer so the 2s re-show poll
+            // doesn't resurrect the modal. Server's question_answered will
+            // confirm, but if the session exited without echoing, we still
+            // don't want to be stuck in a re-open loop.
+            _pendingQuestion = null;
             _hideQuestionBanner();
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({type: 'answer', text: answer}));
@@ -1721,6 +1760,7 @@ function renderEvent(event) {
     } else if (etype === 'result') {
         if (event.btw) return;  // BTW results are ephemeral — btw_end handles panel
         _importantEvent = true;
+        _importantEventKind = 'result';
         _compacting = false;
         // Use per-turn usage (the actual context sent to the API).
         // model_usage is cumulative across the whole session — not what
@@ -1768,6 +1808,7 @@ function renderEvent(event) {
     } else if (etype === 'session_end') {
         setBusy(false);
         _importantEvent = true;
+        _importantEventKind = 'session_end';
         _showSessionEnded(event.resumable, event.message);
         // In JetBrains JCEF: close the editor tab when session ends (non-resumable)
         if (!event.resumable && typeof window.cefQuery === 'function') {
@@ -1861,7 +1902,8 @@ messagesEl.addEventListener('click', function(e) {
 });
 
 var _blinkingNav = false;
-var _importantEvent = false;   // set by question, result, session_end — triggers scroll even when not at bottom
+var _importantEvent = false;   // set by question, result, session_end
+var _importantEventKind = null;  // "question" force-scrolls; others just blink
 
 function _startNavBlink() {
     if (_blinkingNav) return;
@@ -1889,16 +1931,42 @@ function autoScroll() {
     // NOTE: _updateGroupLines() and _updateNavButtons() are NOT called here —
     // they're too expensive for large sessions. They're called explicitly
     // after content changes (new messages) instead of on every scroll frame.
+    //
+    // During replay (initial bulk load AND mid-session expand of older
+    // events) this function MUST NOT touch scrollTop. The replay path
+    // owns scroll positioning: initial replay scrolls to bottom once at
+    // the end; expand/fold preserve the user's viewport via height-delta
+    // adjustment. Each renderEvent branch calls autoScroll unconditionally,
+    // and if we let those calls re-pin to scrollHeight during an expand
+    // we stomp on the user's view.
+    if (_replayingHistory) return;
     if (_isNearBottom) {
+        // User is pinned to the bottom — follow the stream.
         messagesEl.scrollTop = messagesEl.scrollHeight;
         _stopNavBlink();
-    } else if (_importantEvent) {
+        return;
+    }
+    // User scrolled up to read. Respect that — never auto-jump them back
+    // to the bottom just because new content arrived. Only hard-override
+    // for a question/plan_review (those need an answer to proceed; losing
+    // them silently would stall the session).
+    if (_importantEvent && _importantEventKind === 'question') {
         messagesEl.scrollTop = messagesEl.scrollHeight;
         _isNearBottom = true;
         _stopNavBlink();
         _importantEvent = false;
-    } else if (busy) {
-        _startNavBlink();
+        _importantEventKind = null;
+        return;
+    }
+    // Anything else arrived while the user is reading above: leave their
+    // scroll alone, just blink the down-arrow so they see that something
+    // new landed. Fires regardless of `busy` — previously we only
+    // blinked while a turn was in flight, so late arrivals (result +
+    // session_end + post-turn broadcasts) produced no visual cue.
+    _startNavBlink();
+    if (_importantEvent) {
+        _importantEvent = false;
+        _importantEventKind = null;
     }
 }
 
@@ -1910,8 +1978,19 @@ const navUpBtn = document.getElementById('nav-up');
 const navDownBtn = document.getElementById('nav-down');
 const navEl = document.getElementById('msg-nav');
 
+// Cache the user-message NodeList. _userMsgsCacheDirty is set true whenever
+// a .msg-user node is appended (in renderEvent's user_message / queued_message
+// branches) or whenever a bulk DOM mutation happens (expand/fold older). On
+// 4000+ event sessions, _getUserMessages used to do a full querySelectorAll
+// every nav-arrow click — four times per click — costing tens of ms each.
+var _userMsgsCache = [];
+var _userMsgsCacheDirty = true;
 function _getUserMessages() {
-    return Array.from(messagesEl.querySelectorAll('.msg-user'));
+    if (_userMsgsCacheDirty) {
+        _userMsgsCache = Array.from(messagesEl.querySelectorAll('.msg-user'));
+        _userMsgsCacheDirty = false;
+    }
+    return _userMsgsCache;
 }
 
 var _navUserAction = false;  // true when user clicked a nav button (prevents autoScroll reset)
@@ -2568,6 +2647,11 @@ try {
 let _localSeqCounter = 0;     // monotonic counter for user message groups
 var _currentModel = 'default';
 var _thinkingEnabled = false;
+// Adaptive thinking mode: "auto" (respect env + SDK default),
+// "summarized" (force adaptive on + visible summary),
+// "off" (force adaptive off). Applies on next turn — the SDK reads
+// the thinking option at startup; it has no runtime setter.
+var _adaptiveThinking = 'auto';
 var _planPendingApproval = false;
 var _pendingQuestion = null;  // last unanswered question event
 var _pendingPlanReview = null;  // last unanswered plan_review event
@@ -2579,6 +2663,14 @@ setInterval(function() {
         var pq = _pendingQuestion;
         setBusy(false);
         showQuestionModal(pq, function(answer) {
+            // Clear the pending marker immediately on any answer (including
+            // cancelled) so the 2s re-show poll doesn't resurrect the modal
+            // a moment later. Previously: user hits Cancel → modal removes
+            // → ws.send fires → server-side the session is already exited
+            // (no question_answered round-trip) → _pendingQuestion stays
+            // set → next poll tick re-opens the modal, forever.
+            _pendingQuestion = null;
+            _hideQuestionBanner();
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({type: 'answer', text: answer}));
             }
@@ -2825,6 +2917,270 @@ _loadingOverlay.innerHTML = '<span class="agent-spinner" style="width:24px;heigh
 function _showLoading() { if (!_loadingOverlay.parentNode) messagesEl.parentNode.appendChild(_loadingOverlay); }
 function _hideLoading() { if (_loadingOverlay.parentNode) _loadingOverlay.remove(); }
 
+// --- Older-event windowing helpers ---
+//
+// Strategy: render older events by detaching the current visible children
+// into a fragment, rendering the older slice into the now-empty messagesEl
+// using the existing renderEvent flow, then re-appending the visible
+// children. This avoids threading a "prepend" flag through renderEvent or
+// duplicating its logic. _expandedEvents tracks events that have been
+// expanded above the original window boundary so a "Fold older" button can
+// remove them in one shot.
+
+// Total expanded events across all chunks in the stack
+function _expandedTotalCount() {
+    var n = 0;
+    for (var i = 0; i < _expandedChunks.length; i++) n += _expandedChunks[i].events.length;
+    return n;
+}
+
+function _refreshOlderStub() {
+    // Remove existing stub if any
+    if (_olderStubEl && _olderStubEl.parentNode) _olderStubEl.parentNode.removeChild(_olderStubEl);
+    _olderStubEl = null;
+
+    // No stub needed if nothing is hidden AND nothing is expanded
+    if (_olderEvents.length === 0 && _expandedChunks.length === 0) return;
+
+    var welcomeEl = document.getElementById('agent-welcome');
+
+    // Flex container with two flat sibling buttons — no nesting, so each
+    // click handler fires cleanly.
+    var bar = document.createElement('div');
+    bar.className = 'older-stub';
+    bar.style.cssText = 'display:flex;align-items:stretch;gap:6px;padding:0;'
+        + 'margin:6px 0;font-size:12px;user-select:none;';
+
+    var btnBaseCss = 'background:var(--code-bg);border:1px dashed var(--border);'
+        + 'border-radius:6px;color:var(--muted);font-size:12px;cursor:pointer;'
+        + 'padding:8px 14px;font-family:inherit;line-height:1.4;';
+
+    // LEFT: expand more (always present in some form)
+    var showBtn = document.createElement('button');
+    showBtn.type = 'button';
+    showBtn.style.cssText = btnBaseCss + 'flex:1;min-width:0;text-align:center;';
+    if (_olderEvents.length > 0) {
+        var hidden = _olderEvents.length;
+        var nextChunk = Math.min(EXPAND_CHUNK, hidden);
+        showBtn.innerHTML = '▲ Show ' + nextChunk + ' older message'
+            + (nextChunk === 1 ? '' : 's')
+            + '  <span style="opacity:0.7;">(' + hidden + ' hidden)</span>';
+        showBtn.addEventListener('click', function() { _expandOlder(); });
+    } else {
+        showBtn.textContent = 'All older messages expanded';
+        showBtn.disabled = true;
+        showBtn.style.cssText += 'opacity:0.5;cursor:default;';
+    }
+    bar.appendChild(showBtn);
+
+    // RIGHT: fold the most-recently-expanded chunk. One click peels off
+    // EXPAND_CHUNK events (the topmost chunk on the stack). Repeating the
+    // click works through the stack chunk by chunk until we're back at
+    // the original window.
+    if (_expandedChunks.length > 0) {
+        var topChunk = _expandedChunks[_expandedChunks.length - 1];
+        var topSize = topChunk.events.length;
+        var foldBtn = document.createElement('button');
+        foldBtn.type = 'button';
+        foldBtn.style.cssText = btnBaseCss + 'flex-shrink:0;font-size:11px;padding:8px 12px;';
+        foldBtn.textContent = '▼ Fold (' + topSize + ')';
+        foldBtn.title = 'Collapse the ' + topSize
+            + ' most-recently-expanded message' + (topSize === 1 ? '' : 's')
+            + ' back into the hidden bucket'
+            + (_expandedChunks.length > 1 ? ' (' + _expandedTotalCount() + ' total expanded)' : '');
+        foldBtn.addEventListener('click', function() { _foldExpanded(); });
+        bar.appendChild(foldBtn);
+    }
+
+    if (welcomeEl && welcomeEl.parentNode === messagesEl) {
+        messagesEl.insertBefore(bar, welcomeEl.nextSibling);
+    } else {
+        messagesEl.insertBefore(bar, messagesEl.firstChild);
+    }
+    _olderStubEl = bar;
+}
+
+// Monotonically increasing chunk id used to tag every DOM node belonging
+// to an expanded chunk. Tagging is the simplest, most robust way to
+// remove a chunk on fold — we don't rely on boundary-node identity that
+// can drift across renders, stub re-creation, or live streaming updates.
+let _nextChunkId = 1;
+
+// Hidden render scratch container — kept off-DOM so renderEvent can
+// appendChild into a "fake messagesEl" without disturbing the live UI.
+// We swap messagesEl pointers via a getter trick? No — renderEvent reads
+// `messagesEl` as a const reference. We can't swap. Instead, we render
+// into a sibling div then move the resulting children into a fragment.
+
+function _expandOlder() {
+    if (_olderEvents.length === 0) return;
+    var chunkSize = Math.min(EXPAND_CHUNK, _olderEvents.length);
+    var chunk = _olderEvents.splice(_olderEvents.length - chunkSize, chunkSize);
+    var chunkId = _nextChunkId++;
+    var chunkAttr = 'data-chunk-' + chunkId;
+    // Render the chunk in-place at the top of messagesEl, then move the
+    // newly-rendered nodes to where they belong (right after welcome and
+    // existing stub, before the rest of the conversation). We use a
+    // before/after diff of messagesEl.children to identify what's new.
+    //
+    // To preserve scroll exactly, we measure the user's viewport in terms
+    // of "distance from the bottom" before the change and restore it
+    // after. Bottom-anchoring is robust against any DOM mutations above
+    // the user's current view because the bottom is fixed (newest content
+    // at the end of messagesEl).
+    var prevScrollFromBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight;
+    var preChildren = new Set(Array.from(messagesEl.children));
+    _replayingHistory = true;
+    try {
+        for (var i = 0; i < chunk.length; i++) {
+            try { renderEvent(chunk[i]); } catch (e) {}
+        }
+    } finally {
+        _replayingHistory = false;
+    }
+    // Identify newly added top-level nodes (rendered chunk content).
+    // renderEvent appendChilds, so they're at the END of messagesEl.
+    // Tag them with the chunk id and move them to the correct position
+    // (after welcome and stub, before the original window content).
+    var welcomeEl_x = document.getElementById('agent-welcome');
+    var newNodes = [];
+    var allChildren = Array.from(messagesEl.children);
+    for (var c = 0; c < allChildren.length; c++) {
+        if (!preChildren.has(allChildren[c])) {
+            newNodes.push(allChildren[c]);
+            allChildren[c].setAttribute(chunkAttr, '1');
+            allChildren[c].classList.add('be-chunk');
+        }
+    }
+    // Insert position: right after the welcome (skip stub if it exists,
+    // we'll rebuild it after). Use a single insertion anchor.
+    var insertAfter = (welcomeEl_x && welcomeEl_x.parentNode === messagesEl)
+        ? welcomeEl_x
+        : null;
+    // Move new nodes from end → after insertAfter, preserving order.
+    var anchor = insertAfter ? insertAfter.nextSibling : messagesEl.firstChild;
+    for (var nn = 0; nn < newNodes.length; nn++) {
+        messagesEl.insertBefore(newNodes[nn], anchor);
+    }
+    // Push the chunk onto the stack
+    _expandedChunks.push({ events: chunk, chunkId: chunkId });
+    _refreshOlderStub();
+    // Restore viewport: keep the user pinned to the same content by
+    // matching their previous distance-from-bottom.
+    messagesEl.scrollTop = messagesEl.scrollHeight - messagesEl.clientHeight - prevScrollFromBottom;
+    _userMsgsCacheDirty = true;
+}
+
+function _foldExpanded() {
+    if (_expandedChunks.length === 0) return;
+    var topChunk = _expandedChunks.pop();
+    // Distance-from-bottom anchor — same trick as expand. Whatever
+    // disappears from the top, the user stays glued to the same content
+    // that was visible.
+    var prevScrollFromBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight;
+    // Remove every DOM node tagged with this chunk's id. Robust against
+    // any reordering/re-rendering since the expand: the data attribute
+    // travels with the node.
+    var attr = 'data-chunk-' + topChunk.chunkId;
+    var nodes = messagesEl.querySelectorAll('[' + attr + ']');
+    for (var n = 0; n < nodes.length; n++) {
+        if (nodes[n].parentNode === messagesEl) {
+            messagesEl.removeChild(nodes[n]);
+        }
+    }
+    Array.prototype.push.apply(_olderEvents, topChunk.events);
+    _refreshOlderStub();
+    messagesEl.scrollTop = Math.max(0, messagesEl.scrollHeight - messagesEl.clientHeight - prevScrollFromBottom);
+    _userMsgsCacheDirty = true;
+}
+
+// Auto-fold during a long live session. Called at every `result` event.
+// If _seenEvents (the running list of events currently in the live DOM)
+// has grown past WINDOW_SIZE + EXPAND_CHUNK, peel the oldest EXPAND_CHUNK
+// events out of the visible window: push them into _olderEvents and
+// remove their DOM nodes from the top of messagesEl. This keeps long-
+// running sessions performant without the user having to manually fold.
+//
+// Critical invariants:
+//   - We never auto-fold while the user has expanded chunks visible
+//     (_expandedChunks.length > 0). The user is reading older content;
+//     yanking the older bucket out from under them would be confusing.
+//   - We only fire on the `result` boundary, never mid-stream, so we
+//     don't disturb in-flight rendering.
+//   - User's scroll position is preserved by adjusting scrollTop by the
+//     delta in scrollHeight, same trick as expand/fold.
+function _maybeAutoFold() {
+    if (_expandedChunks.length > 0) return;          // user is browsing back, don't disturb
+    if (_seenEvents.length <= WINDOW_SIZE + EXPAND_CHUNK) return;
+    // How many events to evict: bring _seenEvents back to roughly
+    // WINDOW_SIZE. Cap at EXPAND_CHUNK per call so we never roll a huge
+    // chunk in one go.
+    var excess = _seenEvents.length - WINDOW_SIZE;
+    var evictCount = Math.min(EXPAND_CHUNK, excess);
+    var evicted = _seenEvents.splice(0, evictCount);
+    // Find the boundary DOM node: the first node of the post-eviction
+    // visible window. We do this by walking the DOM children, skipping
+    // welcome and the older-stub bar, and counting the message-producing
+    // nodes that correspond to the evicted events. The nth such node is
+    // the new boundary.
+    //
+    // To find "the first DOM node that corresponds to the (evictCount+1)th
+    // message-event" we count all CHILD nodes that are .msg or .msg-group
+    // — these are what renderEvent's persistent-output branches create.
+    // System notices, error divs, and the older-stub also become children
+    // but they're not "messages" — including them in the count would skew
+    // eviction. We tolerate small drift by being conservative (under-evict
+    // is fine; over-evict is bad).
+    var welcomeEl = document.getElementById('agent-welcome');
+    var node = messagesEl.firstChild;
+    if (welcomeEl && node === welcomeEl) node = node.nextSibling;
+    if (node === _olderStubEl) node = node.nextSibling;
+    // Count msg-class events in the evicted slice — that's how many
+    // message DOM nodes we expect to remove.
+    var evictedMsgCount = 0;
+    for (var ei = 0; ei < evicted.length; ei++) {
+        var et = evicted[ei].type;
+        if (et === 'user_message' || et === 'assistant_message' ||
+            et === 'queued_message' || et === 'error' ||
+            et === 'plan_review' || et === 'question_answered') {
+            evictedMsgCount++;
+        }
+    }
+    // Walk children and remove until we've removed evictedMsgCount
+    // message-class nodes. Other interleaved nodes (system notices, etc.)
+    // come along with them.
+    var removed = 0;
+    var prevScrollHeight = messagesEl.scrollHeight;
+    var prevScrollTop = messagesEl.scrollTop;
+    while (node && removed < evictedMsgCount) {
+        var next = node.nextSibling;
+        var isMsg = node.classList && (
+            node.classList.contains('msg') ||
+            node.classList.contains('msg-group') ||
+            node.classList.contains('msg-user') ||
+            node.classList.contains('msg-claude') ||
+            node.classList.contains('msg-claude-dot')
+        );
+        messagesEl.removeChild(node);
+        if (isMsg) removed++;
+        node = next;
+    }
+    // The remaining first non-welcome, non-stub node is the new window anchor
+    var newAnchor = messagesEl.firstChild;
+    if (welcomeEl && newAnchor === welcomeEl) newAnchor = newAnchor.nextSibling;
+    if (newAnchor === _olderStubEl) newAnchor = newAnchor.nextSibling;
+    _windowAnchor = newAnchor;
+    // Push evicted events into the older bucket — chronological order
+    // is preserved because evicted came off the front of _seenEvents,
+    // and the older bucket's tail is "most recently old".
+    Array.prototype.push.apply(_olderEvents, evicted);
+    _refreshOlderStub();
+    // Preserve scroll: the height shrank, so adjust scrollTop by the delta
+    var newScrollHeight = messagesEl.scrollHeight;
+    messagesEl.scrollTop = Math.max(0, prevScrollTop - (prevScrollHeight - newScrollHeight));
+    _userMsgsCacheDirty = true;
+}
+
 // --- WebSocket ---
 function connect() {
     if (!SESSION_ID) {
@@ -2873,31 +3229,76 @@ function connect() {
             _wsTrace('parsed', msg, 'bytes=' + e.data.length);
             if (msg.type === 'history') {
                 const allMsgs = msg.messages || [];
+                // Windowed replay: only render the last WINDOW_SIZE events
+                // into the DOM. Stash the rest in _olderEvents so the user
+                // can expand them on demand via the stub. _inputHistory still
+                // gets every user_message so the up-arrow recall stays
+                // complete regardless of what's visible.
+                //
+                // Threshold: only window if doing so actually saves enough
+                // DOM nodes to be worth a "Show N older" bar. If there are
+                // only a handful of events past WINDOW_SIZE, render them
+                // all — a 410-event session doesn't need a "Show 10 older"
+                // button. The threshold is WINDOW_SIZE + EXPAND_CHUNK so
+                // we only window when at least one full expand chunk would
+                // actually be hidden behind the stub.
+                var _doWindow = allMsgs.length >= WINDOW_SIZE + EXPAND_CHUNK;
+                var _windowStart = _doWindow ? (allMsgs.length - WINDOW_SIZE) : 0;
+                _olderEvents = _doWindow ? allMsgs.slice(0, _windowStart) : [];
+                var _visibleMsgs = _doWindow ? allMsgs.slice(_windowStart) : allMsgs;
+                // Seed the running event list — auto-fold uses this to know
+                // what's currently in the live DOM and can be evicted.
+                _seenEvents = _visibleMsgs.slice();
+                for (var _ihi = 0; _ihi < allMsgs.length; _ihi++) {
+                    if (allMsgs[_ihi].type === 'user_message' && allMsgs[_ihi].content) {
+                        _inputHistory.push(allMsgs[_ihi].content);
+                    }
+                }
                 _replayingHistory = true;
                 // Hide messages during render to avoid per-element reflows
                 messagesEl.style.display = 'none';
                 try {
-                    for (var hi = 0; hi < allMsgs.length; hi++) {
-                        try { renderEvent(allMsgs[hi]); } catch (e) {}
-                        if (allMsgs[hi].type === 'user_message' && allMsgs[hi].content) _inputHistory.push(allMsgs[hi].content);
+                    for (var hi = 0; hi < _visibleMsgs.length; hi++) {
+                        try { renderEvent(_visibleMsgs[hi]); } catch (e) {}
                     }
                 } finally {
                     _replayingHistory = false;
                 }
+                // Capture the first node of the rendered window slice so
+                // the Fold button can be positioned just above it later.
+                // The first child that isn't the welcome banner IS the
+                // first window event (stub hasn't been inserted yet).
+                var _wa = messagesEl.firstChild;
+                if (_wa && _wa.id === 'agent-welcome') _wa = _wa.nextSibling;
+                _windowAnchor = _wa;
+                // Render the stub at the top if we hid any events
+                _refreshOlderStub();
                 // Show all at once — single reflow
                 messagesEl.style.display = '';
                 _hideLoading();
                 messagesEl.scrollTop = messagesEl.scrollHeight;
-                // Update nav buttons now that elements are in the DOM
+                // Update nav buttons now that elements are in the DOM.
+                // The cache was marked dirty by the user_message renders so
+                // _getUserMessages() will re-scan once on the first call.
+                _userMsgsCacheDirty = true;
                 if (typeof _updateNavButtons === 'function') _updateNavButtons();
                 _updateGroupLines();
+                // Apply the "current nav position" highlight to just the
+                // last user message — the per-event highlight loop is
+                // skipped during replay, so do one final pass here.
+                var _replayUserMsgs = _getUserMessages();
+                if (_replayUserMsgs.length > 0) {
+                    var _lastIdx = _replayUserMsgs.length - 1;
+                    var _lastInner = _replayUserMsgs[_lastIdx].querySelector('div');
+                    if (_lastInner) _lastInner.style.boxShadow = 'inset 0 0 0 2px var(--accent)';
+                }
                 // Refresh context ring from SDK (if session is connected)
                 if (ws && ws.readyState === WebSocket.OPEN) {
                     ws.send(JSON.stringify({type: 'get_context_usage'}));
                 }
-                // Set overlay bar
+                // Set overlay bar — use the cached user-message list.
                 var lastUserEl = null, lastUserText = '';
-                messagesEl.querySelectorAll('.msg-user').forEach(function(el) {
+                _getUserMessages().forEach(function(el) {
                     lastUserEl = el;
                     var inner = el.querySelector('div');
                     if (inner) lastUserText = inner.textContent || '';
@@ -2990,10 +3391,22 @@ function connect() {
                 _wsTrace('render', msg);
                 var _rt0 = _TRACE_WS ? performance.now() : 0;
                 renderEvent(msg);
+                // Track this event for auto-fold accounting. We push every
+                // live event (not just visual ones) so order matches the
+                // history JSON exactly — that keeps expand/fold reversible.
+                _seenEvents.push(msg);
                 // Update dot lines and nav buttons after content changes (not on every stream delta)
                 if (msg.type === 'assistant_message' || msg.type === 'user_message' || msg.type === 'result') {
                     _updateGroupLines();
                     if (typeof _updateNavButtons === 'function') _updateNavButtons();
+                }
+                // Auto-fold: at every turn boundary check if the live DOM
+                // has grown past the threshold; if so, push the oldest
+                // EXPAND_CHUNK events into the older bucket and remove
+                // their DOM nodes. Keeps long-running sessions performant
+                // without the user having to manually fold.
+                if (msg.type === 'result') {
+                    _maybeAutoFold();
                 }
                 if (_TRACE_WS) {
                     var _rdur = Math.round(performance.now() - _rt0);
@@ -3041,6 +3454,7 @@ function connect() {
 
 // Welcome header
 const welcome = document.createElement('div');
+welcome.id = 'agent-welcome';
 welcome.style.cssText = 'padding:16px 0 12px;border-bottom:1px solid #21262d;margin-bottom:12px;';
 welcome.innerHTML = `<div style="font-size:15px;color:#e0e0e0;font-weight:500;"><span style="color:#4a6cf7;">Claude</span> <span style="color:var(--muted);font-weight:400;">&middot;</span> &#x266d;conductor</div>`
     + `<div class="agent-cwd" style="font-size:12px;color:var(--muted);margin-top:4px;"></div>`;
@@ -3163,22 +3577,21 @@ function sendPrompt() {
     }
     // Track /compact for spinner text
     _compacting = (text === '/compact');
-    // Send to backend FIRST so the WS message goes out immediately —
-    // doesn't wait for the DOM render.
+    // Send to backend. We do NOT render the user bubble optimistically —
+    // the server is the single source of truth for whether this prompt is
+    // accepted immediately (→ `user_message`) or queued behind an in-flight
+    // turn (→ `queued_message`). Optimistic rendering caused ordering bugs
+    // where the new prompt appeared above the still-streaming response from
+    // the prior turn. Round-trip is ~1–5 ms on localhost so the perceived
+    // latency is negligible.
     ws.send(JSON.stringify(msg));
-    // Render user message optimistically — defer to next frame so the
-    // keystroke handler returns immediately and the input stays responsive.
-    // The DOM work for adding a message can take 50-200ms with a large session.
-    promptEl.focus({ preventScroll: true });  // refocus before any heavy work
+    promptEl.focus({ preventScroll: true });
+    // Flip the spinner on so the user sees something is happening while
+    // we wait for the server's echo. The actual `busy` state is reconciled
+    // by the incoming event (user_message / queued_message / result).
     if (!busy) {
-        _lastOptimisticContent = text || '(attachment)';
-        var _optContent = _lastOptimisticContent;
-        // Defer all DOM work to next frame so the keystroke + WS send return now
-        requestAnimationFrame(function() {
-            renderEvent({type: 'user_message', content: _optContent});
-            setBusy(true);
-            if (spinnerEl && spinnerEl.parentNode === messagesEl) messagesEl.appendChild(spinnerEl);
-        });
+        setBusy(true);
+        if (spinnerEl && spinnerEl.parentNode === messagesEl) messagesEl.appendChild(spinnerEl);
     }
 }
 
@@ -3932,6 +4345,57 @@ thinkRow.addEventListener('click', () => {
     _updateThinkToggle();
 });
 modePopup.appendChild(thinkRow);
+
+// --- Adaptive thinking mode (Opus 4.7 specific) ---
+// On 4.7 Anthropic changed the default to display:"omitted", which makes
+// the "Thoughts" box render empty. This 3-way control lets the user
+// opt back in to visible summaries or explicitly turn adaptive off
+// without having to edit shell env vars (CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING).
+// Applies on the next turn — the SDK reads the thinking option at
+// startup, so a change mid-session only takes effect on resume.
+const adaptiveRow = document.createElement('div');
+adaptiveRow.style.cssText = 'padding:8px 14px;display:flex;align-items:center;gap:10px;';
+adaptiveRow.innerHTML = `
+    <div style="color:var(--muted);flex-shrink:0;">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v3M8 11v3M2 8h3M11 8h3M4 4l2 2M10 10l2 2M4 12l2-2M10 6l2-2"/><circle cx="8" cy="8" r="1.5"/></svg>
+    </div>
+    <div style="flex:1;font-size:13px;color:#e0e0e0;">Adaptive thinking</div>`;
+const adaptiveSegment = document.createElement('div');
+adaptiveSegment.style.cssText = 'display:flex;gap:2px;background:var(--code-bg);border:1px solid var(--border);border-radius:8px;padding:2px;';
+const _ADAPTIVE_OPTS = [
+    {value: 'auto', label: 'Auto', tooltip: 'Respect the CLI env var and SDK defaults. Default.'},
+    {value: 'summarized', label: 'Summary', tooltip: 'Force adaptive on; Claude emits visible thinking summaries (Opus 4.7+).'},
+    {value: 'off', label: 'Off', tooltip: 'Force adaptive off. Sets CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING=1 for the session.'},
+];
+function _updateAdaptiveSegment() {
+    Array.from(adaptiveSegment.children).forEach(function(btn) {
+        var v = btn.dataset.value;
+        var active = v === _adaptiveThinking;
+        btn.style.background = active ? '#2563eb' : 'transparent';
+        btn.style.color = active ? '#fff' : 'var(--muted)';
+    });
+}
+_ADAPTIVE_OPTS.forEach(function(opt) {
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.dataset.value = opt.value;
+    btn.textContent = opt.label;
+    btn.title = opt.tooltip;
+    btn.style.cssText = 'border:none;border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer;font-weight:500;background:transparent;color:var(--muted);';
+    btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        if (_adaptiveThinking === opt.value) return;
+        _adaptiveThinking = opt.value;
+        _updateAdaptiveSegment();
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({type: 'set_adaptive_thinking', value: opt.value}));
+        }
+    });
+    adaptiveSegment.appendChild(btn);
+});
+_updateAdaptiveSegment();
+adaptiveRow.appendChild(adaptiveSegment);
+modePopup.appendChild(adaptiveRow);
 
 // --- Bypass Permissions toggle ---
 var _bypassEnabled = false;

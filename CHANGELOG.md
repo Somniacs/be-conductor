@@ -2,6 +2,38 @@
 
 All notable changes to be-conductor are documented here.
 
+## v0.3.54 (unreleased)
+
+### New
+
+- **Long sessions stay fast** — opening a session with thousands of events used to crawl, especially in JetBrains. The agent view now renders only the most recent 400 events on cold load and keeps the rest in memory behind a "Show 200 older messages" bar at the top. Click to expand a 200-message chunk; click "▼ Fold (200)" to put it back. Each click peels off or restores one chunk, so you can step back through long history without paying the perf cost up front
+- **Auto-fold during long live sessions** — once the visible area grows past ~600 events, every turn boundary automatically rolls the oldest 200 events behind the same "Show older" bar. So an all-day session no longer slows down progressively — you stay in a roughly constant working set. Auto-fold pauses while you have older messages expanded so it never yanks content out from under you while reading
+- **Type a follow-up while Claude is still working** — sending a message during a running turn no longer puts it in a "queued" state that waits for the current turn to finish. The message is handed to Claude immediately; he picks it up at the next natural break (after the current tool call finishes), so you can redirect mid-build without stopping and restarting. Your message appears in the transcript the moment you press Enter, in chronological order
+- **Agent sessions now match the terminal `claude` experience** — previously the GUI agent started with an empty system prompt, missing the behavioral guidance, communication style, and tool-usage conventions that `claude` in the terminal gets automatically. The agent felt noticeably less capable than the console version on the same task. Now uses Claude Code's built-in preset: same personality, same conventions, same decision-making
+- **Project-local `.claude/` settings now apply** — your per-project output styles, agents, and slash commands in a repo's local `.claude/` are now loaded into agent sessions the same way they're loaded when you run `claude` in that directory
+- **Adaptive thinking control in the mode popup** — a three-state switch (Auto / Summary / Off) for Opus 4.7+. Opus 4.7 defaults to hidden thinking; this lets you force visible summarised thoughts for a session. The choice persists across restarts and resumes, and respects the `CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING` env var when set to Auto
+- **Scroll lock stays put when new messages arrive** — if you've scrolled up to read, Claude's new output no longer snaps you to the bottom. The down-arrow in the left nav blinks instead to signal there's new content. Questions are the one exception — they still force a jump so you don't miss being prompted
+- **Trade-off (windowing)** — browser ⌘F / Ctrl-F only finds text in what's currently rendered. Expand the older bar to search further back, or use the in-app search box
+
+### Changed
+
+- **Bundled Claude Agent SDK upgraded to 0.1.74** (from 0.1.61). Notable benefit we get for free: when the be-conductor server exits, any still-running Claude CLI subprocesses are now cleaned up automatically — addresses the zombie-claude problem where a crashed hook left orphan CLIs running with their own resume IDs. The CLI bundle and a few transitive deps refresh along with it
+- **`xhigh` effort level is now official** — it was already accepted at runtime but is now a typed option in the SDK's API
+
+### Fixed
+
+- **Effort / mode / model now display correctly on session reopen** — the persisted effort level (e.g. xhigh) was being saved to disk and actually used to launch the agent, but the UI showed the fallback "high" because the in-memory display state wasn't initialized from the saved value. Same root cause affected permission mode and model label. All three now hydrate from the persisted options the moment a session loads
+- **Show / Fold older messages keeps your scroll position** — clicking the "Show 200 older" or "▼ Fold (200)" button keeps your viewport on the same content; the chunk appears or disappears above you invisibly. Fold also reliably restores the original window — each expanded chunk is tagged with a unique id at expand time, so fold removes exactly the right nodes regardless of any intervening DOM mutation
+- **Nav arrow lookups cached** — clicking the up/down message-nav buttons used to do four full DOM scans per click on long sessions; now answered from a cached list that invalidates only when a user message is added
+- **New messages no longer appear above the response they're answering** — pressing Enter to send a new prompt used to render your bubble optimistically based on a local "busy" flag that didn't always match the server. If the flag went false the moment the current response finished streaming, but the server was still processing, your new message could land above Claude's still-arriving response. The client now waits for the server to echo the message back and displays it in its real chronological position
+- **Multiple image attachments in one message no longer overwrite each other** — dragging or pasting several screenshots with the same filename (browsers often name them all "Screenshot.png" or "image.png") saved them to the same temp path, so Claude saw the last image N times instead of each one once. Each attachment now gets a unique filename in the temp dir while still showing the original name in the prompt
+- **Stop works when a session is waiting on a question** — if a session was blocked on an AskUserQuestion / ExitPlanMode / permission prompt, hitting Stop used to hang for 3 seconds before force-cancelling because the shutdown signal only unblocked the input queue, not the question-answer queue. Stop now pushes an empty answer onto the question queue so the blocked hook returns immediately and the session exits cleanly
+- **Cancel on the question modal actually cancels** — pressing Cancel / Esc / X on an AskUserQuestion dialog sent the answer but left the pending-question marker set. A 2-second safety poll then re-opened the modal, trapping you in a loop where cancel did nothing visible. The marker is now cleared locally the moment you dismiss, so cancel is immediate and sticks
+- **Large tool outputs no longer crash the session** — a single big `Read` or `Bash` output could exceed the SDK's 1 MB line buffer and fatally error the transport with "JSON message exceeded maximum buffer size". The cap is now 16 MB, enough for realistic tool results while still bounding memory if something runs away
+- **JetBrains: stop button shows a spinner until the session actually stops** — clicking Stop in the JetBrains session list used to flash the spinner briefly then vanish even though the session kept running for seconds afterward. Now the spinner + "[stopping…]" label stay put until the server confirms the session is no longer running or stopping, so you can see your action took effect
+- **JetBrains: agent tabs stopped leaking memory** — each agent view now has its own per-editor JCEF client; the browser's load handlers and JavaScript bridges get properly disposed when the tab closes instead of accumulating on the shared client forever
+- **Model fallback label no longer says "Opus 4.6"** — the frontend hardcoded that string when the server hadn't yet announced a model; on Opus 4.7 sessions it showed the wrong version for a beat. Now uses a version-free "Default" label and waits for the server's real value
+
 ## v0.3.53
 
 ### New

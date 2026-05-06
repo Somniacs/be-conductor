@@ -7,6 +7,7 @@ import com.intellij.notification.NotificationType;
 import com.intellij.notification.Notifications;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
+import com.intellij.ui.AnimatedIcon;
 import com.intellij.ui.SimpleColoredComponent;
 import com.intellij.ui.SimpleTextAttributes;
 import com.intellij.ui.components.JBList;
@@ -33,6 +34,7 @@ import java.awt.event.MouseEvent;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class SessionListPanel extends JPanel {
 
@@ -107,6 +109,13 @@ public class SessionListPanel extends JPanel {
     private final JBList<Object> sessionList;
     private final Alarm refreshAlarm;
     private final JLabel statusLabel;
+    /** Session IDs the user just asked to stop/kill, from click time until
+     *  the server's status refresh picks up the transition. Repaint-driven
+     *  spinner + disabled click path so users see that their action
+     *  registered even though the server takes a second or two. */
+    private final Set<String> pendingStop = ConcurrentHashMap.newKeySet();
+    /** Drives the spinner repaint while pendingStop is non-empty. */
+    private final Alarm spinnerAlarm;
 
     // Toolbar action buttons
     private final JButton attachBtn;
@@ -267,6 +276,10 @@ public class SessionListPanel extends JPanel {
                 if (e.getClickCount() == 2) {
                     ApiModels.SessionResponse s = getSelectedSession();
                     if (s == null) return;
+                    // Ignore double-clicks on rows the user just asked to
+                    // stop/kill. They'd hit a transient server state and
+                    // either silently no-op or produce confusing errors.
+                    if (pendingStop.contains(s.id)) return;
                     if ("running".equals(s.status)) {
                         if (s.isAgent()) {
                             openAgentInBrowser(s.serverKey, s.id, s.name);
@@ -300,6 +313,10 @@ public class SessionListPanel extends JPanel {
 
         // Auto-refresh
         refreshAlarm = new Alarm(Alarm.ThreadToUse.POOLED_THREAD, project);
+        // Spinner repaint driver. Must run on the EDT since it calls
+        // repaint() on a Swing list. Only schedules work when there's at
+        // least one pending-stop session; idles otherwise.
+        spinnerAlarm = new Alarm(Alarm.ThreadToUse.SWING_THREAD, project);
         scheduleRefresh();
         refresh();
 
@@ -602,6 +619,10 @@ public class SessionListPanel extends JPanel {
     }
 
     private void openAgentInBrowser(String serverKey, String sessionId, String sessionName) {
+        // Don't open a new tab on a session the user just asked to stop —
+        // the server is tearing it down, the WS would connect and
+        // immediately close.
+        if (pendingStop.contains(sessionId)) return;
         if (sessionName != null && !sessionName.isEmpty()) {
             trackSession(project, sessionName);
         }
@@ -715,25 +736,44 @@ public class SessionListPanel extends JPanel {
     }
 
     private void stopSession(String serverKey, String id, String mode) {
+        // Ignore double-clicks on Stop while a stop is already in flight.
+        if (pendingStop.contains(id)) return;
+        // Mark pending immediately so the renderer shows a spinner and the
+        // click-handler ignores further clicks on this row. The server
+        // usually transitions to "stopping" within ~1s but the UI was
+        // silent in that window, making it look like Stop did nothing.
+        markPendingStop(id);
         ApplicationManager.getApplication().executeOnPooledThread(() -> {
             try {
                 BeConductorClient.getInstance().stopSession(serverKey, id, mode);
-                // Poll until session transitions out of "stopping" (up to 15s)
-                for (int i = 0; i < 15; i++) {
-                    Thread.sleep(1000);
-                    refresh();
+                // Poll until the session reaches a terminal state — exited,
+                // killed, or gone from the list entirely. The previous
+                // condition ("no longer stopping") broke immediately on
+                // the first poll because /stop may not have transitioned
+                // the session to "stopping" yet, leaving the row looking
+                // "running" with no spinner while the teardown continued
+                // for several seconds. Tight 500 ms cadence so the UI
+                // catches the transition right as it happens. Cap at 30 s
+                // total in case teardown hangs.
+                final int maxIterations = 60;      // 60 × 500 ms = 30 s
+                final long pollIntervalMs = 500L;
+                for (int i = 0; i < maxIterations; i++) {
+                    Thread.sleep(pollIntervalMs);
                     List<ApiModels.SessionResponse> sessions =
                             BeConductorClient.getInstance().listSessions(serverKey);
-                    boolean stillStopping = false;
+                    boolean stillAlive = false;
                     for (ApiModels.SessionResponse s : sessions) {
-                        if (s.id.equals(id) && "stopping".equals(s.status)) {
-                            stillStopping = true;
+                        if (s.id.equals(id)
+                                && ("running".equals(s.status) || "stopping".equals(s.status))) {
+                            stillAlive = true;
                             break;
                         }
                     }
-                    if (!stillStopping) break;
+                    if (!stillAlive) break;
+                    // Only trigger a full sidebar refresh on every second
+                    // iteration — avoids hammering the REST endpoint.
+                    if ((i & 1) == 0) refresh();
                 }
-                refresh();
             } catch (Exception e) {
                 SwingUtilities.invokeLater(() ->
                         Notifications.Bus.notify(new Notification(
@@ -741,8 +781,48 @@ public class SessionListPanel extends JPanel {
                                 NotificationType.ERROR
                         ))
                 );
+            } finally {
+                clearPendingStop(id);
+                // One final refresh after clearing the pending flag so
+                // the row paints the true status immediately — the
+                // spinner stops AND the [resumable] badge appears in
+                // the same frame, instead of the row staying blank
+                // until the next scheduled 5 s poll.
+                refresh();
             }
         });
+    }
+
+    /** Register a session as "user just clicked Stop/Kill" and kick the
+     *  spinner repaint loop. */
+    private void markPendingStop(String id) {
+        if (id == null) return;
+        pendingStop.add(id);
+        SwingUtilities.invokeLater(() -> {
+            sessionList.repaint();
+            scheduleSpinnerTick();
+        });
+    }
+
+    /** Clear the pending flag — the server has either acknowledged the stop
+     *  or the request failed. Next refresh renders the real status. */
+    private void clearPendingStop(String id) {
+        if (id == null) return;
+        pendingStop.remove(id);
+        SwingUtilities.invokeLater(sessionList::repaint);
+    }
+
+    /** Drive one spinner animation frame: repaint the list, then schedule
+     *  the next tick if anything is still pending. Scheduling only
+     *  re-arms while pendingStop is non-empty, so this goes idle as
+     *  soon as all Stop requests complete. */
+    private void scheduleSpinnerTick() {
+        if (pendingStop.isEmpty()) return;
+        spinnerAlarm.cancelAllRequests();
+        spinnerAlarm.addRequest(() -> {
+            sessionList.repaint();
+            scheduleSpinnerTick();
+        }, 100);
     }
 
     /** Estimate terminal dimensions from the IDE's main frame. */
@@ -1082,7 +1162,7 @@ public class SessionListPanel extends JPanel {
 
     // === Cell renderer ===
 
-    private static class MixedCellRenderer extends DefaultListCellRenderer {
+    private class MixedCellRenderer extends DefaultListCellRenderer {
         @Override
         public Component getListCellRendererComponent(JList<?> list, Object value, int index,
                                                        boolean isSelected, boolean cellHasFocus) {
@@ -1114,9 +1194,15 @@ public class SessionListPanel extends JPanel {
                 component.setForeground(list.getForeground());
             }
 
-            // Status icon
+            // Status icon. A session the user just clicked Stop/Kill on
+            // is in a transient state until the server confirms — show a
+            // spinner so the click is visibly acknowledged even before
+            // the next /sessions poll arrives.
             boolean resumable = isResumable(session);
-            if ("running".equals(session.status)) {
+            boolean pending = pendingStop.contains(session.id);
+            if (pending) {
+                component.setIcon(new AnimatedIcon.Default());
+            } else if ("running".equals(session.status)) {
                 component.setIcon(AllIcons.RunConfigurations.TestPassed);
             } else if ("stopping".equals(session.status)) {
                 component.setIcon(AllIcons.Actions.Suspend);
@@ -1131,11 +1217,17 @@ public class SessionListPanel extends JPanel {
                 component.setIpad(new Insets(0, 12, 0, 0));
             }
 
-            // Name + session type badge + command
-            component.append(session.name, SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES);
+            // Name + session type badge + command. While pending Stop the
+            // name + command are drawn grayed so the whole row visually
+            // reads as disabled.
+            SimpleTextAttributes nameAttr = pending
+                    ? SimpleTextAttributes.GRAYED_BOLD_ATTRIBUTES
+                    : SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES;
+            component.append(session.name, nameAttr);
             if (session.isAgent()) {
                 component.append("  GUI", new SimpleTextAttributes(
-                        SimpleTextAttributes.STYLE_BOLD, new Color(0x4a, 0x6c, 0xf7)));
+                        SimpleTextAttributes.STYLE_BOLD,
+                        pending ? new Color(0x6a, 0x7a, 0x9a) : new Color(0x4a, 0x6c, 0xf7)));
                 component.append(" \u00b7 ", SimpleTextAttributes.GRAYED_ATTRIBUTES);
             } else {
                 component.append("  ", SimpleTextAttributes.GRAYED_ATTRIBUTES);
@@ -1162,8 +1254,13 @@ public class SessionListPanel extends JPanel {
                 }
             }
 
-            // Status indicator
-            if ("running".equals(session.status) && attachedSessions.contains(session.name)) {
+            // Status indicator. Pending takes precedence over the
+            // server-reported status — the user's click happened, the
+            // spinner + "stopping…" label confirms it right away.
+            if (pending) {
+                component.append("  [stopping\u2026]", new SimpleTextAttributes(
+                        SimpleTextAttributes.STYLE_ITALIC, new Color(0xdd, 0xaa, 0x33)));
+            } else if ("running".equals(session.status) && attachedSessions.contains(session.name)) {
                 component.append("  [attached]", new SimpleTextAttributes(
                         SimpleTextAttributes.STYLE_ITALIC, new Color(0x60, 0xb0, 0xff)));
             } else if ("stopping".equals(session.status)) {

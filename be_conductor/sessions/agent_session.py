@@ -141,6 +141,36 @@ class AgentSession:
         self._notifier = notifier
         self._agent_options = agent_options or {}
 
+        # Adaptive-thinking initial state. Precedence:
+        #   1. Explicit value in _agent_options (persisted across restarts
+        #      via to_dict) wins.
+        #   2. Otherwise read CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING env var:
+        #      if set truthy, default the UI to "off" so the dropdown
+        #      reflects what the CLI will actually do.
+        #   3. Otherwise "auto" — no override, SDK + CLI defaults apply.
+        import os as _os_init
+        if "adaptive_thinking" in self._agent_options:
+            self._current_adaptive_thinking = self._agent_options["adaptive_thinking"]
+        elif _os_init.environ.get("CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING", "").strip() not in ("", "0", "false", "False"):
+            self._current_adaptive_thinking = "off"
+            self._agent_options["adaptive_thinking"] = "off"
+        else:
+            self._current_adaptive_thinking = "auto"
+
+        # Initialize _current_effort / _current_mode / _current_model from
+        # persisted agent_options so the UI reflects the saved values the
+        # instant a session loads. Previously these were only written by
+        # the set_* methods, so freshly-loaded sessions always broadcast
+        # the fallback defaults even when the SDK subprocess was launched
+        # with the real persisted values — effort in particular showed
+        # "high" on every reopen even if the user had set xhigh.
+        if "effort" in self._agent_options:
+            self._current_effort = self._agent_options["effort"]
+        if "permission_mode" in self._agent_options:
+            self._current_mode = self._agent_options["permission_mode"]
+        if "model" in self._agent_options:
+            self._current_model = self._agent_options["model"]
+
         # Console buffer (ANSI text for get_buffer / console mode)
         self._console_buffer = bytearray()
 
@@ -455,12 +485,26 @@ class AgentSession:
         # that don't work in the GUI.
         # All other options (effort, thinking, max_budget_usd) are left at
         # CLI defaults unless explicitly overridden via agent_options.
+        # Use the Claude Code preset system prompt by default. Passing
+        # `system_prompt=None` makes the SDK send `--system-prompt ""` to
+        # the CLI, which strips Claude Code's built-in behavioral
+        # guidance entirely — the agent becomes noticeably less capable
+        # than `claude` in the terminal. The preset dict (without an
+        # "append" key) causes the SDK to omit the flag, so the CLI
+        # falls back to its built-in default prompt, matching terminal
+        # behavior. User-provided system_prompt overrides this.
+        user_sp = self._agent_options.get("system_prompt")
+        if user_sp is None:
+            effective_sp: Any = {"type": "preset", "preset": "claude_code"}
+        else:
+            effective_sp = user_sp
+
         opts_kwargs: dict = {
             "cwd": self.cwd or ".",
             "allowed_tools": self._agent_options.get("allowed_tools"),
             "permission_mode": "default",
             "can_use_tool": _can_use_tool,
-            "system_prompt": self._agent_options.get("system_prompt"),
+            "system_prompt": effective_sp,
             "max_turns": self._agent_options.get("max_turns"),
             "model": self._agent_options.get("model"),
             # Use resume (specific session ID) only — never continue_conversation
@@ -470,7 +514,10 @@ class AgentSession:
             "resume": resume_id,
             "continue_conversation": False,
             "include_partial_messages": True,
-            "setting_sources": ["user", "project"],
+            # Include "local" so project-local .claude/ settings (per-repo
+            # output styles, agents, slash commands) reach the agent the
+            # same way they reach the terminal CLI.
+            "setting_sources": ["user", "project", "local"],
         }
         # Force a fresh session_id for new sessions to prevent the SDK from
         # picking up a recent session from the same cwd.
@@ -484,6 +531,42 @@ class AgentSession:
         # GPG, display, locale, everything.
         import os as _os
         opts_kwargs["env"] = dict(_os.environ)
+
+        # Adaptive thinking (Opus 4.7+). Anthropic changed 4.7's default
+        # to display:"omitted", which makes ThinkingBlock.thinking an
+        # empty string — the GUI renders a blank "Thoughts" box. Users
+        # pick one of three modes via the mode popup:
+        #   "auto"       → respect CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING
+        #                  and any SDK default; pass nothing
+        #   "summarized" → force adaptive on + summarized visible text.
+        #                  Also strips the disable-env var so the CLI
+        #                  subprocess doesn't override our choice.
+        #   "off"        → adaptive disabled. We set the env var so the
+        #                  CLI disables it even if the SDK tries to enable.
+        adaptive = self._agent_options.get("adaptive_thinking", "auto")
+        if adaptive == "summarized":
+            opts_kwargs.setdefault("thinking", {
+                "type": "adaptive",
+                "display": "summarized",
+            })
+            opts_kwargs["env"].pop("CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING", None)
+        elif adaptive == "off":
+            opts_kwargs["env"]["CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING"] = "1"
+        # "auto" is the no-op default — env and SDK options pass through.
+
+        # Raise the SDK subprocess stdout buffer cap. The default (1 MB)
+        # is enough for normal chat but a single tool_result like
+        # `Read` on a big file or `Bash` over a long log spews a JSON
+        # line well past that — the SDK's transport then fatal-errors
+        # with "Failed to decode JSON: JSON message exceeded maximum
+        # buffer size." 16 MB covers every realistic tool result we've
+        # seen while still bounding the damage if a runaway command
+        # tries to dump gigabytes. Override via agent_options["max_buffer_size"]
+        # if a specific session needs more.
+        if "max_buffer_size" not in opts_kwargs:
+            opts_kwargs["max_buffer_size"] = self._agent_options.get(
+                "max_buffer_size", 16 * 1024 * 1024
+            )
 
         # Only pass these if explicitly set — let the CLI use its own defaults
         for key in ("effort", "thinking", "max_budget_usd"):
@@ -593,10 +676,9 @@ class AgentSession:
                             # events as BTW and route them to the wrong
                             # panel.
                             self._current_turn_btw = False
-                        # Notify clients the turn is complete — ensures
-                        # the frontend removes the spinner even if the
-                        # result event was missed or delayed.
-                        self._broadcast_event({"type": "system", "subtype": "turn_complete"})
+                        # NOTE: turn_complete is now emitted inside
+                        # _stream_response on every ResultMessage — including
+                        # each mid-turn injected turn. Don't double-fire here.
                         # Apply deferred mode change (from yes_all inside can_use_tool).
                         # Never send bypassPermissions to the SDK — it disables hooks
                         # (including our AskUserQuestion hook).  We handle bypass
@@ -660,7 +742,17 @@ class AgentSession:
                 await self._on_exit(self.id)
 
     async def _stream_response(self, client: Any, is_btw: bool = False) -> None:
-        """Stream all messages from one query() call.
+        """Stream messages from the CLI until the current turn — and any
+        turns injected mid-flight via ``_inject_mid_turn`` — are complete.
+
+        Previously this called ``client.receive_response()`` which exits
+        after the first ``ResultMessage``. That made mid-turn injection
+        impossible: the CLI would emit a second ``ResultMessage`` for the
+        injected prompt, but no one was reading the stream, so the
+        messages piled up until the next ``_input_queue`` cycle. Now we
+        use ``receive_messages()`` (infinite drain) and exit ourselves
+        when ``ResultMessage`` is seen AND the pending-injected-turn
+        queue is empty.
 
         is_btw: if True, tag all emitted events with btw=true so the
         frontend routes responses to the btw panel, not the main chat.
@@ -687,7 +779,7 @@ class AgentSession:
             self._broadcast_event(ev)
 
         try:
-            response_iter = client.receive_response()
+            response_iter = client.receive_messages()
         except Exception as e:
             _emit({
                 "type": "error",
@@ -745,6 +837,24 @@ class AgentSession:
                         path.write_text(_json.dumps(self.to_dict(), indent=2))
                     except Exception:
                         pass
+                # Mid-turn injection handoff: if there's a pending turn_id
+                # that was assigned by _inject_mid_turn, advance to it and
+                # keep draining — the next AssistantMessage belongs to the
+                # injected turn. The user_message for that turn was
+                # already emitted in _inject_mid_turn at the moment of
+                # send, so the bubble is already in the transcript.
+                self._broadcast_event({
+                    "type": "system", "subtype": "turn_complete",
+                })
+                pending = getattr(self, "_pending_turn_ids", None) or []
+                if pending:
+                    next_id = pending.pop(0)
+                    self._current_turn_id = next_id
+                    self._current_turn_btw = False
+                    continue
+                # No injected follow-up — exit the drain and let the outer
+                # loop handle the next queued input.
+                break
             elif isinstance(message, SystemMessage):
                 _emit({
                     "type": "system",
@@ -1214,34 +1324,98 @@ class AgentSession:
         msg: dict | str
         if btw:
             # BTW: if agent is busy, use direct Anthropic API (concurrent).
-            # If idle, go through normal queue.
+            # If idle, go through normal queue. BTW is a separate channel —
+            # responses go to the side panel, not the main chat list.
             if self._processing:
                 import asyncio
                 asyncio.create_task(self._send_btw(text))
             else:
                 self._input_queue.put_nowait({"text": text, "_btw": True})
             return
+
+        # Normal prompt path. Two cases:
+        #   - Agent idle → enqueue; outer loop picks it up and fires a turn.
+        #   - Agent busy → inject directly via client.query() so the CLI
+        #     buffers the new user message and Claude incorporates it at his
+        #     next model-call boundary (typically after the current tool
+        #     returns). No more "queued" waiting — your message lands in
+        #     the stream immediately and shows up in the main chat list.
+        if self._processing and self._client is not None:
+            import asyncio
+            asyncio.create_task(
+                self._inject_mid_turn(text, attachments)
+            )
+            return
+
         if attachments:
             msg = {"text": text, "attachments": attachments}
-            self._input_queue.put_nowait(msg)
-            return
         else:
             msg = text
+        self._input_queue.put_nowait(msg)
 
-        # If agent is busy, queue server-side instead of sending to _input_queue
-        if self._processing:
-            entry = {"text": text}
-            if attachments:
-                entry["attachments"] = attachments
-            self._pending_prompts.append(entry)
-            self._emit_event({
-                "type": "queued_message",
-                "content": text,
-                "queue_index": len(self._pending_prompts) - 1,
-            })
+    async def _inject_mid_turn(
+        self,
+        text: str,
+        attachments: list[dict] | None,
+    ) -> None:
+        """Send a user message to the CLI while a turn is in flight.
+
+        The SDK's ``client.query()`` is a plain stdin write to the CLI
+        subprocess; it does not block on the current turn, does not
+        interrupt, and does not cause a context reset. Claude receives
+        the new user message at his next model-call boundary.
+        """
+        client = self._client
+        if client is None:
+            # Fallback: shouldn't happen given the caller's guard, but if
+            # the client vanished between the check and here, drop onto
+            # the idle queue so the message is not lost.
+            msg: dict | str = (
+                {"text": text, "attachments": attachments}
+                if attachments
+                else text
+            )
+            self._input_queue.put_nowait(msg)
             return
 
-        self._input_queue.put_nowait(msg)
+        # Assign a turn ID so the incoming response groups correctly in the UI.
+        if not hasattr(self, "_turn_prefix"):
+            import uuid as _uuid
+            self._turn_prefix = _uuid.uuid4().hex[:6]
+        self._turn_counter = getattr(self, "_turn_counter", 0) + 1
+        turn_id = f"turn-{self._turn_prefix}-{self._turn_counter}"
+
+        # Queue the turn_id so the drain loop advances to it when the
+        # current turn's ResultMessage arrives — future stream events get
+        # tagged with the new id, grouping the response correctly.
+        if not hasattr(self, "_pending_turn_ids"):
+            self._pending_turn_ids: list[str] = []
+        self._pending_turn_ids.append(turn_id)
+
+        # Emit the user_message NOW, tagged with the new turn_id, so the
+        # bubble appears chronologically where the user pressed Enter —
+        # below any still-streaming content of the prior turn. Users want
+        # to see "I typed this, waiting for response" immediately, not
+        # after the current turn finishes.
+        self._emit_event({
+            "type": "user_message",
+            "content": text,
+            "turn_id": turn_id,
+        })
+
+        try:
+            if attachments:
+                prompt_with_files = self._build_prompt_with_attachments(
+                    text, attachments
+                )
+                await client.query(prompt_with_files)
+            else:
+                await client.query(text)
+        except Exception as e:
+            self._emit_event({
+                "type": "error",
+                "error": f"Mid-turn injection failed: {e}",
+            })
 
     async def _send_btw(self, text: str) -> None:
         """Answer a /btw question using a forked SDK subprocess.
@@ -1372,7 +1546,9 @@ class AgentSession:
     def set_effort(self, effort: str) -> None:
         """Change the agent effort level at runtime.
 
-        Valid levels: "low", "medium", "high", "max".
+        Valid levels: ``"low"``, ``"medium"``, ``"high"``, ``"xhigh"``,
+        ``"max"``. SDK 0.1.74 added ``"xhigh"`` as an officially-typed
+        option (Opus 4.7 only; falls back to ``"high"`` on other models).
         """
         import asyncio
         self._current_effort = effort
@@ -1393,10 +1569,35 @@ class AgentSession:
             pass
         self._broadcast_settings()
 
+    def set_adaptive_thinking(self, value: str) -> None:
+        """Set adaptive-thinking mode. Applies to the NEXT turn's SDK
+        construction, not the currently-running client — the SDK reads
+        the thinking option at startup and exposes no runtime setter.
+
+        Valid values: "auto", "summarized", "off".
+        - "auto":       respect CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING env
+                        and the SDK default.
+        - "summarized": adaptive on, visible summaries. Bypasses the
+                        CLI disable-env var on this session.
+        - "off":        adaptive disabled; sets the env var explicitly
+                        so the CLI doesn't fall back to adaptive even
+                        if the SDK tries to enable it.
+        """
+        if value not in ("auto", "summarized", "off"):
+            return
+        self._current_adaptive_thinking = value
+        self._agent_options["adaptive_thinking"] = value
+        self._broadcast_settings()
+
     async def set_model_async(self, model: str) -> None:
         """Change the model at runtime."""
         self._current_model = model
+        # Persist so resume picks it up. Previously only _current_model
+        # was written, which is in-memory only and lost on server
+        # restart — to_dict now snapshots _agent_options["model"].
+        self._agent_options["model"] = model
         if self._client is None:
+            self._broadcast_settings()
             return
         try:
             await self._client.set_model(model if model != 'default' else None)
@@ -1440,6 +1641,8 @@ class AgentSession:
             "mode": getattr(self, '_current_mode', 'default'),
             "effort": getattr(self, '_current_effort', 'high'),
             "model": getattr(self, '_current_model', 'default'),
+            "adaptive_thinking": getattr(self, '_current_adaptive_thinking',
+                                         self._agent_options.get('adaptive_thinking', 'auto')),
         }
         for queue in list(self.subscribers):
             try:
@@ -1453,6 +1656,8 @@ class AgentSession:
             "mode": getattr(self, '_current_mode', 'default'),
             "effort": getattr(self, '_current_effort', 'high'),
             "model": getattr(self, '_current_model', 'default'),
+            "adaptive_thinking": getattr(self, '_current_adaptive_thinking',
+                                         self._agent_options.get('adaptive_thinking', 'auto')),
         }
         # If there's a pending question, include it so late-joining clients
         # can show the modal immediately without relying on history replay.
@@ -1482,7 +1687,15 @@ class AgentSession:
         from pathlib import Path
 
         parts: list[str] = []
-        for att in attachments:
+        # Unique prefix per prompt so multiple attachments with the same
+        # filename (common when pasting/dropping several screenshots that
+        # all come through as "image.png" or "Screenshot.png") don't
+        # overwrite each other in the temp dir. Prior behavior: last
+        # image silently replaced earlier ones → Claude read the same
+        # file N times thinking they were different attachments.
+        import uuid as _uuid
+        prompt_uid = _uuid.uuid4().hex[:8]
+        for idx, att in enumerate(attachments):
             mime = att.get("type", "application/octet-stream")
             data = att.get("data", "")
             name = att.get("name", "file")
@@ -1492,10 +1705,12 @@ class AgentSession:
                     raw = base64.b64decode(data)
                     tmp_dir = Path(tempfile.gettempdir()) / "be-conductor-uploads"
                     tmp_dir.mkdir(exist_ok=True)
-                    tmp_path = tmp_dir / name
+                    safe_name = f"{prompt_uid}-{idx:02d}-{name}"
+                    tmp_path = tmp_dir / safe_name
                     tmp_path.write_bytes(raw)
                     parts.append(
-                        f"I've attached an image. It's saved at: {tmp_path}\n"
+                        f"I've attached an image ({name}). "
+                        f"It's saved at: {tmp_path}\n"
                         f"Please use the Read tool to view it."
                     )
                 except Exception:
@@ -1582,6 +1797,19 @@ class AgentSession:
             self._input_queue.put_nowait({"text": "", "_shutdown": True})
         except Exception:
             pass
+        # If a hook is blocked inside _question_answer_queue.get() waiting
+        # for a user answer (AskUserQuestion, ExitPlanMode, or can_use_tool
+        # permission prompt), the _input_queue shutdown marker doesn't
+        # reach it — the agent loop isn't listening on _input_queue while
+        # a turn is running. Push an empty answer onto the question queue
+        # so the blocked hook returns immediately. The agent loop then
+        # sees status="stopping" and exits cleanly.
+        if getattr(self, "_question_pending", False):
+            try:
+                self._question_answer_queue.put_nowait("")
+            except Exception:
+                pass
+            self._question_pending = False
         # Give the loop a moment to exit cleanly, then force-cancel.
         # The finally block in _agent_loop handles status and _on_exit.
         await asyncio.sleep(3)
@@ -1660,4 +1888,16 @@ class AgentSession:
             d["resume_id"] = self.resume_id
         if self.worktree:
             d["worktree"] = self.worktree
+        # Persist the user-configurable subset of agent_options so a
+        # resumed session picks up model/effort/mode/adaptive_thinking
+        # from the user's last choice, not the session's initial value.
+        # Keep this narrow — don't dump the whole _agent_options dict
+        # (resume ids, hooks, etc. shouldn't roundtrip through here).
+        persisted_opts = {}
+        for key in ("model", "effort", "permission_mode", "adaptive_thinking"):
+            val = self._agent_options.get(key)
+            if val is not None:
+                persisted_opts[key] = val
+        if persisted_opts:
+            d["agent_options"] = persisted_opts
         return d

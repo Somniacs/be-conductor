@@ -2094,6 +2094,10 @@ async def _stream_agent(ws: WebSocket, session: Any):
                             new_mode = msg.get("mode", "default")
                             if hasattr(session, "set_mode"):
                                 session.set_mode(new_mode)
+                        elif msg_type == "set_adaptive_thinking":
+                            value = msg.get("value", "auto")
+                            if hasattr(session, "set_adaptive_thinking"):
+                                session.set_adaptive_thinking(value)
                         elif msg_type == "set_effort":
                             effort = msg.get("effort", "high")
                             if hasattr(session, "set_effort"):

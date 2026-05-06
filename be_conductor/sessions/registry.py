@@ -473,6 +473,13 @@ class SessionRegistry:
         if st == "agent" and has_resume_id:
             # Agent sessions use the SDK's native resume, not shell flags.
             agent_opts = {"resume": meta["resume_id"]}
+            # Carry forward persisted user settings (model, effort,
+            # permission_mode, adaptive_thinking). Written by
+            # AgentSession.to_dict() — see that method for the allow-list.
+            persisted = meta.get("agent_options") or {}
+            for key in ("model", "effort", "permission_mode", "adaptive_thinking"):
+                if key in persisted:
+                    agent_opts[key] = persisted[key]
             command = "Resume session"  # display prompt (not sent to Claude)
         session = await self.create(meta["name"], command, cwd=cwd,
                                     rows=rows, cols=cols,
