@@ -124,6 +124,12 @@ Each gets its own branch and working copy. When done, merge from the dashboard o
 be-conductor worktree merge refactor-auth --strategy squash
 ```
 
+### Use OpenCode (gpt-5.5, Codex, Gemini, etc.)
+
+Beyond Claude, be-conductor's structured agent view also works with OpenCode — an open-source agent that routes to OpenAI, Google, Anthropic, and others. One adapter gives you all those models in the same chat-bubble GUI.
+
+See **[OpenCode setup](opencode.md)** for installing OpenCode, signing in to a model account, and (optionally) pointing be-conductor at a remote OpenCode server on a different machine.
+
 ## 5. Open on your phone
 
 ```bash

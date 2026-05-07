@@ -24,16 +24,21 @@ be-conductor keeps them moving. Get notified on **Slack** or **Telegram** the mo
 
 | Agent | Terminal (PTY) | Agent (SDK) |
 |---|---|---|
-| Claude Code | `be-conductor run claude research` | Dashboard → + New → Agent SDK |
-| Gemini CLI | `be-conductor run gemini research` | — |
-| OpenCode | `be-conductor run opencode backend` | — |
-| Codex CLI | `be-conductor run codex backend` | — |
+| Claude Code | `be-conductor run claude research` | Dashboard → + New → Agent |
+| OpenCode (gpt-5.5, Codex, Gemini, …) | `be-conductor run opencode backend` | Dashboard → + New → Agent → pick a model |
+| Gemini CLI | `be-conductor run gemini research` | — (use OpenCode for structured view) |
+| Codex CLI | `be-conductor run codex backend` | — (use OpenCode for structured view) |
 | Aider | `be-conductor run aider refactor` | — |
 | Goose | `be-conductor run goose api` | — |
 | GitHub Copilot | `be-conductor run copilot chat` | — |
 | Custom | `be-conductor run python3 train` | — |
 
-Agent SDK sessions are currently available for Claude. They provide a rich structured UI instead of terminal output. Create them from the web dashboard, VSCode, or JetBrains — select "Agent SDK" as the session type.
+Agent (SDK) sessions provide a rich structured UI — chat bubbles, tool calls, streaming, cost reporting, image attachments — instead of terminal output. Two backends are supported today:
+
+- **Claude** — via the Claude Agent SDK. Native, full feature set.
+- **OpenCode** — via OpenCode's Python SDK. One adapter gives you OpenAI/GPT-5.5, Codex variants, Gemini, Anthropic Claude (via API), and other models OpenCode routes to. **See [docs/opencode.md](docs/opencode.md) for installation, account setup, and connection details.**
+
+Create them from the web dashboard, VSCode, or JetBrains — toggle session type to "Agent" and pick the model from the dropdown.
 
 ```
 Start agents                Leave your desk         Answer from anywhere
