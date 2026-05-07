@@ -473,9 +473,17 @@ public class SessionListPanel extends JPanel {
                     menu.add(attachItem);
                 }
 
-                JMenuItem cloneItem = new JMenuItem("Clone");
-                cloneItem.addActionListener(e -> cloneSession(session));
-                menu.add(cloneItem);
+                // Clone is only available for native Claude agent
+                // sessions (and PTY sessions, where the registry has
+                // its own legacy clone path). OpenCode and any future
+                // non-Claude providers don't expose a fork-conversation
+                // operation, so we hide the menu item rather than
+                // offer something that would 4xx on the server.
+                if (!session.isAgent() || session.isClaudeAgent()) {
+                    JMenuItem cloneItem = new JMenuItem("Clone");
+                    cloneItem.addActionListener(e -> cloneSession(session));
+                    menu.add(cloneItem);
+                }
                 menu.addSeparator();
 
                 JMenuItem stopItem = new JMenuItem("Stop (resume)");

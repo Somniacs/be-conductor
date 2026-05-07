@@ -610,6 +610,22 @@ class SessionRegistry:
 
         # --- Agent sessions: always use SDK fork ---
         if st == "agent":
+            # Provider sessions (OpenCode, etc.) don't go through
+            # claude_agent_sdk. OpenCode has session.create(parent_id=...)
+            # but children inherit no message history — that's a
+            # hierarchy hint, not a clone. Until we have a real
+            # multi-provider clone story, refuse cleanly so the API
+            # returns a 4xx instead of crashing on the Claude SDK
+            # import below. The dashboard already hides the fork
+            # button for OpenCode sessions; this is the defensive
+            # backstop for direct API callers.
+            if hasattr(parent, "_provider"):
+                provider_name = getattr(parent._provider, "name", "")
+                if provider_name and provider_name != "claude":
+                    raise ValueError(
+                        f"Clone is not supported for {provider_name} sessions. "
+                        "The provider does not expose a session-fork operation."
+                    )
             if not parent.resume_id:
                 raise ValueError("Cannot clone: session has no resume ID yet (send a message first)")
             from claude_agent_sdk._internal.session_mutations import fork_session as _fork

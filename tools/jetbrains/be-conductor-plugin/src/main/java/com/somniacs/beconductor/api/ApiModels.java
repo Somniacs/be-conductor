@@ -119,6 +119,14 @@ public final class ApiModels {
         public String resume_command;
         public String ws_url;
         public String session_type;  // "pty" or "agent"
+        /**
+         * For agent sessions: which provider drives this session.
+         * "claude" (or null/missing) for native Claude SDK sessions;
+         * "opencode" for OpenCode-backed sessions; future providers
+         * land here too. Used to gate operations the provider doesn't
+         * support (e.g. clone is not available for opencode).
+         */
+        public String provider;
         public Map<String, Object> worktree;
         public List<AttachedClient> attached_clients;
 
@@ -128,6 +136,17 @@ public final class ApiModels {
         /** @return true if this is an agent (SDK) session rather than a PTY terminal session */
         public boolean isAgent() {
             return "agent".equals(session_type);
+        }
+
+        /**
+         * @return true if this is a native Claude session (the original
+         * SDK-backed agent path). Returns false for OpenCode and any
+         * future providers. Used to gate operations like clone that
+         * only work for Claude.
+         */
+        public boolean isClaudeAgent() {
+            if (!isAgent()) return false;
+            return provider == null || "claude".equals(provider);
         }
 
         /** @return compound ID (serverKey::sessionId) for multi-server, or plain sessionId for single. */

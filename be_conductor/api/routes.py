@@ -1411,6 +1411,20 @@ async def clone_session(session_id: str, req: CloneRequest, request: Request):
 
     # Sessions with UUID resume_id: fork is fast — await and return directly.
     parent_type = getattr(parent, "session_type", "pty")
+    # Reject non-Claude provider sessions early. Without this guard,
+    # an agent session with no resume_id falls through to the PTY
+    # async-clone branch (which writes a summary file from the parent
+    # CLI's buffer) — that does not work for OpenCode and similar.
+    if parent_type == "agent" and hasattr(parent, "_provider"):
+        provider_name = getattr(parent._provider, "name", "")
+        if provider_name and provider_name != "claude":
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Clone is not supported for {provider_name} sessions. "
+                    "The provider does not expose a session-fork operation."
+                ),
+            )
     import re as _re_uuid
     _uuid_ok = _re_uuid.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-', _re_uuid.I)
     if parent.resume_id and _uuid_ok.match(parent.resume_id):
@@ -1423,6 +1437,11 @@ async def clone_session(session_id: str, req: CloneRequest, request: Request):
             d = session.to_dict()
             d["ws_url"] = _ws_url_for(request, session.id)
             return {"status": "ready", "session": d}
+        except ValueError as e:
+            # Expected user-facing error (e.g. "Clone is not supported
+            # for opencode sessions"). Return 4xx so the dashboard can
+            # show the message rather than treating it as a backend bug.
+            raise HTTPException(status_code=400, detail=str(e))
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 

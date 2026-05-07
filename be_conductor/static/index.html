@@ -3790,9 +3790,18 @@
                     ? `<button class="session-notif-bell" onclick="toggleNotifPopup('${cidEsc}',event)" title="${notifCount} notification${notifCount > 1 ? 's' : ''}">${_bellSvg}</button>`
                     : '';
                 const _cloneSvg = `<svg viewBox="0 0 16 16" fill="currentColor" style="width:14px;height:14px"><path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25ZM5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg>`;
-                // Fork: agent sessions always, PTY sessions only with UUID resume_id
+                // Fork: Claude agent sessions always (Claude SDK has
+                // fork_session), PTY sessions only with UUID resume_id.
+                // OpenCode sessions are excluded — OpenCode's
+                // session.create(parent_id=...) only sets a hierarchy
+                // hint, the child starts with no inherited history,
+                // so a real "fork the conversation" doesn't exist.
+                // Hide the button rather than offer a broken operation.
                 const _isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-                const canFork = s.resume_id && (s.session_type === 'agent' || _isUuid.test(s.resume_id));
+                const _isOpenCode = (s.provider === 'opencode' || s.command === 'opencode');
+                const canFork = s.resume_id
+                    && !_isOpenCode
+                    && (s.session_type === 'agent' || _isUuid.test(s.resume_id));
                 const forkBtn = canFork
                     ? `<button class="session-more-btn" onclick="event.stopPropagation();cloneSession('${cidEsc}','${nameEsc}')" title="Fork session">${_cloneSvg}</button>`
                     : '';
@@ -5611,7 +5620,7 @@
 
         // --- Drag handle for resizable splits ---
         function initDragHandle(handle, container, direction, treeNode) {
-            let startPos, containerSize;
+            let startPos, containerSize, activePointerId = null;
 
             function onStart(clientX, clientY) {
                 handle.classList.add('dragging');
@@ -5619,13 +5628,25 @@
                 containerSize = direction === 'horizontal' ? container.offsetWidth : container.offsetHeight;
                 document.body.style.cursor = direction === 'horizontal' ? 'col-resize' : 'row-resize';
                 document.body.style.userSelect = 'none';
+                // Disable pointer-events on every iframe in the page
+                // for the duration of the drag. Without this, dragging
+                // the divider over an embedded agent-view (or any
+                // other iframe) "loses" the pointer to the iframe and
+                // the parent never sees mousemove/mouseup until the
+                // pointer leaves the iframe again — manifesting as a
+                // handle that doesn't follow the cursor and a drag
+                // that won't stop.
+                document.querySelectorAll('iframe').forEach(f => {
+                    f.dataset._prevPointerEvents = f.style.pointerEvents || '';
+                    f.style.pointerEvents = 'none';
+                });
             }
 
             function onMove(clientX, clientY) {
                 if (!containerSize) return;
                 const currentPos = direction === 'horizontal' ? clientX : clientY;
                 const delta = currentPos - startPos;
-                const handleSize = direction === 'horizontal' ? 5 : 5;
+                const handleSize = 5;
                 const usable = containerSize - handleSize;
                 let newRatio = (treeNode.ratio * usable + delta) / usable;
                 newRatio = Math.max(0.1, Math.min(0.9, newRatio));
@@ -5643,36 +5664,44 @@
                 handle.classList.remove('dragging');
                 document.body.style.cursor = '';
                 document.body.style.userSelect = '';
+                // Restore iframe pointer-events.
+                document.querySelectorAll('iframe').forEach(f => {
+                    f.style.pointerEvents = f.dataset._prevPointerEvents || '';
+                    delete f.dataset._prevPointerEvents;
+                });
             }
 
-            // Mouse
-            handle.addEventListener('mousedown', (e) => {
+            // Pointer events — single unified handler for mouse, touch
+            // and pen. Uses setPointerCapture so all subsequent
+            // pointermove / pointerup events come back to this handle
+            // regardless of what's under the cursor (including
+            // iframes), which fixes the "handle doesn't follow the
+            // cursor when dragging fast" + "can't stop dragging" bug.
+            handle.addEventListener('pointerdown', (e) => {
+                if (activePointerId !== null) return; // ignore second pointer
                 e.preventDefault();
+                activePointerId = e.pointerId;
+                try { handle.setPointerCapture(e.pointerId); } catch (_) {}
                 onStart(e.clientX, e.clientY);
-                function mm(e) { onMove(e.clientX, e.clientY); }
-                function mu() {
-                    onEnd();
-                    document.removeEventListener('mousemove', mm);
-                    document.removeEventListener('mouseup', mu);
-                }
-                document.addEventListener('mousemove', mm);
-                document.addEventListener('mouseup', mu);
             });
 
-            // Touch
-            handle.addEventListener('touchstart', (e) => {
-                e.preventDefault();
-                const t = e.touches[0];
-                onStart(t.clientX, t.clientY);
-                function tm(e) { const t = e.touches[0]; onMove(t.clientX, t.clientY); }
-                function te() {
-                    onEnd();
-                    document.removeEventListener('touchmove', tm);
-                    document.removeEventListener('touchend', te);
-                }
-                document.addEventListener('touchmove', tm, { passive: false });
-                document.addEventListener('touchend', te);
-            }, { passive: false });
+            handle.addEventListener('pointermove', (e) => {
+                if (e.pointerId !== activePointerId) return;
+                onMove(e.clientX, e.clientY);
+            });
+
+            const finishPointer = (e) => {
+                if (e.pointerId !== activePointerId) return;
+                try { handle.releasePointerCapture(e.pointerId); } catch (_) {}
+                activePointerId = null;
+                onEnd();
+            };
+            handle.addEventListener('pointerup', finishPointer);
+            handle.addEventListener('pointercancel', finishPointer);
+            // pointerleave fires when capture isn't established yet
+            // (very early bail-out before pointerdown's capture
+            // succeeded). Don't end on it — pointerup is the source
+            // of truth once capture is in effect.
         }
 
         // Send current terminal size to PTY via REST

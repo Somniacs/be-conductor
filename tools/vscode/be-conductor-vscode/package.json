@@ -194,22 +194,22 @@
       "view/item/context": [
         {
           "command": "be-conductor.attachSession",
-          "when": "viewItem =~ /^session-running(-agent)?$/",
+          "when": "viewItem =~ /^session-running(-agent(-other)?)?$/",
           "group": "inline@1"
         },
         {
           "command": "be-conductor.stopSession",
-          "when": "viewItem =~ /^session-(running|running-attached|running-agent|running-attached-agent|stopping)$/",
+          "when": "viewItem =~ /^session-(running|running-attached|running-agent|running-attached-agent|running-agent-other|running-attached-agent-other|stopping)$/",
           "group": "inline@2"
         },
         {
           "command": "be-conductor.killSession",
-          "when": "viewItem =~ /^session-(running|running-attached|running-agent|running-attached-agent|stopping)$/",
+          "when": "viewItem =~ /^session-(running|running-attached|running-agent|running-attached-agent|running-agent-other|running-attached-agent-other|stopping)$/",
           "group": "session@1"
         },
         {
           "command": "be-conductor.forgetSession",
-          "when": "viewItem =~ /^session-(running|running-attached|running-agent|running-attached-agent|stopping)$/",
+          "when": "viewItem =~ /^session-(running|running-attached|running-agent|running-attached-agent|running-agent-other|running-attached-agent-other|stopping)$/",
           "group": "session@2"
         },
         {

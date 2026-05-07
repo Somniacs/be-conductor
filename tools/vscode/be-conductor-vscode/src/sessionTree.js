@@ -21,6 +21,10 @@ class SessionItem extends vscode.TreeItem {
 
         const resumable = isResumable(session);
         const isAgent = session.session_type === 'agent';
+        // Native Claude agent vs other providers (OpenCode, etc.).
+        // Used to gate operations the provider doesn't support — most
+        // notably clone, which has no equivalent on OpenCode's API.
+        const isClaudeAgent = isAgent && (session.provider == null || session.provider === 'claude');
         this.description = isAgent ? 'GUI · ' + session.command : session.command;
         this.tooltip = `${session.name}\nCommand: ${session.command}\nType: ${isAgent ? 'GUI' : 'Terminal'}\nStatus: ${session.status}` +
             (session.cwd ? `\nDirectory: ${session.cwd}` : '') +
@@ -40,9 +44,22 @@ class SessionItem extends vscode.TreeItem {
         if (session.status === 'running') {
             const attached = isAgent ? webviewPanels.has(session.name) : terminalMap.has(session.name);
             this.iconPath = new vscode.ThemeIcon('circle-filled', new vscode.ThemeColor('testing.iconPassed'));
-            this.contextValue = attached
-                ? (isAgent ? 'session-running-attached-agent' : 'session-running-attached')
-                : (isAgent ? 'session-running-agent' : 'session-running');
+            // Distinguish native-Claude agent from other-provider agent
+            // in the context value so menu visibility (clone, etc.) can
+            // be gated in package.json's `when` clauses. The four base
+            // shapes — running / running-attached / running-agent /
+            // running-attached-agent — keep their old names for
+            // backwards-compat. Non-Claude agent sessions use a
+            // distinct '-agent-other' suffix.
+            if (attached) {
+                this.contextValue = isAgent
+                    ? (isClaudeAgent ? 'session-running-attached-agent' : 'session-running-attached-agent-other')
+                    : 'session-running-attached';
+            } else {
+                this.contextValue = isAgent
+                    ? (isClaudeAgent ? 'session-running-agent' : 'session-running-agent-other')
+                    : 'session-running';
+            }
             if (attached) this.description += '  [attached]';
         } else if (session.status === 'stopping') {
             this.iconPath = new vscode.ThemeIcon('loading~spin');
