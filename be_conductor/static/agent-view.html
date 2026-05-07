@@ -175,11 +175,13 @@ summary[style*="list-style:none"]::-webkit-details-marker { display: none; }
     <div id="input-box">
         <!-- Read-only model label sitting inside the message box,
              top-right, transparent — visible like a watermark. Shows
-             which model is talking ("Claude Opus 4.7", "OpenCode •
-             GPT-5.5", etc.). pointer-events:none keeps clicks /
-             selection routed through to the textarea below. Hidden
-             until system_init lands. -->
-        <span id="model-pill" style="display:none; position:absolute; top:6px; right:10px; font-size:10px; color:var(--muted); background:transparent; line-height:1.4; white-space:nowrap; pointer-events:none; z-index:2; opacity:0.7;"></span>
+             which agent is talking with model when known ("Claude
+             Opus 4.7", "OpenCode • GPT-5.5", etc.). Defaults to
+             "Claude" for native Claude sessions; overwritten by
+             system_init / settings events as soon as the agent
+             reports its model. pointer-events:none keeps clicks /
+             selection routed through to the textarea below. -->
+        <span id="model-pill" style="position:absolute; top:6px; right:10px; font-size:10px; color:var(--muted); background:transparent; line-height:1.4; white-space:nowrap; pointer-events:none; z-index:2; opacity:0.7;">Claude</span>
         <textarea id="prompt" rows="1" placeholder="Message Claude..."></textarea>
         <div id="input-toolbar">
             <button class="attach-btn" id="attach-btn" title="Attach file or image">
@@ -3682,9 +3684,16 @@ welcome.innerHTML = `<div style="font-size:15px;color:#e0e0e0;font-weight:500;">
     + `<div class="agent-cwd" style="font-size:12px;color:var(--muted);margin-top:4px;"></div>`;
 messagesEl.appendChild(welcome);
 
-// Map a raw model id to a human-readable label.
-//   'claude-opus-4-7'         -> 'Claude Opus 4.7'
-//   'claude-sonnet-4-6'       -> 'Claude Sonnet 4.6'
+// Map a raw model id to a friendly *family + version* fragment, WITHOUT
+// the vendor name. Vendor (Claude / OpenCode / etc.) is added by
+// _agentDisplayName so the pill consistently reads
+// "<vendor> <model>" or "<vendor> • <model>" depending on style.
+//
+//   'claude-opus-4-7'         -> 'Opus 4.7'
+//   'claude-sonnet-4-6'       -> 'Sonnet 4.6'
+//   'opus'                    -> 'Opus'
+//   'sonnet'                  -> 'Sonnet'
+//   'default'                 -> ''  (callers add a fallback)
 //   'openai/gpt-5.5'          -> 'GPT-5.5'
 //   'openai/gpt-5.3-codex'    -> 'GPT-5.3 Codex'
 //   'google/gemini-2.5-pro'   -> 'Gemini 2.5 Pro'
@@ -3692,23 +3701,39 @@ messagesEl.appendChild(welcome);
 function _humanModelLabel(model) {
     if (!model) return '';
     var raw = String(model).trim();
+    // 'default' is an internal placeholder for "no specific model
+    // chosen" — don't render it as text.
+    if (raw === '' || raw.toLowerCase() === 'default') return '';
     // Strip provider/ prefix if present.
     var bare = raw;
     var slash = raw.indexOf('/');
     if (slash !== -1) bare = raw.slice(slash + 1);
 
-    // Claude family — turn 'claude-opus-4-7' into 'Claude Opus 4.7'.
-    if (bare.toLowerCase().indexOf('claude') === 0) {
-        var parts = bare.split('-').slice(1);  // skip leading 'claude'
+    // Claude full id — 'claude-opus-4-7' -> 'Opus 4.7'.
+    if (bare.toLowerCase().indexOf('claude-') === 0) {
+        var parts = bare.split('-').slice(1);  // drop leading 'claude'
         if (parts.length >= 3) {
-            // last two are major-minor (e.g. '4', '7')
             var version = parts.slice(-2).join('.');
             var family = parts.slice(0, -2)
                 .map(function(p) { return p.charAt(0).toUpperCase() + p.slice(1); })
                 .join(' ');
-            return ('Claude ' + family + ' ' + version).trim();
+            return (family + ' ' + version).trim();
         }
-        return 'Claude ' + bare.slice('claude-'.length);
+        return parts.map(function(p) {
+            return p.charAt(0).toUpperCase() + p.slice(1);
+        }).join(' ');
+    }
+    // Claude short names (the SDK accepts these): 'opus', 'sonnet',
+    // 'haiku'. Could also see 'opus-4-7' style if someone passes a
+    // partial id without the 'claude-' prefix.
+    var lower = bare.toLowerCase();
+    if (lower === 'opus' || lower === 'sonnet' || lower === 'haiku') {
+        return bare.charAt(0).toUpperCase() + bare.slice(1);
+    }
+    if (/^(opus|sonnet|haiku)-\d/.test(lower)) {
+        var p2 = bare.split('-');
+        var v2 = p2.slice(1).join('.');
+        return p2[0].charAt(0).toUpperCase() + p2[0].slice(1) + ' ' + v2;
     }
     // GPT family.
     if (bare.toLowerCase().indexOf('gpt-') === 0) {
@@ -3730,50 +3755,47 @@ function _humanModelLabel(model) {
         }).join(' ');
         return g;
     }
-    // Fallback — replace dashes with spaces and title-case word starts.
+    // Fallback — return the bare id as-is (don't title-case arbitrarily,
+    // could mangle valid model ids).
     return bare;
 }
 
-// Compose the short display name for the current agent. Used in the
-// welcome header and as a verb-form ("X is responding…", "Message X")
-// in placeholders and waiting indicators.
+// Compose the descriptive display name for the current agent.
+// Always includes the vendor name first, then the model when known.
+// Used in the welcome header and (via _agentShortName) in placeholders.
 function _agentDisplayName(provider, model) {
-    // Show the model when we have one. Without a model, just show the
-    // provider — never fall back to a placeholder string like 'default'
-    // (an earlier version did, which rendered as "OpenCode • default"
-    // and looked like a misconfiguration).
+    var modelLabel = _humanModelLabel(model);
     if (provider === 'opencode') {
-        return model ? 'OpenCode • ' + _humanModelLabel(model) : 'OpenCode';
+        return modelLabel ? 'OpenCode • ' + modelLabel : 'OpenCode';
     }
     if (provider && provider !== 'claude') {
-        return model ? (provider + ' • ' + _humanModelLabel(model)) : provider;
+        // Capitalise the unknown provider name so it reads better
+        // ("aider" -> "Aider").
+        var pn = provider.charAt(0).toUpperCase() + provider.slice(1);
+        return modelLabel ? (pn + ' • ' + modelLabel) : pn;
     }
-    return model ? _humanModelLabel(model) : 'Claude';
+    // Claude (or unknown / null provider — assume Claude for the
+    // legacy native path). Always say "Claude", append the model
+    // when we have a recognisable one.
+    return modelLabel ? 'Claude ' + modelLabel : 'Claude';
 }
 function _agentShortName(provider, model) {
     // Used in conversational placeholders ("Message X…") — short.
-    if (provider === 'opencode') {
-        if (model) return _humanModelLabel(model);
-        return 'OpenCode';
+    var modelLabel = _humanModelLabel(model);
+    if (provider === 'opencode') return modelLabel || 'OpenCode';
+    if (provider && provider !== 'claude') {
+        return provider.charAt(0).toUpperCase() + provider.slice(1);
     }
-    if (provider && provider !== 'claude') return provider;
-    if (model) return _humanModelLabel(model);
-    return 'Claude';
+    return modelLabel ? ('Claude ' + modelLabel) : 'Claude';
 }
 
 // Read-only model label sitting inside the message box at the top-
-// right, like a watermark. Always reflects the current model in
-// human-readable form.
+// right, like a watermark. Always shows at least the agent name so
+// the user can see which agent is talking; appends the model when
+// we know it.
 function _setModelPill(provider, model) {
     var pill = document.getElementById('model-pill');
     if (!pill) return;
-    if (!model && provider === 'claude') {
-        // Legacy Claude session that hasn't broadcast a settings
-        // event yet — leave the label empty rather than show a bare
-        // "Claude" with no model info.
-        pill.style.display = 'none';
-        return;
-    }
     pill.textContent = _agentDisplayName(provider, model);
     // Keep the inline position styling intact — only flip from
     // 'none' (hidden) to '' (default, which becomes 'inline' for a
