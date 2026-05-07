@@ -556,18 +556,37 @@ class SessionRegistry:
 
         # Clean up old resumable entry
         self.resumable.pop(session_id, None)
-        # For agent sessions: rename old history file to new session ID
-        # so the resumed session has the full conversation for UI replay.
+        # For agent sessions: when the resumed session got a NEW UUID
+        # (older code paths did this), rename the previous incarnation's
+        # history file so the UI can replay the full conversation.
+        # When the UUID is preserved (current path — see session_id=
+        # passed to self.create above), the new AgentSession.__init__
+        # has already loaded the history file into memory via
+        # _load_history(); we must NOT delete the file from disk after
+        # that, otherwise the next server restart loses the conversation.
+        # Symptom before this fix: resumed Claude / agent sessions
+        # showed an empty chat after a be-conductor restart, even
+        # though Claude itself still had the conversation behind
+        # `--resume <id>`.
         if st == "agent" and session.id != session_id:
             old_history = SESSIONS_DIR / f"{session_id}.history.json"
             new_history = SESSIONS_DIR / f"{session.id}.history.json"
             if old_history.exists() and not new_history.exists():
                 old_history.rename(new_history)
-        # Delete old metadata (and old history if rename failed or not agent)
+        # Delete old metadata.
         meta_path = SESSIONS_DIR / f"{session_id}.json"
         meta_path.unlink(missing_ok=True)
-        old_hist = SESSIONS_DIR / f"{session_id}.history.json"
-        old_hist.unlink(missing_ok=True)
+        # Delete old history ONLY if the session got a different ID
+        # (we already moved or skipped it above). For same-ID resumes
+        # the file IS the new session's history — keep it.
+        if st == "agent" and session.id != session_id:
+            stale_hist = SESSIONS_DIR / f"{session_id}.history.json"
+            stale_hist.unlink(missing_ok=True)
+        elif st != "agent":
+            # PTY sessions don't keep a structured history file, but
+            # if one exists from a stray earlier write, clean up.
+            stale_hist = SESSIONS_DIR / f"{session_id}.history.json"
+            stale_hist.unlink(missing_ok=True)
 
         # Re-attach the worktree info
         if worktree_data:
