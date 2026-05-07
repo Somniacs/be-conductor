@@ -2726,8 +2726,8 @@
                          catalogue (one per provider/model combination). -->
                     <div id="provider-row" style="display:none; margin-top:14px;">
                         <label>Agent</label>
-                        <select id="new-provider" onchange="onProviderChange()">
-                            <option value="claude">Claude (native)</option>
+                        <select id="new-provider" onchange="onProviderChange()" title="Claude (native)">
+                            <option value="claude" title="Claude (native)">Claude (native)</option>
                             <!-- additional <option> entries injected by
                                  _populateOpenCodeAgentDropdown() -->
                         </select>
@@ -8147,7 +8147,10 @@
         // Populate the agent dropdown with one entry per OpenCode model,
         // sourced from /agent-providers/opencode/models. The first entry
         // (Claude) stays static. Called when the dialog flips to "agent"
-        // session type. Cached after the first successful fetch.
+        // session type. Cached after the first successful fetch. The
+        // status text we set here is ALWAYS hidden by default — it
+        // becomes visible only when the user actually selects an
+        // OpenCode entry from the dropdown (see onProviderChange).
         var _opencodeDropdownPopulated = false;
         async function _populateOpenCodeAgentDropdown() {
             if (_opencodeDropdownPopulated) return;
@@ -8165,6 +8168,7 @@
                     const opt = document.createElement('option');
                     opt.value = 'opencode:custom';
                     opt.textContent = 'OpenCode (custom model — type below)';
+                    opt.title = opt.textContent;
                     sel.appendChild(opt);
                     if (status) {
                         status.textContent = data && data.error
@@ -8178,6 +8182,11 @@
                         // model. createSession() splits on the first colon.
                         opt.value = 'opencode:' + (m.value || (m.provider_id + '/' + m.model_id));
                         opt.textContent = 'OpenCode • ' + (m.label || m.value);
+                        // Tooltip on hover shows the full label even if
+                        // the dropdown's width truncates the visible
+                        // text (e.g. 'OpenCode • OpenAI / gpt-5.3-codex'
+                        // gets cut to 'OpenCode • OpenAI / gpt-5...').
+                        opt.title = opt.textContent;
                         sel.appendChild(opt);
                     });
                     if (status) {
@@ -8187,7 +8196,26 @@
                 _opencodeDropdownPopulated = true;
             } catch (e) {
                 if (status) status.textContent = 'OpenCode catalogue lookup failed: ' + e;
+            } finally {
+                // Apply visibility + title sync now that the dropdown
+                // reflects current state. onProviderChange handles
+                // both the status-line toggle and the select.title
+                // mirror — same effect as if the user had just
+                // changed the selection.
+                onProviderChange();
             }
+        }
+
+        // Show the status line (server URL / model count / error) only
+        // when the active dropdown choice is an OpenCode entry. For
+        // Claude (the default), the line is irrelevant and clutters
+        // the dialog.
+        function _updateProviderStatusVisibility() {
+            const sel = document.getElementById('new-provider');
+            const status = document.getElementById('provider-status');
+            if (!status) return;
+            const isOC = sel && sel.value && sel.value.indexOf('opencode') === 0;
+            status.style.display = isOC ? '' : 'none';
         }
 
         function onProviderChange() {
@@ -8199,6 +8227,16 @@
             // empty entirely.
             const showCustom = sel && sel.value === 'opencode:custom';
             if (ocFields) ocFields.style.display = showCustom ? '' : 'none';
+            // Mirror the selected option's text into the select's
+            // `title` attribute so hovering the closed select shows
+            // the full agent label even when the dialog's width
+            // truncates it (the per-option `title` only kicks in when
+            // the dropdown list is open).
+            if (sel && sel.options.length) {
+                const opt = sel.options[sel.selectedIndex];
+                sel.title = opt ? (opt.textContent || '') : '';
+            }
+            _updateProviderStatusVisibility();
         }
 
         function setResumeSubMode(sub) {
