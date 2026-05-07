@@ -181,6 +181,16 @@ The session opens in the same chat-bubble view used for Claude. The model name i
 
 Mid-session model switches are supported via the model picker in the agent view (subject to the underlying model being available on your account).
 
+### Run in an isolated git worktree
+
+If your selected directory is a git repo, the new-session dialog shows an **Isolate with git worktree** checkbox. Tick it and be-conductor will:
+
+- Create a fresh git worktree under `<repo>/.be-conductor-worktrees/<session-name>` on a new branch (`be-conductor/<session-name>`)
+- Run the OpenCode session inside that worktree — `pwd`, file edits, and tool calls all happen in the isolated copy, not your main checkout
+- Track changes; you can preview the diff and merge back to the base branch from the dashboard's worktree view when the session is done
+
+This is how you run multiple agents in parallel on the same repo without conflicts: each gets its own branch and working copy. Works the same way for Claude, OpenCode, or any future provider — the worktree is created at the registry level, before the agent sees the session.
+
 ---
 
 ## 6. What works, what's missing

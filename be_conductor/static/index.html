@@ -8119,12 +8119,17 @@
             const resumeTokenRow = document.getElementById('resume-token-row');
             const providerRow = document.getElementById('provider-row');
             if (type === 'agent') {
-                // Hide command dropdown, worktree, resume controls
+                // Hide the PTY command dropdown and resume controls.
+                // KEEP the worktree checkbox visible — it works for
+                // agent sessions too (the registry creates the
+                // worktree before dispatching to AgentSession or
+                // ProviderAgentSession). The checkbox's enabled state
+                // is governed by onWorktreeToggle / git-cwd checks
+                // exactly as it is for PTY sessions.
                 if (cmdRow) cmdRow.style.display = 'none';
                 if (cmdLabel) cmdLabel.style.display = 'none';
-                if (worktreeRow) worktreeRow.style.display = 'none';
-                if (worktreePreview) worktreePreview.style.display = 'none';
                 if (resumeTokenRow) resumeTokenRow.style.display = 'none';
+                if (worktreeRow) worktreeRow.style.display = '';
                 if (providerRow) providerRow.style.display = '';
                 // Populate the model dropdown the first time we show it,
                 // so the user sees actual OpenCode models (not just
@@ -8674,7 +8679,14 @@
                 const cwd = selectedCwd || null;
                 const providerSel = document.getElementById('new-provider');
                 const providerVal = providerSel ? providerSel.value : 'claude';
+                // Honor the worktree checkbox for agent sessions too.
+                // The registry creates the worktree before dispatching
+                // to AgentSession/ProviderAgentSession, and the agent
+                // runs its tools inside the worktree's path — so this
+                // works equally well for Claude and OpenCode.
+                const useWorktreeAgent = document.getElementById('new-worktree').checked;
                 body = { name, command: '', cwd, session_type: 'agent' };
+                if (useWorktreeAgent) body.worktree = true;
                 // Dropdown values:
                 //   "claude"                  -> native Claude (no agent_options.provider)
                 //   "opencode:custom"         -> OpenCode + free-text model from input
