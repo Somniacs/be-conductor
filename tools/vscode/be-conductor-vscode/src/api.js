@@ -60,6 +60,16 @@ async function getInfo(sk) { return request(sk || 'local', 'GET', '/info'); }
 // Config
 async function getConfig(sk) { return request(sk || 'local', 'GET', '/config'); }
 
+/**
+ * Fetch the OpenCode model catalogue. Returns an object with shape
+ *   { models: [{value, label, provider_id, model_id, current}], url, error }
+ * or null on error. Callers should fall back to Claude-only when the
+ * response is null or models is empty.
+ */
+async function getAgentProviderModels(sk, provider) {
+    return request(sk || 'local', 'GET', `/agent-providers/${encodeURIComponent(provider)}/models`);
+}
+
 // Sessions
 async function listSessions(sk) { return request(sk || 'local', 'GET', '/sessions'); }
 async function getSession(sk, id) { return request(sk, 'GET', `/sessions/${encodeURIComponent(id)}`); }
@@ -112,7 +122,7 @@ async function worktreeGC(sk, dryRun, maxAgeDays) {
 async function getTailscalePeers(sk) { return request(sk || 'local', 'GET', '/tailscale/peers'); }
 
 module.exports = {
-    getHealth, getInfo, getConfig,
+    getHealth, getInfo, getConfig, getAgentProviderModels,
     listSessions, getSession, createSession, stopSession, deleteSession,
     resumeSession, resizeSession, cloneSession,
     checkGit,

@@ -230,17 +230,73 @@ async function createSessionFlow(callbacks) {
     if (!typePick) return;
     const sessionType = typePick._type;
 
+    // Step 5b: Agent backend picker (GUI mode only)
+    // Claude (native) is always available; OpenCode entries are
+    // populated from the server's catalogue (one entry per
+    // authenticated provider/model combination).
+    let agentOptions = null;
+    if (sessionType === 'agent') {
+        const backendItems = [
+            {
+                label: 'Claude (native)',
+                description: 'Anthropic Claude via the native Agent SDK',
+                _provider: 'claude',
+            },
+        ];
+        try {
+            const cat = await api.getAgentProviderModels(selectedServerKey, 'opencode');
+            if (cat && cat.models && cat.models.length > 0) {
+                backendItems.push({
+                    kind: vscode.QuickPickItemKind.Separator,
+                    label: `OpenCode at ${cat.url || '127.0.0.1:7798'} — ${cat.models.length} model${cat.models.length === 1 ? '' : 's'}`,
+                });
+                for (const m of cat.models) {
+                    backendItems.push({
+                        label: `OpenCode • ${m.label || m.value}`,
+                        description: m.value || `${m.provider_id}/${m.model_id}`,
+                        _provider: 'opencode',
+                        _providerId: m.provider_id,
+                        _modelId: m.model_id,
+                    });
+                }
+            } else if (cat && cat.error) {
+                backendItems.push({
+                    kind: vscode.QuickPickItemKind.Separator,
+                    label: `OpenCode unreachable: ${cat.error}`,
+                });
+            }
+        } catch {
+            // Server unreachable / no OpenCode endpoint — fine, just stick with Claude.
+        }
+
+        const backendPick = await vscode.window.showQuickPick(backendItems, {
+            placeHolder: 'Pick the agent backend / model',
+            title: 'be-conductor: Agent Backend',
+        });
+        if (!backendPick) return;
+        if (backendPick._provider && backendPick._provider !== 'claude') {
+            agentOptions = { provider: backendPick._provider };
+            if (backendPick._providerId) agentOptions.opencode_provider_id = backendPick._providerId;
+            if (backendPick._modelId) agentOptions.opencode_model_id = backendPick._modelId;
+        }
+    }
+
     // Step 6: Create and attach session
     if (sessionType === 'agent') {
         // Create session via API (agent mode) and open in webview
         try {
+            // For native Claude we still pass agent.command (the
+            // existing path uses the CLI command name). For OpenCode
+            // (or any other provider), the backend ignores `command`
+            // and reads agent_options to drive the session.
             const body = {
                 name: trimmed,
-                command: agent.command,
+                command: agentOptions ? '' : agent.command,
                 cwd: selectedCwd,
                 session_type: 'agent',
             };
             if (useWorktree) body.worktree = true;
+            if (agentOptions) body.agent_options = agentOptions;
             const session = await api.createSession(selectedServerKey, body);
             const sessionId = session.id || session.session_id || trimmed;
             trackSession(trimmed);

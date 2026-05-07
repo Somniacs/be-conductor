@@ -34,6 +34,10 @@ public class NewSessionDialog extends DialogWrapper {
     private TextFieldWithBrowseButton cwdField;
     private JBCheckBox worktreeCheckbox;
     private JComboBox<String> sessionTypeCombo;
+    /** Agent picker (GUI mode only) — Claude (native) plus one entry per OpenCode model. */
+    private JComboBox<AgentChoice> agentCombo;
+    private JBLabel agentLabel;
+    private JBLabel agentStatus;
     private JBLabel branchPreview;
     private JBLabel gitStatus;
 
@@ -42,6 +46,28 @@ public class NewSessionDialog extends DialogWrapper {
     private String currentBranch = "";
     private String selectedServerKey = "local";
     private List<ServerRegistry.Server> enabledServers;
+
+    /**
+     * Entry in the GUI-mode agent combo box. Either Claude (native)
+     * or an OpenCode model. We send agent_options accordingly.
+     */
+    private static class AgentChoice {
+        final String label;
+        final String provider;     // null for Claude (native), "opencode" otherwise
+        final String providerId;   // e.g. "openai" — OpenCode only
+        final String modelId;      // e.g. "gpt-5.5" — OpenCode only
+
+        AgentChoice(String label, String provider, String providerId, String modelId) {
+            this.label = label;
+            this.provider = provider;
+            this.providerId = providerId;
+            this.modelId = modelId;
+        }
+
+        @Override public String toString() { return label; }
+
+        boolean isClaude() { return provider == null || "claude".equals(provider); }
+    }
 
     private final Project project;
 
@@ -189,6 +215,47 @@ public class NewSessionDialog extends DialogWrapper {
         c.weightx = 1.0;
         panel.add(sessionTypeCombo, c);
 
+        // Row: Agent picker (only meaningful in GUI mode)
+        row++;
+        c.gridx = 0;
+        c.gridy = row;
+        c.gridwidth = 1;
+        c.fill = GridBagConstraints.NONE;
+        c.weightx = 0;
+        agentLabel = new JBLabel("Agent:");
+        panel.add(agentLabel, c);
+
+        agentCombo = new JComboBox<>();
+        agentCombo.addItem(new AgentChoice("Claude (native)", null, null, null));
+        c.gridx = 1;
+        c.gridwidth = 2;
+        c.fill = GridBagConstraints.HORIZONTAL;
+        c.weightx = 1.0;
+        panel.add(agentCombo, c);
+
+        // Row: Agent status (server URL + model count, when an
+        // OpenCode entry is selected; hidden otherwise)
+        row++;
+        c.gridx = 1;
+        c.gridy = row;
+        c.gridwidth = 2;
+        c.fill = GridBagConstraints.HORIZONTAL;
+        c.weightx = 1.0;
+        agentStatus = new JBLabel(" ");
+        agentStatus.setForeground(UIManager.getColor("Label.disabledForeground"));
+        agentStatus.setVisible(false);
+        panel.add(agentStatus, c);
+
+        // Visibility & status sync.
+        sessionTypeCombo.addActionListener(e -> updateAgentRowVisibility());
+        agentCombo.addActionListener(e -> updateAgentStatusVisibility());
+
+        // Kick off the OpenCode model fetch in the background — this
+        // populates the dropdown with one entry per OpenCode model the
+        // server reports. We do this async so the dialog opens
+        // instantly even if OpenCode is slow / unreachable.
+        loadOpenCodeModelsAsync();
+
         // Row: Worktree checkbox + git status
         row++;
         c.gridx = 0;
@@ -232,6 +299,9 @@ public class NewSessionDialog extends DialogWrapper {
 
         // Initial git check
         checkGitDirectory();
+
+        // Initial agent-row visibility (default GUI -> visible).
+        updateAgentRowVisibility();
 
         panel.setPreferredSize(new Dimension(480, panel.getPreferredSize().height));
         return panel;
@@ -350,6 +420,81 @@ public class NewSessionDialog extends DialogWrapper {
     /** @return server key for the selected server. */
     public String getServerKey() {
         return selectedServerKey;
+    }
+
+    /**
+     * Build agent_options for the run-session API. Returns null when
+     * the user picked Claude (native) — the backend treats missing
+     * agent_options.provider as the legacy Claude path. For OpenCode
+     * picks, returns a map matching the dashboard's body shape.
+     */
+    public java.util.Map<String, Object> getAgentOptions() {
+        if (agentCombo == null) return null;
+        Object sel = agentCombo.getSelectedItem();
+        if (!(sel instanceof AgentChoice)) return null;
+        AgentChoice choice = (AgentChoice) sel;
+        if (choice.isClaude()) return null;
+        java.util.Map<String, Object> opts = new java.util.HashMap<>();
+        opts.put("provider", choice.provider);
+        if (choice.providerId != null) opts.put("opencode_provider_id", choice.providerId);
+        if (choice.modelId != null) opts.put("opencode_model_id", choice.modelId);
+        return opts;
+    }
+
+    /** Hide the Agent row entirely when not in GUI mode. */
+    private void updateAgentRowVisibility() {
+        boolean isAgent = "agent".equals(getSessionType());
+        if (agentLabel != null) agentLabel.setVisible(isAgent);
+        if (agentCombo != null) agentCombo.setVisible(isAgent);
+        // Status visibility depends on both session type and selection.
+        updateAgentStatusVisibility();
+    }
+
+    /**
+     * The agent-status line shows "OpenCode at <url> — N models" only
+     * when an OpenCode entry is the current pick. Hidden otherwise to
+     * keep the dialog calm when the user is on Claude.
+     */
+    private void updateAgentStatusVisibility() {
+        if (agentStatus == null) return;
+        boolean isAgent = "agent".equals(getSessionType());
+        Object sel = agentCombo != null ? agentCombo.getSelectedItem() : null;
+        boolean isOpenCode = sel instanceof AgentChoice && !((AgentChoice) sel).isClaude();
+        agentStatus.setVisible(isAgent && isOpenCode);
+    }
+
+    /** Fetch OpenCode models in the background and append them to the agent combo. */
+    private void loadOpenCodeModelsAsync() {
+        new Thread(() -> {
+            ApiModels.AgentProviderModelsResponse resp = null;
+            String error = null;
+            try {
+                BeConductorClient client = BeConductorClient.getInstance();
+                resp = client.getAgentProviderModels(selectedServerKey, "opencode");
+            } catch (Exception e) {
+                error = e.getMessage();
+            }
+            final ApiModels.AgentProviderModelsResponse finalResp = resp;
+            final String finalError = error;
+            SwingUtilities.invokeLater(() -> {
+                if (finalResp != null && finalResp.models != null && !finalResp.models.isEmpty()) {
+                    for (ApiModels.AgentProviderModel m : finalResp.models) {
+                        String label = "OpenCode • " + (m.label != null ? m.label : m.value);
+                        agentCombo.addItem(new AgentChoice(label, "opencode", m.provider_id, m.model_id));
+                    }
+                    int n = finalResp.models.size();
+                    String url = finalResp.url != null ? finalResp.url : "127.0.0.1:7798";
+                    agentStatus.setText("OpenCode at " + url + " — " + n + " model" + (n == 1 ? "" : "s"));
+                } else if (finalResp != null && finalResp.error != null) {
+                    agentStatus.setText("OpenCode unreachable: " + finalResp.error);
+                } else if (finalError != null) {
+                    agentStatus.setText("OpenCode catalogue lookup failed: " + finalError);
+                } else {
+                    agentStatus.setText("OpenCode not running — start `opencode serve --port 7798` to see models.");
+                }
+                updateAgentStatusVisibility();
+            });
+        }, "be-conductor-opencode-models").start();
     }
 
     /** Simple listener that fires a callback on any document change. */

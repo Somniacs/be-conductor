@@ -37,6 +37,7 @@ public class RunSessionAction extends AnAction {
         String sessionType = dialog.getSessionType();
         String serverKey = dialog.getServerKey();
         String openMode = dialog.getOpenMode();
+        java.util.Map<String, Object> agentOptions = dialog.getAgentOptions();
 
         String workingDir = cwd;
         if (workingDir == null || workingDir.isEmpty()) {
@@ -47,7 +48,7 @@ public class RunSessionAction extends AnAction {
 
         if ("agent".equals(sessionType)) {
             // Agent sessions: create via API and open in editor or panel
-            createAgentSession(project, serverKey, command, name, finalWorkingDir, worktree, openMode);
+            createAgentSession(project, serverKey, command, name, finalWorkingDir, worktree, openMode, agentOptions);
         } else {
             // PTY sessions: run in terminal (handles server startup, creation, and attach)
             runInTerminal(project, command, name, finalWorkingDir, worktree);
@@ -60,11 +61,14 @@ public class RunSessionAction extends AnAction {
     /**
      * Create an agent session via the REST API and open it in a native panel.
      */
-    private void createAgentSession(Project project, String serverKey, String command, String name, String cwd, boolean worktree, String openMode) {
+    private void createAgentSession(Project project, String serverKey, String command, String name, String cwd, boolean worktree, String openMode, java.util.Map<String, Object> agentOptions) {
         ApplicationManager.getApplication().executeOnPooledThread(() -> {
             try {
                 BeConductorClient client = BeConductorClient.getInstance();
                 ApiModels.RunRequest request = new ApiModels.RunRequest(name, command, cwd, worktree, "agent");
+                // Provider-based agent sessions (OpenCode etc.) carry
+                // their model id here. null means native Claude.
+                request.agent_options = agentOptions;
                 ApiModels.SessionResponse session = client.createSession(serverKey, request);
                 String sessionId = session != null ? session.id : name;
                 String sessionName = name;

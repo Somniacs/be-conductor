@@ -235,6 +235,17 @@ public final class BeConductorClient {
         return doGet(serverKey, "/git/check?path=" + encode(path), ApiModels.GitCheckResponse.class);
     }
 
+    /**
+     * Fetch the OpenCode model catalogue (or any other provider's, in the
+     * future) so the new-session dialog can populate a model dropdown.
+     * Returns null on any failure — callers should fall back gracefully
+     * (Claude-only) when the response is null or models is empty.
+     */
+    public ApiModels.AgentProviderModelsResponse getAgentProviderModels(String serverKey, String provider) throws Exception {
+        return doGet(serverKey, "/agent-providers/" + encode(provider) + "/models",
+                ApiModels.AgentProviderModelsResponse.class);
+    }
+
     // ── Worktrees ─────────────────────────────────────────────────────────
 
     public List<ApiModels.WorktreeInfo> listWorktrees(String serverKey) throws Exception {
