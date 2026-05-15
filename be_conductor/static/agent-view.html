@@ -2007,6 +2007,14 @@ function renderEvent(event) {
         // tool — which for a shell command is the command itself — in
         // a fenced code block so it reads cleanly, and only show the
         // input JSON when there actually is some.
+        //
+        // Never show the modal while replaying history: a stored
+        // permission_request is historical. If it was answered, a
+        // permission_resolved follows it in the log; if it is still
+        // genuinely pending, the backend re-issues it live once
+        // replay finishes. Either way, replaying it must not pop a
+        // modal for an already-answered request.
+        if (_replayingHistory) return;
         if (typeof showQuestionModal === 'function') {
             var _permTool = event.tool || 'this action';
             var _permInput = event.input || {};
@@ -2042,7 +2050,19 @@ function renderEvent(event) {
         }
 
     } else if (etype === 'permission_resolved') {
-        // No-op visually; modal closes via question_answered already.
+        // The request was answered (possibly by another client). If a
+        // permission modal is still open here, close it so it doesn't
+        // linger after the decision was already made.
+        if (!_replayingHistory) {
+            var _pm = document.getElementById('question-modal');
+            if (_pm) {
+                _pm.remove();
+                var _ib = document.getElementById('input-box');
+                var _dh = document.getElementById('drag-handle');
+                if (_ib) _ib.style.display = '';
+                if (_dh) _dh.style.display = '';
+            }
+        }
 
     } else if (etype === 'error') {
         setBusy(false);
