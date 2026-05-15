@@ -810,8 +810,22 @@ function _mdToHtml(text) {
         var safeUrl = url.replace(/^\/\//, 'https://');
         return '<a href="' + safeUrl + '" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;">' + text + '</a>';
     });
-    // Make bare URLs clickable (not already inside a tag)
-    h = h.replace(/(?<![="'])(\bhttps?:\/\/[^\s<>&]+)/g, '<a href="$1" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;">$1</a>');
+    // Make bare URLs clickable — but ONLY in the plain-text segments,
+    // never inside an <a> tag we already built above. The previous
+    // one-char lookbehind was too weak: for a very long href (e.g. a
+    // model-hallucinated URL with a 200-char run), it re-matched
+    // `https://` substrings *inside* that href attribute and nested an
+    // <a> inside the <a> — the browser then renders the inner tag's
+    // attributes as literal text (`want="_blank" ...>label`). Splitting
+    // on existing anchors and linkifying only the gaps avoids that.
+    h = h.split(/(<a\b[\s\S]*?<\/a>)/i).map(function(seg, i) {
+        // Odd indices are the captured <a>…</a> blocks — leave intact.
+        if (i % 2 === 1) return seg;
+        return seg.replace(
+            /(?<![="'])(\bhttps?:\/\/[^\s<>&]+)/g,
+            '<a href="$1" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;">$1</a>'
+        );
+    }).join('');
     // Paragraphs
     h = h.replace(/\n\n/g, '<div style="height:8px;"></div>');
     h = h.replace(/\n/g, '<br>');
@@ -949,12 +963,23 @@ function _formatToolInput(name, input) {
 
 function makeFileLinksClickable(html) {
     // Match absolute paths (/foo/bar.txt), relative paths (foo/bar.txt), and filenames with extensions
-    // Skip if already inside an HTML tag or link
     // Extensions sorted longest-first to avoid partial matches (json before js, etc.)
-    return html.replace(/(?<![="\/\w])(((?:\.\.?\/|\/|[\w-]+\/)[\w./-]+\.[\w]+|[\w.-]+\.(?:jpeg|json|yaml|html|glsl|vert|frag|toml|conf|java|cpp|hpp|txt|csv|log|cfg|png|jpg|gif|svg|pdf|css|xml|py|js|ts|md|yml|sh|rs|go|cu|c|h))(?::(\d+))?)/g, (match, full, path, ext, line) => {
-        const cleanPath = full.split(':')[0];
-        return `<a class="file-link" href="#" onclick="ideBridge.openFile('${cleanPath}', ${line || 0}); return false;">${match}</a>`;
-    });
+    //
+    // Critical: only linkify text in the plain segments, never inside an
+    // <a> tag built earlier (markdown links, bare URLs). A web URL like
+    // `https://help.openai.com/en/articles/8156019-...` otherwise gets
+    // its `//help.openai.com/...` portion matched as a "file path" and a
+    // nested <a> is injected *inside* the real link's href attribute —
+    // the browser then renders that href as broken literal text. Split
+    // on existing anchors and process only the gaps.
+    var fileRe = /(?<![="\/\w])(((?:\.\.?\/|\/|[\w-]+\/)[\w./-]+\.[\w]+|[\w.-]+\.(?:jpeg|json|yaml|html|glsl|vert|frag|toml|conf|java|cpp|hpp|txt|csv|log|cfg|png|jpg|gif|svg|pdf|css|xml|py|js|ts|md|yml|sh|rs|go|cu|c|h))(?::(\d+))?)/g;
+    return html.split(/(<a\b[\s\S]*?<\/a>)/i).map(function(seg, i) {
+        if (i % 2 === 1) return seg;  // an <a>…</a> block — leave intact
+        return seg.replace(fileRe, function(match, full, path, ext, line) {
+            const cleanPath = full.split(':')[0];
+            return `<a class="file-link" href="#" onclick="ideBridge.openFile('${cleanPath}', ${line || 0}); return false;">${match}</a>`;
+        });
+    }).join('');
 }
 
 // Keep live streaming thinking + spinner at the very bottom of the message list.

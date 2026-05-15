@@ -304,8 +304,10 @@ class _JsonRpcTransport:
         # Handlers set by the provider before start():
         #   on_notification(method, params)
         #   on_request(method, params) -> result  (async)
+        #   on_disconnect()  — adapter process exited unexpectedly
         self.on_notification = None  # async callable
         self.on_request = None       # async callable
+        self.on_disconnect = None    # async callable, no args
         self._closed = False
         self._write_lock = asyncio.Lock()
 
@@ -424,10 +426,18 @@ class _JsonRpcTransport:
         except Exception as e:
             log.warning("ACP read loop errored: %s", e)
         finally:
-            # Reader ended — unblock anything still waiting.
+            # Reader ended — the adapter process has exited or closed
+            # its stdout. Unblock anything still waiting on a response.
             for fut in list(self._pending.values()):
                 if not fut.done():
-                    fut.set_exception(RuntimeError("ACP adapter exited"))
+                    fut.set_exception(RuntimeError(
+                        "the ACP agent process exited unexpectedly"))
+            # Notify the provider so it can emit a clean session_end
+            # instead of leaving events() hanging on an empty queue.
+            cb = self.on_disconnect
+            if cb is not None:
+                with suppress(Exception):
+                    await cb()
 
     async def _dispatch(self, msg: dict) -> None:
         # Response to one of our requests.
@@ -435,9 +445,8 @@ class _JsonRpcTransport:
             fut = self._pending.get(msg["id"])
             if fut is not None and not fut.done():
                 if "error" in msg:
-                    err = msg["error"] or {}
                     fut.set_exception(RuntimeError(
-                        f"ACP error {err.get('code')}: {err.get('message')}"
+                        _extract_error_text(msg["error"])
                     ))
                 else:
                     fut.set_result(msg.get("result"))
@@ -582,6 +591,7 @@ class AcpProvider:
         self._transport = _JsonRpcTransport(cmd, self._cwd, env)
         self._transport.on_notification = self._on_notification
         self._transport.on_request = self._on_request
+        self._transport.on_disconnect = self._on_disconnect
         await self._transport.start()
 
         # 1) initialize handshake — declare what *we* can do, learn what
@@ -673,6 +683,10 @@ class AcpProvider:
             self.capabilities.add(Capability.MCP)
         # available_commands_update notifications drive slash commands.
         self.capabilities.add(Capability.SKILLS)
+        # Some adapters (Codex) stream `usage_update` with context-window
+        # figures. Advertise CONTEXT_USAGE optimistically — the ring
+        # just stays empty for adapters that don't send it.
+        self.capabilities.add(Capability.CONTEXT_USAGE)
 
     async def stop(self) -> None:
         if self._closed:
@@ -918,6 +932,24 @@ class AcpProvider:
 
     # ----- inbound: notifications (agent → client) --------------------
 
+    async def _on_disconnect(self) -> None:
+        """The adapter process exited unexpectedly.
+
+        Surface a clear error and end the session cleanly — without
+        this, events() would hang on an empty queue and the UI would
+        show a stuck session with no explanation.
+        """
+        if self._closed:
+            return
+        await self._emit({
+            "type": "error",
+            "error": "The ACP agent disconnected. Start a new session "
+                     "(or Resume) to continue.",
+            "subtype": "agent_disconnected",
+        })
+        await self._event_queue.put({"type": "session_end", "exit_code": 1})
+        self._closed = True
+
     async def _on_notification(self, method: str, params: dict) -> None:
         """Handle a JSON-RPC notification from the adapter."""
         if method != "session/update":
@@ -1012,6 +1044,42 @@ class AcpProvider:
                 "type": "system",
                 "subtype": "mode",
                 "payload": {"modeId": update.get("currentModeId")},
+            })
+            return
+
+        if kind == "usage_update":
+            # Some adapters (Codex) report context-window usage as
+            # {used, size}. Surface it as a context_usage event so the
+            # dashboard's context ring works for ACP sessions too.
+            used = update.get("used")
+            size = update.get("size")
+            try:
+                used_i = int(used) if used is not None else None
+                size_i = int(size) if size is not None else None
+            except (TypeError, ValueError):
+                used_i = size_i = None
+            if used_i is not None and size_i and size_i > 0:
+                # Keys match what agent-view.html's context_usage
+                # handler reads: totalTokens / maxTokens / percentage.
+                await self._emit({
+                    "type": "context_usage",
+                    "data": {
+                        "totalTokens": used_i,
+                        "maxTokens": size_i,
+                        "percentage": round(100.0 * used_i / size_i, 2),
+                    },
+                })
+            return
+
+        # Some adapters report a turn-level failure as an error-shaped
+        # update rather than a JSON-RPC error response. Catch the common
+        # shapes so the user sees a real message, never an empty bubble.
+        if kind in ("error", "session_error") or update.get("error"):
+            msg = _extract_error_text(update.get("error") or update)
+            await self._emit({
+                "type": "error",
+                "error": msg,
+                "subtype": "provider_error",
             })
             return
 
@@ -1249,3 +1317,52 @@ def _bc_version() -> str:
         return version("be-conductor")
     except Exception:
         return "0.0.0"
+
+
+def _extract_error_text(err: Any) -> str:
+    """Best-effort human-readable message from an ACP error payload.
+
+    ACP errors arrive in several shapes — a JSON-RPC error object
+    ({code, message, data}), an adapter-specific nested error
+    ({name, data:{message}}), or a bare string. Some adapters wrap a
+    provider error (e.g. Codex's ProviderAuthError) under a generic
+    name. This walks the common shapes and always returns a non-empty
+    string, so the user never sees an empty "Unknown error" bubble.
+    """
+    if err is None:
+        return "The agent reported an error (no detail provided)."
+    if isinstance(err, str):
+        return err.strip() or "The agent reported an error."
+    if not isinstance(err, dict):
+        return str(err)
+
+    # Collect candidate message fields from this level and one nesting
+    # level down (data / error are the usual nests).
+    parts: list[str] = []
+    name = err.get("name") or err.get("code")
+    msg = err.get("message")
+    data = err.get("data")
+    if isinstance(data, dict):
+        msg = msg or data.get("message") or data.get("detail")
+        # ProviderAuthError-style: data.message often has the real text.
+        if not msg:
+            for v in data.values():
+                if isinstance(v, str) and v.strip():
+                    msg = v
+                    break
+    inner = err.get("error")
+    if not msg and inner is not None:
+        return _extract_error_text(inner)
+
+    if name and name not in ("APIError", "Error"):
+        parts.append(str(name))
+    if msg:
+        parts.append(str(msg))
+    text = ": ".join(p for p in parts if p).strip()
+    if text:
+        return text
+    # Last resort — show the raw payload rather than an empty string.
+    try:
+        return f"The agent reported an error: {json.dumps(err)[:300]}"
+    except Exception:
+        return "The agent reported an error (unrecognised payload)."
