@@ -1978,13 +1978,26 @@ function renderEvent(event) {
             + outputText;
 
     } else if (etype === 'permission_request') {
-        // Provider-style permission ask. Use the question modal that
-        // already exists, with options matching the provider's vocab
-        // (OpenCode: once / always / reject).
+        // Provider-style permission ask (ACP / OpenCode). Render the
+        // tool — which for a shell command is the command itself — in
+        // a fenced code block so it reads cleanly, and only show the
+        // input JSON when there actually is some.
         if (typeof showQuestionModal === 'function') {
+            var _permTool = event.tool || 'this action';
+            var _permInput = event.input || {};
+            var _hasInput = _permInput && typeof _permInput === 'object'
+                && Object.keys(_permInput).length > 0;
+            // Build the question as markdown: a short prompt line plus a
+            // code block for the command/tool. _mdToHtml renders the
+            // fence as a proper monospace box (no awkward inline wrap).
+            var _permQ = 'Allow this action?\n\n```\n' + _permTool + '\n```';
+            if (_hasInput) {
+                _permQ += '\n```json\n'
+                    + JSON.stringify(_permInput, null, 2) + '\n```';
+            }
             showQuestionModal({
-                question: 'Allow tool: ' + (event.tool || '?') + '?\n\n'
-                    + JSON.stringify(event.input || {}, null, 2),
+                header: 'Permission request',
+                question: _permQ,
                 options: [
                     { label: 'Allow once', value: 'once' },
                     { label: 'Always allow', value: 'always' },
@@ -2434,7 +2447,7 @@ function showPlanModal(planText, onAnswer) {
     freeRow.style.cssText = 'display:flex;gap:6px;margin-top:8px;align-items:center;';
     var freeInput = document.createElement('input');
     freeInput.type = 'text';
-    freeInput.placeholder = 'Tell Claude what to change...';
+    freeInput.placeholder = 'Tell ' + _agentShortName(_activeAgentProvider, _activeAgentModel) + ' what to change...';
     freeInput.style.cssText = 'flex:1;background:var(--code-bg);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:13px;outline:none;';
     freeInput.addEventListener('keydown', function(e) {
         if (e.key === 'Enter' && freeInput.value.trim()) dismiss('feedback:' + freeInput.value.trim());
@@ -2660,7 +2673,8 @@ function showQuestionModal(q, onAnswer) {
         freeRow.style.cssText = 'display:flex;gap:6px;margin-top:8px;align-items:center;';
         freeInput = document.createElement('input');
         freeInput.type = 'text';
-        freeInput.placeholder = isAskUser ? 'Or type a custom answer...' : (opts.length ? 'Tell Claude what to do instead...' : 'Type your answer...');
+        var _agentNm = _agentShortName(_activeAgentProvider, _activeAgentModel);
+        freeInput.placeholder = isAskUser ? 'Or type a custom answer...' : (opts.length ? ('Tell ' + _agentNm + ' what to do instead...') : 'Type your answer...');
         freeInput.style.cssText = 'flex:1;background:var(--code-bg);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:13px;outline:none;';
         freeInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && freeInput.value.trim()) dismiss(freeInput.value.trim());
@@ -3788,6 +3802,12 @@ function _humanModelLabel(model) {
     return bare;
 }
 
+// The active session's agent — set by _setWelcomeLabel from
+// system_init / settings events. Used wherever the UI needs to name
+// the agent (e.g. the permission modal placeholder).
+var _activeAgentProvider = null;
+var _activeAgentModel = null;
+
 // Compose the descriptive display name for the current agent.
 // Always includes the vendor name first, then the model when known.
 // Used in the welcome header and (via _agentShortName) in placeholders.
@@ -3795,6 +3815,12 @@ function _agentDisplayName(provider, model) {
     var modelLabel = _humanModelLabel(model);
     if (provider === 'opencode') {
         return modelLabel ? 'OpenCode • ' + modelLabel : 'OpenCode';
+    }
+    // ACP agents — provider is "acp-claude" / "acp-codex" /
+    // "acp-gemini". Show "ACP: Codex" etc.
+    if (provider && provider.indexOf('acp-') === 0) {
+        var ak = provider.slice(4);
+        return 'ACP: ' + ak.charAt(0).toUpperCase() + ak.slice(1);
     }
     if (provider && provider !== 'claude') {
         // Capitalise the unknown provider name so it reads better
@@ -3811,6 +3837,12 @@ function _agentShortName(provider, model) {
     // Used in conversational placeholders ("Message X…") — short.
     var modelLabel = _humanModelLabel(model);
     if (provider === 'opencode') return modelLabel || 'OpenCode';
+    // ACP agents report provider as "acp-claude" / "acp-codex" /
+    // "acp-gemini" — show the underlying agent name, capitalised.
+    if (provider && provider.indexOf('acp-') === 0) {
+        var ak = provider.slice(4);
+        return ak.charAt(0).toUpperCase() + ak.slice(1);
+    }
     if (provider && provider !== 'claude') {
         return provider.charAt(0).toUpperCase() + provider.slice(1);
     }
@@ -3836,6 +3868,11 @@ function _setModelPill(provider, model) {
 // model switch). Also refreshes the prompt placeholder + waiting
 // spinner text so they stop saying "Claude" for non-Claude sessions.
 function _setWelcomeLabel(provider, model) {
+    // Remember the active agent so other UI (e.g. the permission
+    // modal's free-text placeholder) can name it instead of always
+    // saying "Claude".
+    _activeAgentProvider = provider;
+    _activeAgentModel = model;
     var el = document.getElementById('agent-welcome-label');
     if (el) el.textContent = _agentDisplayName(provider, model);
     // Refresh the prompt placeholder.
