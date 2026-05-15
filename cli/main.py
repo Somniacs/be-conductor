@@ -1654,5 +1654,14 @@ h1 {{ font-size:28px; color:#8080ff; margin:0 0 6px; font-weight:600; }}
     click.echo("  (opened in browser — check your browser window)")
 
 
+# ---------------------------------------------------------------------------
+# Register commands defined in sibling modules.
+# ---------------------------------------------------------------------------
+
+from cli.doctor import register as _register_doctor  # noqa: E402
+
+_register_doctor(cli)
+
+
 if __name__ == "__main__":
     cli()

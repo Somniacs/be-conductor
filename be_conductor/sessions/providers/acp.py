@@ -54,7 +54,10 @@ import base64
 import json
 import logging
 import os
+import re
 import shutil
+import subprocess
+import sys
 import tempfile
 import uuid as _uuid
 from contextlib import suppress
@@ -72,42 +75,201 @@ ACP_PROTOCOL_VERSION = 1
 # ---------------------------------------------------------------------------
 # Adapter registry
 #
-# The only per-agent knowledge in this module. Each entry is the launch
-# command for an ACP adapter binary. `npx -y` fetches the adapter from
-# npm on first use (cached afterwards) — chosen so users don't need a
-# separate install step. The provider name is `acp-<key>`.
+# The only per-agent knowledge in this module. Each entry describes how
+# to launch an ACP adapter: `npx_args` are the arguments passed to `npx`
+# (resolved at launch via acp_npx() — it is `npx.cmd` on Windows). `npx`
+# fetches the adapter from the npm registry on first use and caches it;
+# `be-conductor setup-acp` warms that cache up front.
 #
-# Package names (verified against npm):
-#   - Claude: @zed-industries/claude-code-acp — wraps the official
-#     Claude Code SDK. (The @agentclientprotocol/claude-agent-acp repo
-#     exists but the published, maintained package is the Zed one.)
-#   - Codex:  @zed-industries/codex-acp — the Codex ACP adapter.
+# Package names (verified against the npm registry, May 2026):
+#   - Claude: @agentclientprotocol/claude-agent-acp — the current,
+#     maintained adapter (v0.33.x). It wraps the official Claude Code
+#     SDK. The older @zed-industries/claude-code-acp (v0.16.x) is the
+#     stale predecessor — do not use it.
+#   - Codex:  @zed-industries/codex-acp — the maintained Codex adapter
+#     (v0.14.x); the @agentclientprotocol/codex-acp package is still at
+#     v0.0.x and not ready.
 #   - Gemini: the Gemini CLI itself speaks ACP via `--experimental-acp`;
 #     no separate adapter package is needed.
+#
+# ALL of these need Node.js >= 20 (the Gemini CLI declares it; the
+# Claude / Codex SDKs require it in practice). `be-conductor doctor`
+# checks this — see docs/acp.md.
+#
+# `cli` is the underlying agent CLI an adapter inherits its login from;
+# `setup-acp` / `doctor` report whether it is on PATH.
 # ---------------------------------------------------------------------------
 
 ACP_AGENTS: dict[str, dict[str, Any]] = {
     "claude": {
         "label": "ACP: Claude",
-        "cmd": ["npx", "-y", "@zed-industries/claude-code-acp"],
+        "npm": "@agentclientprotocol/claude-agent-acp",
+        "npx_args": ["-y", "@agentclientprotocol/claude-agent-acp"],
+        "cli": "claude",
     },
     "codex": {
         "label": "ACP: Codex",
-        "cmd": ["npx", "-y", "@zed-industries/codex-acp"],
+        "npm": "@zed-industries/codex-acp",
+        "npx_args": ["-y", "@zed-industries/codex-acp"],
+        "cli": "codex",
     },
     "gemini": {
         "label": "ACP: Gemini",
-        "cmd": ["npx", "-y", "@google/gemini-cli", "--experimental-acp"],
+        "npm": "@google/gemini-cli",
+        "npx_args": ["-y", "@google/gemini-cli", "--experimental-acp"],
+        "cli": "gemini",
     },
 }
 
+# Minimum Node.js major version required by every ACP adapter.
+ACP_MIN_NODE_MAJOR = 20
 
-def list_acp_agents() -> list[dict[str, str]]:
-    """Return the catalogue of ACP agents for the new-session UI."""
-    return [
-        {"id": f"acp-{key}", "key": key, "label": meta["label"]}
-        for key, meta in ACP_AGENTS.items()
-    ]
+
+# ---------------------------------------------------------------------------
+# Environment detection — Node / npx
+#
+# These helpers are deliberately module-level and side-effect-free so the
+# CLI (`be-conductor doctor` / `setup-acp`) can reuse them without
+# constructing a provider. All are cross-platform: `shutil.which`
+# resolves `npx.cmd` / `node.exe` on Windows automatically.
+# ---------------------------------------------------------------------------
+
+
+def acp_npx() -> str | None:
+    """Return the full path to the `npx` executable, or None.
+
+    On Windows this resolves `npx.cmd`; elsewhere `npx`. Used to build
+    adapter launch commands — passing the resolved path (not the bare
+    string "npx") is what makes subprocess spawning work on Windows.
+    """
+    return shutil.which("npx")
+
+
+def find_node() -> str | None:
+    """Return the full path to the `node` executable, or None."""
+    return shutil.which("node")
+
+
+def node_version() -> tuple[int, int, int] | None:
+    """Return Node's (major, minor, patch), or None if node is absent
+    or its version can't be parsed."""
+    node = find_node()
+    if not node:
+        return None
+    try:
+        out = subprocess.run(
+            [node, "--version"], capture_output=True, text=True, timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    m = re.search(r"v?(\d+)\.(\d+)\.(\d+)", (out.stdout or "").strip())
+    if not m:
+        return None
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3)))
+
+
+def _node_install_hint() -> str:
+    """OS-appropriate one-liner for installing a recent Node.js."""
+    if sys.platform == "win32":
+        return "winget install OpenJS.NodeJS  (or: choco install nodejs)"
+    if sys.platform == "darwin":
+        return "brew install node"
+    return "use your distro's package manager, or https://nodejs.org/"
+
+
+def acp_preflight() -> str | None:
+    """Check that the environment can run ACP adapters.
+
+    Returns None when everything is in order, or a human-readable error
+    string naming the problem and the fix. Cheap enough to call on every
+    session start.
+    """
+    if acp_npx() is None:
+        return (
+            "Node.js / npx not found — ACP agents need Node.js "
+            f"{ACP_MIN_NODE_MAJOR}+. Install it ({_node_install_hint()}), "
+            "then run: be-conductor setup-acp"
+        )
+    ver = node_version()
+    if ver is None:
+        return (
+            "Node.js could not be run — ACP agents need Node.js "
+            f"{ACP_MIN_NODE_MAJOR}+. Install it ({_node_install_hint()}), "
+            "then run: be-conductor setup-acp"
+        )
+    if ver[0] < ACP_MIN_NODE_MAJOR:
+        return (
+            f"Node.js {ver[0]}.{ver[1]}.{ver[2]} is too old — ACP agents "
+            f"need Node.js {ACP_MIN_NODE_MAJOR}+. Upgrade it "
+            f"({_node_install_hint()}), then run: be-conductor setup-acp"
+        )
+    return None
+
+
+def agent_cli_status(agent_key: str) -> bool:
+    """Return True if the underlying CLI for an ACP agent is on PATH.
+
+    e.g. for `claude` this checks the `claude` CLI — the ACP adapter
+    inherits that CLI's login, so its presence is a good readiness hint.
+    """
+    meta = ACP_AGENTS.get(agent_key)
+    if not meta:
+        return False
+    return shutil.which(meta["cli"]) is not None
+
+
+def acp_launch_command(agent_key: str) -> list[str]:
+    """Build the full launch command (npx + args) for an ACP agent.
+
+    Raises ValueError for an unknown agent, RuntimeError when npx is not
+    available. The first element is the resolved npx path so the command
+    spawns correctly on Windows.
+    """
+    meta = ACP_AGENTS.get(agent_key)
+    if not meta:
+        raise ValueError(f"unknown ACP agent: {agent_key!r}")
+    npx = acp_npx()
+    if npx is None:
+        raise RuntimeError(
+            "npx not found — install Node.js "
+            f"{ACP_MIN_NODE_MAJOR}+ ({_node_install_hint()})"
+        )
+    return [npx, *meta["npx_args"]]
+
+
+def list_acp_agents() -> list[dict[str, Any]]:
+    """Return the catalogue of ACP agents for the new-session UI.
+
+    Each entry carries readiness hints the dashboard uses:
+      - `cli_signed_in` — the agent's underlying CLI is on PATH.
+      - `ready` — Node.js is OK *and* the agent's CLI is present.
+    Node-level readiness is reported once at the top of the response
+    by `acp_environment_status()`.
+    """
+    node_ok = acp_preflight() is None
+    out: list[dict[str, Any]] = []
+    for key, meta in ACP_AGENTS.items():
+        cli_ok = agent_cli_status(key)
+        out.append({
+            "id": f"acp-{key}",
+            "key": key,
+            "label": meta["label"],
+            "cli": meta["cli"],
+            "cli_signed_in": cli_ok,
+            "ready": node_ok and cli_ok,
+        })
+    return out
+
+
+def acp_environment_status() -> dict[str, Any]:
+    """Return Node/npx readiness for the ACP feature as a whole."""
+    ver = node_version()
+    return {
+        "node_ok": acp_preflight() is None,
+        "node_version": (".".join(str(p) for p in ver) if ver else None),
+        "npx_found": acp_npx() is not None,
+        "min_node_major": ACP_MIN_NODE_MAJOR,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -148,12 +310,17 @@ class _JsonRpcTransport:
         self._write_lock = asyncio.Lock()
 
     async def start(self) -> None:
-        """Spawn the adapter subprocess and begin reading."""
-        if not shutil.which(self._cmd[0]):
+        """Spawn the adapter subprocess and begin reading.
+
+        `_cmd` is expected to be fully resolved already (see
+        acp_launch_command) — its first element is an absolute npx
+        path, which is what lets the spawn succeed on Windows.
+        """
+        if not self._cmd or not Path(self._cmd[0]).exists() and \
+                not shutil.which(self._cmd[0]):
             raise RuntimeError(
-                f"`{self._cmd[0]}` not found in PATH. ACP adapters are "
-                f"launched via npx — install Node.js (≥ 20) to use ACP "
-                f"agents."
+                f"ACP adapter launcher not found: {self._cmd[0] if self._cmd else '?'}. "
+                "Run: be-conductor setup-acp"
             )
         self._proc = await asyncio.create_subprocess_exec(
             *self._cmd,
@@ -398,12 +565,21 @@ class AcpProvider:
     # ----- lifecycle --------------------------------------------------
 
     async def start(self) -> None:
-        meta = ACP_AGENTS[self._agent_key]
+        # Preflight: fail fast with an actionable message instead of
+        # spawning a doomed subprocess that hangs. acp_preflight()
+        # checks for npx and a recent-enough Node.js.
+        problem = acp_preflight()
+        if problem:
+            raise RuntimeError(f"{ACP_AGENTS[self._agent_key]['label']}: {problem}")
+
         env = dict(os.environ)
         if self._extra_env:
             env.update(self._extra_env)
 
-        self._transport = _JsonRpcTransport(meta["cmd"], self._cwd, env)
+        # Build the launch command via acp_launch_command() so the npx
+        # path is resolved (npx.cmd on Windows).
+        cmd = acp_launch_command(self._agent_key)
+        self._transport = _JsonRpcTransport(cmd, self._cwd, env)
         self._transport.on_notification = self._on_notification
         self._transport.on_request = self._on_request
         await self._transport.start()

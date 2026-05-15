@@ -28,29 +28,43 @@ Pick **Claude (native)** when you want Claude with everything be-conductor can o
 
 Pick an **ACP agent** when you want to drive **Codex** or **Gemini** through the same be-conductor chat view, or when you want Claude Code over the portable protocol. ACP is the breadth layer: more agents, one consistent UI. The trade-off is that ACP standardises only what's common across agents — see [section 4](#4-what-works-whats-missing) for what that means in practice.
 
-## 2. Prerequisites
+## 2. Setup — the easy way
 
-ACP agents run as small adapter programs that be-conductor launches on demand. Two things need to be in place on the machine running be-conductor:
+Run one command:
 
-### Node.js (≥ 20)
-
-The adapters are distributed on npm and launched with `npx`. Install Node.js 20 or newer:
-
-```bash
-node --version    # should print v20.x or higher
+```
+be-conductor setup-acp
 ```
 
-The first time you start a given ACP agent, `npx` downloads its adapter — this takes a few seconds. After that it's cached and starts instantly.
+It checks your environment, asks which ACP agents you want (Claude / Codex / Gemini), downloads their adapters so the first session starts instantly, and remembers your choice. For a non-interactive install:
 
-### The agent's own CLI, signed in
+```
+be-conductor setup-acp --agents claude,codex --yes
+```
 
-Each ACP adapter wraps the agent's normal CLI and inherits its login. So sign in once, the usual way:
+To check what's installed and what's missing at any time:
+
+```
+be-conductor doctor
+```
+
+`doctor` reports your Node.js version, the agent CLIs, and per-agent readiness — with the exact fix command for anything that's not ready.
+
+### What setup-acp needs
+
+ACP agents run as small adapter programs that be-conductor launches on demand. Two things must be in place on the machine running be-conductor:
+
+**Node.js 20 or newer.** The adapters are npm packages. `setup-acp` and `doctor` both check this; if Node is missing or too old they print the install command for your OS (`winget install OpenJS.NodeJS` on Windows, `brew install node` on macOS, your package manager on Linux). be-conductor does not install Node itself.
+
+**The agent's own CLI, signed in.** Each ACP adapter wraps the agent's normal CLI and inherits its login:
 
 - **ACP: Claude** — sign in to Claude Code (`claude` CLI) as you normally would.
 - **ACP: Codex** — sign in to the Codex CLI with your ChatGPT account or API key.
 - **ACP: Gemini** — sign in to the Gemini CLI (`gemini`).
 
-If the underlying CLI works in your terminal, the ACP agent works in be-conductor.
+If the underlying CLI works in your terminal, the ACP agent works in be-conductor. `doctor` shows which CLIs it found.
+
+> If you skip `setup-acp`, ACP still works — the adapter just downloads on the first session instead (a slower first start). If Node.js is missing or too old, the session fails immediately with a clear message telling you to run `setup-acp`.
 
 ## 3. Creating an ACP session
 
@@ -86,14 +100,16 @@ This is the deliberate split: **ACP gives breadth** (Codex, Gemini, and more, in
 
 ## 5. Troubleshooting
 
-**"`npx` not found" / the session fails immediately**
-Node.js isn't installed or isn't on `PATH`. Install Node 20+ and restart be-conductor.
+**First step for any ACP problem: run `be-conductor doctor`.** It tells you, in one place, whether Node.js, npx, and each agent CLI are ready, and prints the fix for anything that isn't.
+
+**An ACP session fails immediately with "needs Node.js ≥ 20"**
+The be-conductor server is using an old (or missing) Node.js. Install Node 20+, then **restart the be-conductor server** so it picks up the new Node on its `PATH`. If you have several Node versions (e.g. via nvm), make sure the one on the server's `PATH` is 20+. Re-check with `be-conductor doctor`.
 
 **The first prompt hangs for a long time**
-`npx` is downloading the adapter from npm. Give it up to a minute on first use; it's cached afterwards. If it never completes, check that the be-conductor machine has network access to `registry.npmjs.org`.
+`npx` is downloading the adapter from npm. Run `be-conductor setup-acp` once up front to avoid this — it pre-downloads the adapters. If a download never completes, check that the be-conductor machine has network access to `registry.npmjs.org`.
 
 **The agent says it isn't authenticated**
-The ACP adapter inherits the underlying CLI's login. Open a terminal on the be-conductor machine and confirm the agent's own CLI (`claude`, `codex`, `gemini`) is signed in there.
+The ACP adapter inherits the underlying CLI's login. Open a terminal on the be-conductor machine and confirm the agent's own CLI (`claude`, `codex`, `gemini`) is signed in there. `be-conductor doctor` shows which CLIs it found.
 
 **Resume is missing for an ACP session**
 Not every ACP agent supports session loading. When an agent doesn't, be-conductor hides the Resume action — but the chat history is still kept and shown. Starting the agent again begins a fresh session.

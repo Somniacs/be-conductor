@@ -132,6 +132,11 @@ _DEFAULT_DIRECTORIES = [
 ALLOWED_COMMANDS: list[dict] = list(_DEFAULT_ALLOWED_COMMANDS)
 DEFAULT_DIRECTORIES: list[str] = list(_DEFAULT_DIRECTORIES)
 
+# ACP agent keys the user has set up via `be-conductor setup-acp`
+# (e.g. ["claude", "codex"]). Persisted in config.yaml; purely a
+# user-preference hint — the dashboard always lists all ACP agents.
+ACP_AGENTS_ENABLED: list[str] = []
+
 _config_version: int = 0
 
 
@@ -168,7 +173,7 @@ def migrate_from_old_name():
 def load_user_config():
     """Load ~/.be-conductor/config.yaml and merge over defaults."""
     global ALLOWED_COMMANDS, DEFAULT_DIRECTORIES, BUFFER_MAX_BYTES, UPLOAD_WARN_SIZE, GRACEFUL_STOP_TIMEOUT
-    global SSL_CERTFILE, SSL_KEYFILE
+    global SSL_CERTFILE, SSL_KEYFILE, ACP_AGENTS_ENABLED
 
     if not USER_CONFIG_FILE.exists():
         return
@@ -180,6 +185,8 @@ def load_user_config():
 
     if "allowed_commands" in data and isinstance(data["allowed_commands"], list):
         ALLOWED_COMMANDS = data["allowed_commands"]
+    if "acp_agents" in data and isinstance(data["acp_agents"], list):
+        ACP_AGENTS_ENABLED = [str(x) for x in data["acp_agents"]]
     if "default_directories" in data and isinstance(data["default_directories"], list):
         DEFAULT_DIRECTORIES = data["default_directories"]
     if "buffer_max_bytes" in data and isinstance(data["buffer_max_bytes"], int):
@@ -198,10 +205,12 @@ def load_user_config():
 def save_user_config(data: dict):
     """Write settings to ~/.be-conductor/config.yaml and update in-memory values."""
     global ALLOWED_COMMANDS, DEFAULT_DIRECTORIES, BUFFER_MAX_BYTES, UPLOAD_WARN_SIZE, GRACEFUL_STOP_TIMEOUT, _config_version
-    global SSL_CERTFILE, SSL_KEYFILE
+    global SSL_CERTFILE, SSL_KEYFILE, ACP_AGENTS_ENABLED
 
     if "allowed_commands" in data and isinstance(data["allowed_commands"], list):
         ALLOWED_COMMANDS = data["allowed_commands"]
+    if "acp_agents" in data and isinstance(data["acp_agents"], list):
+        ACP_AGENTS_ENABLED = [str(x) for x in data["acp_agents"]]
     if "default_directories" in data and isinstance(data["default_directories"], list):
         DEFAULT_DIRECTORIES = data["default_directories"]
     if "buffer_max_bytes" in data and isinstance(data["buffer_max_bytes"], int):
@@ -226,10 +235,33 @@ def save_user_config(data: dict):
         config_out["ssl_certfile"] = SSL_CERTFILE
     if SSL_KEYFILE:
         config_out["ssl_keyfile"] = SSL_KEYFILE
+    # Preserve the ACP agent preference across saves — save_user_config
+    # rebuilds config_out from scratch, so any key not listed here would
+    # be silently dropped on the next settings change.
+    if ACP_AGENTS_ENABLED:
+        config_out["acp_agents"] = ACP_AGENTS_ENABLED
 
     CONDUCTOR_DIR.mkdir(parents=True, exist_ok=True)
     USER_CONFIG_FILE.write_text(yaml.dump(config_out, default_flow_style=False, sort_keys=False))
     _config_version += 1
+
+
+def get_acp_agents() -> list[str]:
+    """Return the ACP agent keys the user enabled via `setup-acp`."""
+    return list(ACP_AGENTS_ENABLED)
+
+
+def set_acp_agents(keys: list[str]):
+    """Persist the user's chosen ACP agent keys to config.yaml.
+
+    Loads the current config, merges the new `acp_agents` list, and
+    writes it back via save_user_config so nothing else is lost.
+    """
+    global ACP_AGENTS_ENABLED
+    ACP_AGENTS_ENABLED = [str(k) for k in keys]
+    # Re-save the full current config (save_user_config rebuilds from
+    # the in-memory globals; ACP_AGENTS_ENABLED is now updated).
+    save_user_config({})
 
 
 def get_editable_settings() -> dict:

@@ -277,6 +277,9 @@ Write-Host "Done! " -NoNewline -ForegroundColor Green
 Write-Host "Run '$Project run claude research' to start a session."
 Write-Host "Dashboard: http://127.0.0.1:7777"
 Write-Host ""
+Write-Host "Tip: run '$Project setup-acp' to enable Codex / Gemini / Claude"
+Write-Host "     via the Agent Client Protocol (needs Node.js 20+)."
+Write-Host ""
 Write-Host "If the command is not found, restart your terminal."
 
 } # end Install-BeConductor

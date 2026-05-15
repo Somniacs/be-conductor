@@ -513,16 +513,21 @@ async def get_provider_models(provider: str):
 async def get_acp_agents():
     """Return the catalogue of ACP agents for the new-session dialog.
 
-    Each entry has `id` (the provider name to pass as
-    `agent_options.provider`, e.g. `acp-claude`), `key` and a display
-    `label`. ACP agents are launched via their adapter binaries (npx);
-    no server probe is needed here — this is a static catalogue.
+    Each agent entry has `id` (the provider name to pass as
+    `agent_options.provider`, e.g. `acp-claude`), `key`, a display
+    `label`, and readiness hints (`cli_signed_in`, `ready`). The
+    top-level fields (`node_ok`, `node_version`, `npx_found`) tell the
+    dialog whether the ACP feature can run at all, so it can show a
+    "run be-conductor setup-acp" hint instead of failing silently.
     """
     try:
-        from be_conductor.sessions.providers.acp import list_acp_agents
-        return {"agents": list_acp_agents()}
+        from be_conductor.sessions.providers.acp import (
+            list_acp_agents, acp_environment_status,
+        )
+        env = acp_environment_status()
+        return {"agents": list_acp_agents(), **env}
     except Exception as e:
-        return {"agents": [], "error": str(e)}
+        return {"agents": [], "error": str(e), "node_ok": False}
 
 
 @router.get("/browse")

@@ -8160,11 +8160,23 @@
                 const r = await fetch('/agent-providers/acp/agents');
                 const data = await r.json();
                 const agents = (data && data.agents) || [];
+                // When Node.js isn't ready, ACP agents can't launch.
+                // Still list them (so the user sees they exist), but
+                // flag why and point at the fix.
+                const nodeOk = data && data.node_ok !== false;
                 agents.forEach(function(a) {
                     const opt = document.createElement('option');
                     opt.value = a.id;            // e.g. "acp-claude"
-                    opt.textContent = a.label;   // e.g. "ACP: Claude"
-                    opt.title = a.label + ' — via Agent Client Protocol';
+                    if (nodeOk) {
+                        opt.textContent = a.label;          // "ACP: Claude"
+                        opt.title = a.label + ' — via Agent Client Protocol'
+                            + (a.cli_signed_in ? ''
+                               : ' (sign in to the ' + (a.cli || '') + ' CLI first)');
+                    } else {
+                        opt.textContent = a.label + ' — needs setup';
+                        opt.title = a.label + ' — Node.js 20+ required. '
+                            + 'Run: be-conductor setup-acp';
+                    }
                     sel.appendChild(opt);
                 });
                 _acpDropdownPopulated = true;
