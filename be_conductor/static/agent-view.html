@@ -2073,15 +2073,30 @@ function renderEvent(event) {
         errGroup.appendChild(div);
 
     } else if (etype === 'session_end') {
-        setBusy(false);
-        _importantEvent = true;
-        _importantEventKind = 'session_end';
-        _showSessionEnded(event.resumable, event.message);
-        // In JetBrains JCEF: close the editor tab when session ends (non-resumable)
-        if (!event.resumable && typeof window.cefQuery === 'function') {
-            setTimeout(function() {
-                window.cefQuery({request: JSON.stringify({type: 'closeTab'})});
-            }, 2000); // 2s delay so user sees the "ended" banner
+        // A session_end replayed from history belongs to a PREVIOUS
+        // incarnation of a resumed session — the session is live now.
+        // Replaying it must only drop an inline "Session ended" marker
+        // in the timeline; it must NOT hide the live input box or show
+        // the ended panel (that hid the input field of a running
+        // resumed session — no way to type).
+        if (_replayingHistory) {
+            var _endMark = document.createElement('div');
+            _endMark.className = 'msg';
+            _endMark.style.cssText = 'text-align:center;color:var(--muted);font-size:11px;margin:10px 0;';
+            _endMark.innerHTML = '<span style="opacity:0.7;">● Session ended</span>';
+            messagesEl.appendChild(_endMark);
+        } else {
+            setBusy(false);
+            _importantEvent = true;
+            _importantEventKind = 'session_end';
+            _showSessionEnded(event.resumable, event.message);
+            // In JetBrains JCEF: close the editor tab when session
+            // ends (non-resumable).
+            if (!event.resumable && typeof window.cefQuery === 'function') {
+                setTimeout(function() {
+                    window.cefQuery({request: JSON.stringify({type: 'closeTab'})});
+                }, 2000); // 2s delay so user sees the "ended" banner
+            }
         }
     }
 
