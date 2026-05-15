@@ -324,6 +324,13 @@ class _JsonRpcTransport:
                 f"ACP adapter launcher not found: {self._cmd[0] if self._cmd else '?'}. "
                 "Run: be-conductor setup-acp"
             )
+        # `limit` raises asyncio's StreamReader line-buffer ceiling.
+        # The default is 64 KB — a single ACP JSON-RPC message can far
+        # exceed that (e.g. a tool result listing a large directory, or
+        # a big file read). When readline() can't find a newline within
+        # the limit it raises "Separator is not found, and chunk exceed
+        # the limit", which killed the read loop and made the adapter
+        # look like it had disconnected mid-tool-call. 16 MB is ample.
         self._proc = await asyncio.create_subprocess_exec(
             *self._cmd,
             stdin=asyncio.subprocess.PIPE,
@@ -331,6 +338,7 @@ class _JsonRpcTransport:
             stderr=asyncio.subprocess.PIPE,
             cwd=self._cwd,
             env=self._env,
+            limit=16 * 1024 * 1024,
         )
         self._reader_task = asyncio.create_task(self._read_loop())
         self._stderr_task = asyncio.create_task(self._drain_stderr())
@@ -408,7 +416,16 @@ class _JsonRpcTransport:
         stdout = self._proc.stdout
         try:
             while True:
-                line = await stdout.readline()
+                try:
+                    line = await stdout.readline()
+                except (asyncio.LimitOverrunError, ValueError) as e:
+                    # A single message exceeded the StreamReader limit.
+                    # Don't kill the whole session — drain whatever is
+                    # buffered, skip this message, and keep reading.
+                    log.warning("ACP: oversized message skipped (%s)", e)
+                    with suppress(Exception):
+                        await stdout.read(getattr(e, "consumed", 0) or 0)
+                    continue
                 if not line:
                     break  # adapter closed stdout — process is exiting
                 line = line.strip()
