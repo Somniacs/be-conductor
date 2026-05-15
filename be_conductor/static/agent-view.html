@@ -1396,6 +1396,9 @@ function renderEvent(event) {
                     }
                 }
             }
+            // Note: the text #stream-bubble is NOT finalised here. The
+            // following assistant_message event removes it and renders
+            // the canonical permanent bubble (same flow as Claude).
             _streamBlockType = '';
         }
         return;

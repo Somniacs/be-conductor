@@ -569,6 +569,14 @@ class AcpProvider:
         # this, a new turn's text streams into the previous turn's
         # bubble.
         self._open_block: str | None = None
+        # Accumulators for the current turn's assistant output. ACP only
+        # streams chunks — it never sends a final "assistant_message".
+        # We build one at turn_end so the turn is persisted as a
+        # complete message; without it, replaying a stored ACP session
+        # (the stream_* events are skipped during replay) shows every
+        # assistant answer blank.
+        self._turn_text = ""
+        self._turn_thinking = ""
 
         # Tool-call bookkeeping: ACP tool_call_update carries only
         # changed fields, so we keep the last-known title/kind/input
@@ -749,14 +757,18 @@ class AcpProvider:
                     })
                 except Exception as e:
                     await self._close_stream_block()
+                    await self._emit_assistant_message()
                     await self._emit({"type": "error", "error": str(e)})
                     await self._emit({
                         "type": "turn_end", "stop_reason": "error"})
                     return
 
                 # Close the streaming block so the frontend finalises
-                # this turn's bubble before turn_end.
+                # this turn's bubble, then emit a complete
+                # assistant_message snapshot so the turn survives a
+                # history reload (stream_* events are skipped on replay).
                 await self._close_stream_block()
+                await self._emit_assistant_message()
                 stop_reason = (result or {}).get("stopReason", "end_turn")
                 await self._emit({
                     "type": "turn_end",
@@ -764,6 +776,8 @@ class AcpProvider:
                 })
             finally:
                 self._btw_turn = False
+                self._turn_text = ""
+                self._turn_thinking = ""
 
     def _build_prompt_blocks(
         self, text: str, attachments: list[dict],
@@ -890,6 +904,29 @@ class AcpProvider:
         self._open_block = None
         await self._emit({"type": "stream_stop", "block_type": bt})
 
+    async def _emit_assistant_message(self) -> None:
+        """Emit a complete assistant_message for the current turn.
+
+        ACP only streams chunks; it has no final-message event. The
+        orchestrator persists this snapshot to history, and history
+        replay renders `assistant_message` (it skips the stream_*
+        events) — so without this a reloaded ACP session shows every
+        assistant answer blank. Content blocks match the shape the
+        frontend's assistant_message renderer expects.
+        """
+        blocks: list[dict] = []
+        if self._turn_thinking.strip():
+            blocks.append({"type": "thinking",
+                           "thinking": self._turn_thinking})
+        if self._turn_text.strip():
+            blocks.append({"type": "text", "text": self._turn_text})
+        if not blocks:
+            return
+        await self._emit({
+            "type": "assistant_message",
+            "content": blocks,
+        })
+
     # ----- output -----------------------------------------------------
 
     async def events(self) -> AsyncIterator[AgentEvent]:
@@ -1002,6 +1039,11 @@ class AcpProvider:
                 return
             is_thought = kind == "agent_thought_chunk"
             block_type = "thinking" if is_thought else "text"
+            # Accumulate for the end-of-turn assistant_message snapshot.
+            if is_thought:
+                self._turn_thinking += text
+            else:
+                self._turn_text += text
             # Synthesise a stream_start the first time a block of this
             # kind streams (and close any block of the other kind).
             await self._open_stream_block(block_type)
