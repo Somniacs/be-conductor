@@ -207,14 +207,30 @@ class ProviderAgentSession:
         self.cols = cols
 
     def interrupt(self, timeout: float = 30.0) -> None:
-        # Fire-and-forget interrupt against the provider.
-        asyncio.ensure_future(self._do_interrupt())
+        # Ask the provider to cancel, then watchdog: if the session is
+        # still not finished after `timeout`, force-kill it. Without the
+        # watchdog, a provider whose agent ignores the cancel (e.g. an
+        # ACP adapter that doesn't honour session/cancel) leaves the
+        # session stuck in "stopping" forever — no resume, no dismiss.
+        self._was_graceful = True
+        asyncio.ensure_future(self._do_interrupt(timeout))
 
-    async def _do_interrupt(self) -> None:
+    async def _do_interrupt(self, timeout: float = 30.0) -> None:
         try:
             await self._provider.interrupt()
         except Exception as e:
             log.warning("provider interrupt failed: %s", e)
+        # Watchdog — escalate to a hard kill if the session hasn't
+        # ended on its own within the grace period.
+        try:
+            await asyncio.sleep(max(1.0, timeout))
+        except asyncio.CancelledError:
+            return
+        if self.status in ("running", "starting", "stopping"):
+            log.warning(
+                "ProviderAgentSession '%s' did not stop within %.0fs — "
+                "forcing kill", self.id, timeout)
+            await self.kill()
 
     async def kill(self) -> None:
         self.status = "killed"
