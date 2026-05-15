@@ -70,6 +70,17 @@ async function getAgentProviderModels(sk, provider) {
     return request(sk || 'local', 'GET', `/agent-providers/${encodeURIComponent(provider)}/models`);
 }
 
+/**
+ * Fetch the ACP agent catalogue. Returns an object with shape
+ *   { agents: [{id, key, label}], error }
+ * or null on error. ACP agents (acp-claude, acp-codex, acp-gemini) are
+ * launched via the Agent Client Protocol; `id` is passed straight
+ * through as agent_options.provider.
+ */
+async function getAcpAgents(sk) {
+    return request(sk || 'local', 'GET', '/agent-providers/acp/agents');
+}
+
 // Sessions
 async function listSessions(sk) { return request(sk || 'local', 'GET', '/sessions'); }
 async function getSession(sk, id) { return request(sk, 'GET', `/sessions/${encodeURIComponent(id)}`); }
@@ -122,7 +133,7 @@ async function worktreeGC(sk, dryRun, maxAgeDays) {
 async function getTailscalePeers(sk) { return request(sk || 'local', 'GET', '/tailscale/peers'); }
 
 module.exports = {
-    getHealth, getInfo, getConfig, getAgentProviderModels,
+    getHealth, getInfo, getConfig, getAgentProviderModels, getAcpAgents,
     listSessions, getSession, createSession, stopSession, deleteSession,
     resumeSession, resizeSession, cloneSession,
     checkGit,

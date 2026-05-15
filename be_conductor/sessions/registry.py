@@ -281,6 +281,21 @@ class SessionRegistry:
                     "opencode_agent", "build",
                 ),
             )
+
+        # ACP agents — `acp-claude`, `acp-codex`, `acp-gemini`. All
+        # share one provider class (AcpProvider); the suffix selects
+        # which adapter subprocess to launch. `resume` (an ACP
+        # sessionId) is set by self.resume() for agent sessions and
+        # triggers session/load instead of session/new.
+        if provider_name.startswith("acp-"):
+            from be_conductor.sessions.providers.acp import AcpProvider
+            agent_key = provider_name[len("acp-"):]
+            return AcpProvider(
+                agent_key=agent_key,
+                cwd=cwd,
+                resume_session_id=agent_options.get("resume"),
+            )
+
         raise ValueError(f"unknown agent provider: {provider_name!r}")
 
     async def _on_session_exit(self, session_id: str):
@@ -534,9 +549,11 @@ class SessionRegistry:
         # failed resume (e.g. command not found) doesn't lose the session.
         st = meta.get("session_type", "pty")
         agent_opts = None
-        if st == "agent" and has_resume_id:
+        if st == "agent":
             # Agent sessions use the SDK's native resume, not shell flags.
-            agent_opts = {"resume": meta["resume_id"]}
+            agent_opts = {}
+            if has_resume_id:
+                agent_opts["resume"] = meta["resume_id"]
             # Carry forward persisted user settings (model, effort,
             # permission_mode, adaptive_thinking). Written by
             # AgentSession.to_dict() — see that method for the allow-list.
@@ -544,6 +561,16 @@ class SessionRegistry:
             for key in ("model", "effort", "permission_mode", "adaptive_thinking"):
                 if key in persisted:
                     agent_opts[key] = persisted[key]
+            # Provider-backed sessions (OpenCode, acp-*) store their
+            # provider name at the top level of the metadata, not inside
+            # agent_options. Carry it forward so create() dispatches to
+            # ProviderAgentSession instead of the Claude path — this must
+            # happen even when there is no resume token (an ACP agent
+            # without loadSession resumes as a fresh session, but it is
+            # still an ACP session, not a Claude one).
+            prov = meta.get("provider")
+            if prov and prov != "claude":
+                agent_opts["provider"] = prov
             command = "Resume session"  # display prompt (not sent to Claude)
         session = await self.create(meta["name"], command, cwd=cwd,
                                     rows=rows, cols=cols,

@@ -33,10 +33,11 @@ be-conductor keeps them moving. Get notified on **Slack** or **Telegram** the mo
 | GitHub Copilot | `be-conductor run copilot chat` | — |
 | Custom | `be-conductor run python3 train` | — |
 
-Agent (SDK) sessions provide a rich structured UI — chat bubbles, tool calls, streaming, cost reporting, image attachments — instead of terminal output. Two backends are supported today:
+Agent (SDK) sessions provide a rich structured UI — chat bubbles, tool calls, streaming, cost reporting, image attachments — instead of terminal output. Three kinds of backend are supported:
 
 - **Claude** — via the Claude Agent SDK. Native, full feature set.
 - **OpenCode** — via OpenCode's Python SDK. One adapter gives you OpenAI/GPT-5.5, Codex variants, Gemini, Anthropic Claude (via API), and other models OpenCode routes to. **See [docs/opencode.md](docs/opencode.md) for installation, account setup, and connection details.**
+- **ACP agents** — Claude, Codex, and Gemini through the open [Agent Client Protocol](https://agentclientprotocol.com). Pick "ACP: Claude / Codex / Gemini" in the Agent picker. **See [docs/acp.md](docs/acp.md) for setup.**
 
 Create them from the web dashboard, VSCode, or JetBrains — toggle session type to "Agent" and pick the model from the dropdown.
 

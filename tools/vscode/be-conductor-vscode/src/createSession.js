@@ -243,6 +243,28 @@ async function createSessionFlow(callbacks) {
                 _provider: 'claude',
             },
         ];
+        // ACP agents — launched via the Agent Client Protocol. The
+        // catalogue is static; the provider name is passed straight
+        // through as agent_options.provider. Adapters are fetched via
+        // npx on first use, so nothing needs starting beforehand.
+        try {
+            const acp = await api.getAcpAgents(selectedServerKey);
+            if (acp && acp.agents && acp.agents.length > 0) {
+                backendItems.push({
+                    kind: vscode.QuickPickItemKind.Separator,
+                    label: 'Agent Client Protocol',
+                });
+                for (const a of acp.agents) {
+                    backendItems.push({
+                        label: a.label,
+                        description: 'via ACP — ' + a.id,
+                        _provider: a.id,
+                    });
+                }
+            }
+        } catch {
+            // Older server without the ACP endpoint — fine, skip.
+        }
         try {
             const cat = await api.getAgentProviderModels(selectedServerKey, 'opencode');
             if (cat && cat.models && cat.models.length > 0) {

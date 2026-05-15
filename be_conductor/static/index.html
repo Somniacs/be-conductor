@@ -8144,6 +8144,35 @@
             validateNewSession();
         }
 
+        // Populate the agent dropdown with the ACP agents (acp-claude,
+        // acp-codex, acp-gemini). These are a static catalogue served
+        // by /agent-providers/acp/agents — no server probe needed. The
+        // option value is the provider name itself (e.g. "acp-claude"),
+        // which createSession() passes straight through as
+        // agent_options.provider. ACP agents are launched via npx so
+        // there is nothing for the user to start beforehand.
+        var _acpDropdownPopulated = false;
+        async function _populateAcpAgentDropdown() {
+            if (_acpDropdownPopulated) return;
+            const sel = document.getElementById('new-provider');
+            if (!sel) return;
+            try {
+                const r = await fetch('/agent-providers/acp/agents');
+                const data = await r.json();
+                const agents = (data && data.agents) || [];
+                agents.forEach(function(a) {
+                    const opt = document.createElement('option');
+                    opt.value = a.id;            // e.g. "acp-claude"
+                    opt.textContent = a.label;   // e.g. "ACP: Claude"
+                    opt.title = a.label + ' — via Agent Client Protocol';
+                    sel.appendChild(opt);
+                });
+                _acpDropdownPopulated = true;
+            } catch (e) {
+                // Non-fatal — the dialog still works with Claude/OpenCode.
+            }
+        }
+
         // Populate the agent dropdown with one entry per OpenCode model,
         // sourced from /agent-providers/opencode/models. The first entry
         // (Claude) stays static. Called when the dialog flips to "agent"
@@ -8153,6 +8182,7 @@
         // OpenCode entry from the dropdown (see onProviderChange).
         var _opencodeDropdownPopulated = false;
         async function _populateOpenCodeAgentDropdown() {
+            await _populateAcpAgentDropdown();
             if (_opencodeDropdownPopulated) return;
             const sel = document.getElementById('new-provider');
             const status = document.getElementById('provider-status');
@@ -8729,6 +8759,9 @@
                 //   "claude"                  -> native Claude (no agent_options.provider)
                 //   "opencode:custom"         -> OpenCode + free-text model from input
                 //   "opencode:<provider>/<m>" -> OpenCode + specific model
+                //   "acp-claude"/"acp-codex"/"acp-gemini"
+                //                             -> ACP agent (value passed straight
+                //                                through as agent_options.provider)
                 if (providerVal && providerVal !== 'claude') {
                     let modelStr = '';
                     let provider = 'claude';

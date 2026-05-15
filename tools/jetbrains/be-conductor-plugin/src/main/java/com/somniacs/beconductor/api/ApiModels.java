@@ -271,4 +271,19 @@ public final class ApiModels {
         public String model_id;     // "gpt-5.5", "gpt-5.3-codex", ...
         public Boolean current;
     }
+
+    /**
+     * Response from GET /agent-providers/acp/agents — the static
+     * catalogue of ACP agents for the new-session dialog.
+     */
+    public static class AcpAgentsResponse {
+        public List<AcpAgent> agents;
+        public String error;
+    }
+
+    public static class AcpAgent {
+        public String id;     // provider name, e.g. "acp-claude"
+        public String key;    // short key, e.g. "claude"
+        public String label;  // display label, e.g. "ACP: Claude"
+    }
 }

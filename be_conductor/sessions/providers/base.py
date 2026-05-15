@@ -57,6 +57,11 @@ from typing import Any, AsyncIterator, Literal, Protocol, TypedDict, runtime_che
 PROVIDER_NAME_CLAUDE: str = "claude"
 PROVIDER_NAME_OPENCODE: str = "opencode"
 
+# ACP-backed agents share one provider class (AcpProvider) and report
+# `name` as "acp-<agent>". The prefix is the stable dispatch key the
+# registry matches on; the suffix selects the adapter binary.
+PROVIDER_PREFIX_ACP: str = "acp-"
+
 
 # ---------------------------------------------------------------------------
 # Capability flags

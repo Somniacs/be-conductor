@@ -246,6 +246,16 @@ public final class BeConductorClient {
                 ApiModels.AgentProviderModelsResponse.class);
     }
 
+    /**
+     * Fetch the ACP agent catalogue (acp-claude, acp-codex, acp-gemini)
+     * so the new-session dialog can list the Agent Client Protocol
+     * backends. Returns null on failure — callers fall back gracefully.
+     */
+    public ApiModels.AcpAgentsResponse getAcpAgents(String serverKey) throws Exception {
+        return doGet(serverKey, "/agent-providers/acp/agents",
+                ApiModels.AcpAgentsResponse.class);
+    }
+
     // ── Worktrees ─────────────────────────────────────────────────────────
 
     public List<ApiModels.WorktreeInfo> listWorktrees(String serverKey) throws Exception {

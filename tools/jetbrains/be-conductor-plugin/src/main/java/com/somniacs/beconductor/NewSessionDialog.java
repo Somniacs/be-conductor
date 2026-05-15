@@ -250,10 +250,12 @@ public class NewSessionDialog extends DialogWrapper {
         sessionTypeCombo.addActionListener(e -> updateAgentRowVisibility());
         agentCombo.addActionListener(e -> updateAgentStatusVisibility());
 
-        // Kick off the OpenCode model fetch in the background — this
-        // populates the dropdown with one entry per OpenCode model the
-        // server reports. We do this async so the dialog opens
-        // instantly even if OpenCode is slow / unreachable.
+        // Kick off the ACP agent + OpenCode model fetches in the
+        // background — these populate the dropdown with the ACP agents
+        // (Claude/Codex/Gemini via the Agent Client Protocol) and one
+        // entry per OpenCode model the server reports. Done async so
+        // the dialog opens instantly even if a backend is unreachable.
+        loadAcpAgentsAsync();
         loadOpenCodeModelsAsync();
 
         // Row: Worktree checkbox + git status
@@ -452,15 +454,43 @@ public class NewSessionDialog extends DialogWrapper {
 
     /**
      * The agent-status line shows "OpenCode at <url> — N models" only
-     * when an OpenCode entry is the current pick. Hidden otherwise to
-     * keep the dialog calm when the user is on Claude.
+     * when an OpenCode entry is the current pick. Hidden for Claude and
+     * for ACP agents (which have no server-status to report — they are
+     * launched on demand via npx).
      */
     private void updateAgentStatusVisibility() {
         if (agentStatus == null) return;
         boolean isAgent = "agent".equals(getSessionType());
         Object sel = agentCombo != null ? agentCombo.getSelectedItem() : null;
-        boolean isOpenCode = sel instanceof AgentChoice && !((AgentChoice) sel).isClaude();
+        boolean isOpenCode = sel instanceof AgentChoice
+                && "opencode".equals(((AgentChoice) sel).provider);
         agentStatus.setVisible(isAgent && isOpenCode);
+    }
+
+    /**
+     * Fetch the ACP agent catalogue in the background and append the
+     * entries (ACP: Claude / Codex / Gemini) to the agent combo. ACP
+     * agents are launched on demand via npx; their provider id (e.g.
+     * "acp-claude") is sent straight through as agent_options.provider.
+     */
+    private void loadAcpAgentsAsync() {
+        new Thread(() -> {
+            ApiModels.AcpAgentsResponse resp = null;
+            try {
+                BeConductorClient client = BeConductorClient.getInstance();
+                resp = client.getAcpAgents(selectedServerKey);
+            } catch (Exception e) {
+                // Older server without the ACP endpoint — skip silently.
+            }
+            final ApiModels.AcpAgentsResponse finalResp = resp;
+            SwingUtilities.invokeLater(() -> {
+                if (finalResp != null && finalResp.agents != null) {
+                    for (ApiModels.AcpAgent a : finalResp.agents) {
+                        agentCombo.addItem(new AgentChoice(a.label, a.id, null, null));
+                    }
+                }
+            });
+        }, "be-conductor-acp-agents").start();
     }
 
     /** Fetch OpenCode models in the background and append them to the agent combo. */

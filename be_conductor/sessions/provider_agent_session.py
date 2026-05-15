@@ -429,6 +429,7 @@ class ProviderAgentSession:
 
                 text = entry.get("text", "")
                 attachments = entry.get("attachments") or []
+                btw = bool(entry.get("btw"))
 
                 self._turn_counter += 1
                 turn_id = f"turn-{self._turn_prefix}-{self._turn_counter}"
@@ -438,10 +439,15 @@ class ProviderAgentSession:
                 # provider doesn't always emit user_message itself
                 # quickly enough; doing it here keeps multi-client UIs
                 # consistent.
+                #
+                # BTW prompts are tagged so `_emit_event` broadcasts
+                # them without persisting to history — the side-channel
+                # question/answer is transient by design.
                 self._emit_event({
                     "type": "user_message",
                     "content": text,
                     "turn_id": turn_id,
+                    "btw": btw,
                 })
 
                 self._processing = True
@@ -451,6 +457,7 @@ class ProviderAgentSession:
                         attachments=attachments,
                         model=self._agent_options.get("model"),
                         agent=self._agent_options.get("agent"),
+                        options={"btw": btw} if btw else None,
                     )
                 except Exception as e:
                     self._emit_event({"type": "error", "error": str(e)})
@@ -501,6 +508,16 @@ class ProviderAgentSession:
                 # don't double-emit from the provider.
                 if ev.get("type") == "session_end":
                     continue
+                # Capture the provider's resume token from system_init.
+                # Providers that support session persistence (e.g. the
+                # ACP adapters, when the agent advertises loadSession)
+                # put their resumable session id here; persisting it to
+                # self.resume_id is what makes the session show up as
+                # resumable after it exits.
+                if ev.get("type") == "system_init":
+                    rid = ev.get("resume_id")
+                    if rid:
+                        self.resume_id = rid
                 # Track the most recent permission request so a later
                 # answer_question call routes to the right id.
                 if ev.get("type") == "permission_request":

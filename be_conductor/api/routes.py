@@ -509,6 +509,22 @@ async def get_provider_models(provider: str):
         return {"models": [], "error": str(e)}
 
 
+@router.get("/agent-providers/acp/agents")
+async def get_acp_agents():
+    """Return the catalogue of ACP agents for the new-session dialog.
+
+    Each entry has `id` (the provider name to pass as
+    `agent_options.provider`, e.g. `acp-claude`), `key` and a display
+    `label`. ACP agents are launched via their adapter binaries (npx);
+    no server probe is needed here — this is a static catalogue.
+    """
+    try:
+        from be_conductor.sessions.providers.acp import list_acp_agents
+        return {"agents": list_acp_agents()}
+    except Exception as e:
+        return {"agents": [], "error": str(e)}
+
+
 @router.get("/browse")
 async def browse_directory(path: str = "~"):
     """List subdirectories of a given path for the directory picker."""
