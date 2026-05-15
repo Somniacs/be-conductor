@@ -1973,6 +1973,11 @@ function renderEvent(event) {
                 + reason + cost;
             messagesEl.appendChild(div);
         }
+        // The turn is fully rendered (tools + answer) — redraw the
+        // connecting line so it spans the whole assistant-side run.
+        if (!_replayingHistory && typeof _updateGroupLines === 'function') {
+            _updateGroupLines();
+        }
 
     } else if (etype === 'tool_use_start' || etype === 'tool_use_progress' || etype === 'tool_use_end') {
         // Provider-style tool calls (ACP / OpenCode). Rendered as a
@@ -1986,8 +1991,13 @@ function renderEvent(event) {
         if (!toolEl) {
             toolEl = document.createElement('div');
             toolEl.id = 'tool-' + tuId;
-            toolEl.className = 'msg tool-block';
+            // msg-claude-dot: a tool call is assistant-side activity —
+            // it gets the dot and joins the connecting line that links
+            // the question to its answer (same as the assistant text
+            // blocks), instead of breaking the line as a plain block.
+            toolEl.className = 'msg tool-block msg-claude msg-claude-dot';
             toolEl.style.cssText = 'margin:6px 0;';
+            toolEl.style.setProperty('--dot-top', '13px');
             det = document.createElement('details');
             det.style.cssText = 'border:1px solid var(--border); border-radius:8px; overflow:hidden; background:var(--tool-bg);';
             summary = document.createElement('summary');
@@ -2024,6 +2034,11 @@ function renderEvent(event) {
         body.innerHTML = inputJson + outputText;
         if (!inputJson && !outputText) {
             body.innerHTML = '<span style="color:var(--muted);">(no details)</span>';
+        }
+        // Redraw the connecting line — a new tool block changes the
+        // assistant-side run that the line spans.
+        if (!_replayingHistory && typeof _updateGroupLines === 'function') {
+            _updateGroupLines();
         }
 
     } else if (etype === 'permission_request') {
