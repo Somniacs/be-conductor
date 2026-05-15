@@ -594,6 +594,14 @@ class AcpProvider:
         # assistant answer blank.
         self._turn_text = ""
         self._turn_thinking = ""
+        # Model catalogue, if the adapter exposes one. ACP core has no
+        # model concept, but some adapters (Codex) return a `models`
+        # block in the session/new result and accept session/set_model.
+        # _models is the list for the picker; _current_model the active
+        # id. Empty when the agent doesn't support model selection —
+        # MODEL_SWITCHING is then not advertised.
+        self._models: list[dict] = []
+        self._current_model: str | None = None
 
         # Tool-call bookkeeping: ACP tool_call_update carries only
         # changed fields, so we keep the last-known title/kind/input
@@ -660,12 +668,13 @@ class AcpProvider:
         # 3) create or load the session.
         if self._resume_session_id and Capability.SESSION_RESUME in self.capabilities:
             try:
-                await self._transport.request("session/load", {
+                load_result = await self._transport.request("session/load", {
                     "sessionId": self._resume_session_id,
                     "cwd": self._cwd,
                     "mcpServers": [],
                 }, timeout=120)
                 self._session_id = self._resume_session_id
+                self._capture_models(load_result or {})
                 log.info("ACP[%s]: loaded session %s", self.name,
                          self._session_id)
             except Exception as e:
@@ -683,6 +692,7 @@ class AcpProvider:
             if not self._session_id:
                 raise RuntimeError(
                     f"ACP[{self.name}]: session/new returned no sessionId")
+            self._capture_models(new_result)
             log.info("ACP[%s]: created session %s in %s", self.name,
                      self._session_id, self._cwd)
 
@@ -696,11 +706,46 @@ class AcpProvider:
             "capabilities": sorted(self.capabilities),
             "session_id": self._session_id,
             "subtype": "init",
-            "model": self.name,
+            # If the adapter exposes a model, name it; else the provider.
+            "model": self._current_model or self.name,
         }
         if Capability.SESSION_RESUME in self.capabilities:
             init_event["resume_id"] = self._session_id
+        if self._models:
+            init_event["models"] = self._models
         await self._event_queue.put(init_event)
+
+    def _capture_models(self, result: dict) -> None:
+        """Read a `models` block from a session/new or session/load
+        result (an adapter extension — Codex provides it). Populates the
+        catalogue and, when present, advertises MODEL_SWITCHING.
+
+        ACP shape: {currentModelId, availableModels:[{modelId, name,
+        description}]}. Normalised to the {value, displayName,
+        description, current} shape the frontend's model picker uses.
+        """
+        models_block = result.get("models")
+        if not isinstance(models_block, dict):
+            return
+        avail = models_block.get("availableModels") or []
+        current = models_block.get("currentModelId")
+        catalogue: list[dict] = []
+        for m in avail:
+            if not isinstance(m, dict):
+                continue
+            mid = m.get("modelId") or m.get("id")
+            if not mid:
+                continue
+            catalogue.append({
+                "value": mid,
+                "displayName": m.get("name") or mid,
+                "description": m.get("description") or "",
+                "current": mid == current,
+            })
+        if catalogue:
+            self._models = catalogue
+            self._current_model = current
+            self.capabilities.add(Capability.MODEL_SWITCHING)
 
     def _negotiate_capabilities(self) -> None:
         """Augment the capability set from the initialize response."""
@@ -956,14 +1001,47 @@ class AcpProvider:
     # ----- optional capabilities --------------------------------------
 
     async def set_model(self, model: str) -> None:
-        # ACP has no standard runtime model switch; MODEL_SWITCHING is
-        # not advertised, so the orchestrator never calls this.
-        raise NotImplementedError
+        """Switch the active model at runtime.
+
+        Only meaningful when the adapter exposed a model catalogue
+        (MODEL_SWITCHING advertised). Sends session/set_model — the
+        method that pairs with the `models` block adapters like Codex
+        return, mirroring session/set_mode for modes.
+        """
+        if Capability.MODEL_SWITCHING not in self.capabilities:
+            raise NotImplementedError
+        if self._transport is None or self._session_id is None:
+            return
+        try:
+            await self._transport.request("session/set_model", {
+                "sessionId": self._session_id,
+                "modelId": model,
+            }, timeout=30)
+        except Exception as e:
+            log.warning("ACP[%s]: session/set_model failed: %s",
+                        self.name, e)
+            await self._emit({
+                "type": "error",
+                "error": f"Could not switch model: {e}",
+            })
+            return
+        self._current_model = model
+        for m in self._models:
+            m["current"] = (m["value"] == model)
+        # Tell the UI the active model changed.
+        await self._emit({
+            "type": "settings",
+            "model": model,
+            "provider": self.name,
+        })
 
     async def list_models(self) -> list[dict]:
-        # ACP doesn't expose a model catalogue. The agent uses whatever
-        # model its underlying CLI is configured for.
-        return []
+        """Return the model catalogue, if the adapter exposed one.
+
+        Empty for adapters that don't support model selection — ACP
+        core has no model concept.
+        """
+        return list(self._models)
 
     async def set_agent(self, agent: str) -> None:
         raise NotImplementedError
@@ -1155,6 +1233,21 @@ class AcpProvider:
                 "subtype": "mode",
                 "payload": {"modeId": update.get("currentModeId")},
             })
+            return
+
+        if kind == "current_model_update":
+            # The adapter reports the active model changed (e.g. after
+            # a session/set_model, or the agent switched it itself).
+            mid = update.get("currentModelId") or update.get("modelId")
+            if mid:
+                self._current_model = mid
+                for m in self._models:
+                    m["current"] = (m["value"] == mid)
+                await self._emit({
+                    "type": "settings",
+                    "model": mid,
+                    "provider": self.name,
+                })
             return
 
         if kind == "usage_update":

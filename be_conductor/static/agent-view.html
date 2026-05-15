@@ -502,16 +502,30 @@ function _applyProviderGating() {
     // OpenCode doesn't expose context usage, so hide.
     if (!has('context_usage')) hide('context-indicator');
 
-    // Mode button ("Ask Mode" / permission-mode popup). Claude has
-    // these; OpenCode's `agent` concept is shaped differently and
-    // doesn't fit this UI, so hide for now.
-    if (!has('permission_modes')) hide('mode-btn');
+    // Mode button ("Ask Mode" / permission-mode popup). Shown when the
+    // session has permission modes OR runtime model switching — the
+    // popup hosts both. Hidden only when neither applies.
+    if (!has('permission_modes') && !has('model_switching')) hide('mode-btn');
 
     // ---- Inside the mode popup ----
     // Even if mode-btn is hidden, gate the rows in case the popup is
     // opened via some other path (history replay etc.).
     if (!has('effort_levels')) hide('effort-row');
     if (!has('adaptive_thinking')) hide('adaptive-thinking-row');
+    // The model-switch row only makes sense when the provider supports
+    // runtime model selection.
+    if (!has('model_switching')) hide('model-row');
+    // The Claude permission-mode list doesn't apply to providers
+    // without permission_modes — hide the "Modes" header, the mode
+    // items, and their trailing separator so the popup (when opened
+    // for model switching) shows only what's relevant.
+    if (!has('permission_modes')) {
+        hide('mode-popup-header');
+        hide('mode-popup-sep');
+        document.querySelectorAll('.mode-item').forEach(function(el) {
+            el.style.display = 'none';
+        });
+    }
 
     // ---- Plan review ----
     if (!has('plan_review')) {
@@ -1933,20 +1947,30 @@ function renderEvent(event) {
         setBusy(true);
 
     } else if (etype === 'turn_end') {
-        // Provider-style turn complete. Mirrors `result` for legacy
-        // Claude sessions — surface cost / stop reason if present.
+        // Provider-style turn complete. Only show a footer when there
+        // is something worth noting: a cost, or a stop reason that
+        // ISN'T the ordinary clean finish. A normal "end_turn" with no
+        // cost adds nothing but clutter under every answer, so it gets
+        // no footer at all.
         setBusy(false);
-        if (event.total_cost_usd != null || event.stop_reason) {
-            const cost = event.total_cost_usd
+        const _sr = event.stop_reason;
+        const _normalStop = !_sr || _sr === 'end_turn' || _sr === 'stop';
+        const _hasCost = event.total_cost_usd != null
+            && Number(event.total_cost_usd) > 0;
+        if (_hasCost || !_normalStop) {
+            const cost = _hasCost
                 ? ' &middot; $' + Number(event.total_cost_usd).toFixed(4)
                 : '';
-            const reason = event.stop_reason
-                ? ' &middot; ' + escHtml(event.stop_reason)
+            // Show the stop reason only when it's not the normal finish
+            // (e.g. "max_tokens", "refusal", "cancelled", "error").
+            const reason = (!_normalStop)
+                ? ' &middot; ' + escHtml(_sr)
                 : '';
             const div = document.createElement('div');
             div.className = 'msg';
             div.style.cssText = 'padding:6px 14px;color:var(--muted);font-size:11px;';
-            div.innerHTML = 'turn complete' + reason + cost;
+            div.innerHTML = (reason ? 'turn ended' : 'turn complete')
+                + reason + cost;
             messagesEl.appendChild(div);
         }
 
@@ -4725,6 +4749,7 @@ let effortIdx = 2;
 
 // Build popup
 const popupHeader = document.createElement('div');
+popupHeader.id = 'mode-popup-header';
 popupHeader.style.cssText = 'padding:8px 14px;font-size:12px;color:var(--muted);font-weight:600;';
 popupHeader.textContent = 'Modes';
 modePopup.appendChild(popupHeader);
@@ -4753,6 +4778,7 @@ MODES.forEach((m, idx) => {
 });
 
 const sep = document.createElement('div');
+sep.id = 'mode-popup-sep';
 sep.style.cssText = 'height:1px;background:#30363d;margin:6px 0;';
 modePopup.appendChild(sep);
 
@@ -4920,6 +4946,7 @@ modePopup.appendChild(bypassRow);
 
 // --- Model selector (opens picker modal) ---
 const modelRow = document.createElement('div');
+modelRow.id = 'model-row';
 modelRow.style.cssText = 'padding:8px 14px;display:flex;align-items:center;gap:10px;cursor:pointer;';
 modelRow.innerHTML = `
     <div style="color:var(--muted);flex-shrink:0;">
