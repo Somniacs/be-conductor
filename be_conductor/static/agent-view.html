@@ -505,7 +505,23 @@ function _applyProviderGating() {
     // Mode button ("Ask Mode" / permission-mode popup). Shown when the
     // session has permission modes OR runtime model switching — the
     // popup hosts both. Hidden only when neither applies.
-    if (!has('permission_modes') && !has('model_switching')) hide('mode-btn');
+    if (!has('permission_modes') && !has('model_switching')) {
+        hide('mode-btn');
+    } else if (!has('permission_modes') && has('model_switching')) {
+        // No permission modes — updateModeUI() (which fills the button
+        // with the current Claude mode) doesn't apply, leaving the
+        // button empty and effectively invisible. Give it its own
+        // label so the user can find the model picker.
+        var _mb = document.getElementById('mode-btn');
+        if (_mb) {
+            _mb.innerHTML =
+                '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" '
+                + 'stroke="currentColor" stroke-width="1.5" stroke-linecap="round" '
+                + 'stroke-linejoin="round"><rect x="2" y="2" width="12" height="12" '
+                + 'rx="2"/><path d="M5 6h6M5 8h4M5 10h5"/></svg> <span>Model</span>';
+            _mb.title = 'Switch model';
+        }
+    }
 
     // ---- Inside the mode popup ----
     // Even if mode-btn is hidden, gate the rows in case the popup is
@@ -5076,7 +5092,13 @@ function updateModeUI() {
     });
     const m = MODES[modeIdx];
     const labels = {default: 'Ask Mode', acceptEdits: 'Auto Edit', plan: 'Plan Mode'};
-    modeBtn.innerHTML = m.icon.replace('width="16"', 'width="14"').replace('height="16"', 'height="14"') + ' <span>' + (labels[m.value] || m.label) + '</span>';
+    // For provider sessions without permission modes the button shows
+    // a "Model" label set by _applyProviderGating — don't overwrite it
+    // with a Claude permission-mode label.
+    var _noPermModes = _providerCaps && !_providerCaps.has('permission_modes');
+    if (!_noPermModes) {
+        modeBtn.innerHTML = m.icon.replace('width="16"', 'width="14"').replace('height="16"', 'height="14"') + ' <span>' + (labels[m.value] || m.label) + '</span>';
+    }
     // Color-code the mode — subtle: only input box border on focus
     var modeColors = {default: '#e67e22', acceptEdits: '#ffffff', plan: '#4a6cf7'};
     var color = modeColors[m.value] || 'var(--border)';
