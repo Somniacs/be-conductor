@@ -2005,6 +2005,14 @@ function renderEvent(event) {
                 ],
                 request_id: event.request_id,
                 source: 'permission_request',
+            }, function(answer) {
+                // Send the choice back so the backend resolves the
+                // provider's pending permission request. Without this
+                // callback the click did nothing and the agent hung
+                // forever waiting for an approval that never arrived.
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({type: 'answer', text: answer}));
+                }
             });
         }
 
