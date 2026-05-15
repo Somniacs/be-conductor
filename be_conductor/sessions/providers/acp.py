@@ -1075,7 +1075,7 @@ class AcpProvider:
                 "type": "tool_use_start",
                 "tool": rec["tool"],
                 "tool_use_id": tc_id,
-                "input": rec["input"],
+                "input": _clean_tool_input(rec["input"]),
             })
             return
 
@@ -1087,14 +1087,21 @@ class AcpProvider:
                 rec["input"] = update["rawInput"] or {}
             status = update.get("status")
             output = self._extract_tool_content(update.get("content"))
+            if not output:
+                # `content` was empty — fall back to rawOutput, but it
+                # may be a dict / list; coerce to a display string so
+                # the frontend never renders "[object Object]".
+                output = _stringify_tool_value(update.get("rawOutput"))
+            # Show a clean, human-readable input — never the adapter's
+            # internal bookkeeping (call_id, process_id, parsed_cmd…).
+            disp_input = _clean_tool_input(rec["input"])
             if status in ("completed", "failed"):
                 await self._emit({
                     "type": "tool_use_end",
                     "tool": rec["tool"],
                     "tool_use_id": tc_id,
-                    "input": rec["input"],
-                    "output": output if output else (
-                        update.get("rawOutput") or ""),
+                    "input": disp_input,
+                    "output": output,
                     "is_error": status == "failed",
                 })
                 self._tool_calls.pop(tc_id, None)
@@ -1103,7 +1110,7 @@ class AcpProvider:
                     "type": "tool_use_progress",
                     "tool": rec["tool"],
                     "tool_use_id": tc_id,
-                    "input": rec["input"],
+                    "input": disp_input,
                     "output": output,
                 })
             return
@@ -1403,6 +1410,63 @@ def _bc_version() -> str:
         return version("be-conductor")
     except Exception:
         return "0.0.0"
+
+
+def _stringify_tool_value(value: Any) -> str:
+    """Coerce an arbitrary ACP tool output value to a display string.
+
+    `rawOutput` may be a string, a dict, a list, or None. Passing a
+    dict straight through makes the frontend render "[object Object]";
+    this always returns a string.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        # Common shapes: {output: "..."} / {text: "..."} / {content: ...}
+        for key in ("output", "text", "content", "stdout", "message"):
+            v = value.get(key)
+            if isinstance(v, str) and v.strip():
+                return v
+        try:
+            return json.dumps(value, indent=2)
+        except Exception:
+            return str(value)
+    if isinstance(value, (list, tuple)):
+        return "\n".join(_stringify_tool_value(v) for v in value)
+    return str(value)
+
+
+# Keys in an ACP adapter's rawInput that are internal bookkeeping, not
+# anything a user wants to see (Codex fills rawInput with these).
+_TOOL_INPUT_NOISE = {
+    "call_id", "process_id", "turn_id", "started_at_ms", "source",
+    "parsed_cmd", "session_id", "sessionId",
+}
+
+
+def _clean_tool_input(raw: Any) -> dict:
+    """Reduce an ACP tool input to the fields worth displaying.
+
+    Codex's rawInput carries a lot of internal bookkeeping (call_id,
+    process_id, parsed_cmd, …). Strip those; keep meaningful fields
+    like `command`, `cwd`, `path`. Returns {} when nothing useful
+    remains (the frontend then shows no input blob at all).
+    """
+    if not isinstance(raw, dict):
+        return {}
+    cleaned: dict[str, Any] = {}
+    for k, v in raw.items():
+        if k in _TOOL_INPUT_NOISE:
+            continue
+        # A `command` array like ["/bin/bash","-lc","ls -l x"] reads
+        # better joined into a single string.
+        if k == "command" and isinstance(v, (list, tuple)):
+            cleaned[k] = " ".join(str(x) for x in v)
+        else:
+            cleaned[k] = v
+    return cleaned
 
 
 def _extract_error_text(err: Any) -> str:
