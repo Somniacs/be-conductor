@@ -561,6 +561,14 @@ class AcpProvider:
         # event emitted is stamped `btw` so the orchestrator broadcasts
         # it transiently without writing it to history.
         self._btw_turn = False
+        # The block_type ("text" / "thinking") of the streaming block
+        # currently open, or None. ACP delivers raw message chunks with
+        # no explicit block boundaries; we synthesise stream_start /
+        # stream_stop from the first delta and the turn end so the
+        # frontend creates a fresh assistant bubble per turn. Without
+        # this, a new turn's text streams into the previous turn's
+        # bubble.
+        self._open_block: str | None = None
 
         # Tool-call bookkeeping: ACP tool_call_update carries only
         # changed fields, so we keep the last-known title/kind/input
@@ -740,11 +748,15 @@ class AcpProvider:
                         "prompt": prompt_blocks,
                     })
                 except Exception as e:
+                    await self._close_stream_block()
                     await self._emit({"type": "error", "error": str(e)})
                     await self._emit({
                         "type": "turn_end", "stop_reason": "error"})
                     return
 
+                # Close the streaming block so the frontend finalises
+                # this turn's bubble before turn_end.
+                await self._close_stream_block()
                 stop_reason = (result or {}).get("stopReason", "end_turn")
                 await self._emit({
                     "type": "turn_end",
@@ -853,6 +865,30 @@ class AcpProvider:
         if self._btw_turn and "btw" not in event:
             event["btw"] = True
         await self._event_queue.put(event)
+
+    async def _open_stream_block(self, block_type: str) -> None:
+        """Ensure a streaming block of `block_type` ("text"/"thinking")
+        is open, emitting stream_start. Closes any block of a different
+        kind first. ACP has no explicit block boundaries, so we derive
+        them from the chunk stream."""
+        if self._open_block == block_type:
+            return
+        if self._open_block is not None:
+            await self._close_stream_block()
+        self._open_block = block_type
+        await self._emit({"type": "stream_start", "block_type": block_type})
+
+    async def _close_stream_block(self) -> None:
+        """Emit stream_stop for the currently-open block, if any.
+
+        Called at turn end so the frontend finalises the assistant
+        bubble — without this the next turn's text streams into the
+        previous turn's bubble."""
+        if self._open_block is None:
+            return
+        bt = self._open_block
+        self._open_block = None
+        await self._emit({"type": "stream_stop", "block_type": bt})
 
     # ----- output -----------------------------------------------------
 
@@ -965,10 +1001,14 @@ class AcpProvider:
             if not text:
                 return
             is_thought = kind == "agent_thought_chunk"
+            block_type = "thinking" if is_thought else "text"
+            # Synthesise a stream_start the first time a block of this
+            # kind streams (and close any block of the other kind).
+            await self._open_stream_block(block_type)
             await self._emit({
                 "type": "stream_delta",
-                "delta_type": "thinking" if is_thought else "text",
-                ("thinking" if is_thought else "text"): text,
+                "delta_type": block_type,
+                block_type: text,
             })
             return
 
@@ -978,6 +1018,10 @@ class AcpProvider:
             return
 
         if kind == "tool_call":
+            # A tool call interrupts text streaming — close the current
+            # block so the tool widget renders between bubbles, and the
+            # post-tool text gets its own fresh bubble.
+            await self._close_stream_block()
             tc_id = update.get("toolCallId", "")
             rec = {
                 "tool": update.get("title") or update.get("kind") or "tool",
