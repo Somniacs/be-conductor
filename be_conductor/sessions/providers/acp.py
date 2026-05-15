@@ -1424,11 +1424,27 @@ def _stringify_tool_value(value: Any) -> str:
     if isinstance(value, str):
         return value
     if isinstance(value, dict):
-        # Common shapes: {output: "..."} / {text: "..."} / {content: ...}
-        for key in ("output", "text", "content", "stdout", "message"):
+        # Common shapes across adapters:
+        #   {output|text|content|stdout|message: "..."}
+        #   Codex exec result: {aggregated_output|formatted_output: "...",
+        #                        exit_code, status, stdout, stderr, ...}
+        for key in ("output", "text", "content", "aggregated_output",
+                    "formatted_output", "stdout", "message"):
             v = value.get(key)
             if isinstance(v, str) and v.strip():
                 return v
+        # No textual output. For a Codex-style exec result that just
+        # succeeded, show a short marker rather than dumping the whole
+        # bookkeeping blob (call_id, process_id, parsed_cmd, duration…).
+        status = value.get("status")
+        exit_code = value.get("exit_code")
+        if status == "completed" or exit_code == 0:
+            return "(completed, no output)"
+        stderr = value.get("stderr")
+        if isinstance(stderr, str) and stderr.strip():
+            return stderr
+        if status:
+            return f"({status})"
         try:
             return json.dumps(value, indent=2)
         except Exception:

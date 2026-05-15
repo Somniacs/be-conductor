@@ -1951,31 +1951,56 @@ function renderEvent(event) {
         }
 
     } else if (etype === 'tool_use_start' || etype === 'tool_use_progress' || etype === 'tool_use_end') {
-        // Provider-style tool calls. v1: render as a simple tool-block
-        // div (not yet pretty-formatted per tool name).
+        // Provider-style tool calls (ACP / OpenCode). Rendered as a
+        // collapsible <details> block — collapsed by default so a long
+        // run of tool calls stays compact; click the summary to see
+        // the input and output.
         const toolName = event.tool || '?';
         const tuId = event.tool_use_id || '';
         let toolEl = document.getElementById('tool-' + tuId);
+        let det, summary, body;
         if (!toolEl) {
             toolEl = document.createElement('div');
             toolEl.id = 'tool-' + tuId;
             toolEl.className = 'msg tool-block';
-            toolEl.style.cssText = 'padding:8px 14px; background:var(--tool-bg); border:1px solid var(--border); border-radius:8px; margin:6px 0; font-family:var(--font-mono); font-size:12px;';
+            toolEl.style.cssText = 'margin:6px 0;';
+            det = document.createElement('details');
+            det.style.cssText = 'border:1px solid var(--border); border-radius:8px; overflow:hidden; background:var(--tool-bg);';
+            summary = document.createElement('summary');
+            summary.style.cssText = 'padding:6px 12px; cursor:pointer; user-select:none; font-family:var(--font-mono); font-size:12px; display:flex; align-items:center; gap:6px; list-style:none;';
+            body = document.createElement('div');
+            body.className = 'tool-body';
+            body.style.cssText = 'padding:2px 12px 8px; font-family:var(--font-mono); font-size:12px;';
+            det.appendChild(summary);
+            det.appendChild(body);
+            toolEl.appendChild(det);
+            _addChevron(det);
             messagesEl.appendChild(toolEl);
+        } else {
+            det = toolEl.querySelector('details');
+            summary = toolEl.querySelector('summary');
+            body = toolEl.querySelector('.tool-body');
         }
         const status = etype === 'tool_use_end'
             ? (event.is_error ? 'error' : 'done')
             : (etype === 'tool_use_progress' ? 'running' : 'pending');
-        const inputJson = event.input
+        const statusColor = status === 'error' ? 'var(--error)'
+            : status === 'done' ? 'var(--success)' : 'var(--muted)';
+        // One-line summary: chevron + tool name + status badge.
+        summary.innerHTML = _chevron
+            + '<span style="font-weight:600; color:var(--accent);">' + escHtml(toolName) + '</span>'
+            + '<span style="color:' + statusColor + '; font-weight:normal; font-size:11px;">[' + status + ']</span>';
+        // Body: input + output, only the parts that exist.
+        const inputJson = (event.input && Object.keys(event.input).length)
             ? '<pre style="margin:4px 0; white-space:pre-wrap; color:var(--muted);">' + escHtml(JSON.stringify(event.input, null, 2)) + '</pre>'
             : '';
         const outputText = event.output
-            ? '<pre style="margin:4px 0; white-space:pre-wrap; color:' + (event.is_error ? 'var(--error)' : 'var(--success)') + ';">' + escHtml(String(event.output).slice(0, 4000)) + '</pre>'
+            ? '<pre style="margin:4px 0; white-space:pre-wrap; color:' + (event.is_error ? 'var(--error)' : 'var(--fg)') + ';">' + escHtml(String(event.output).slice(0, 4000)) + '</pre>'
             : '';
-        toolEl.innerHTML = ''
-            + '<div style="font-weight:600; color:var(--accent);">' + escHtml(toolName) + ' <span style="color:var(--muted); font-weight:normal; font-size:11px;">[' + status + ']</span></div>'
-            + inputJson
-            + outputText;
+        body.innerHTML = inputJson + outputText;
+        if (!inputJson && !outputText) {
+            body.innerHTML = '<span style="color:var(--muted);">(no details)</span>';
+        }
 
     } else if (etype === 'permission_request') {
         // Provider-style permission ask (ACP / OpenCode). Render the
