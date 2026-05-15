@@ -600,9 +600,21 @@ class SessionRegistry:
             new_history = SESSIONS_DIR / f"{session.id}.history.json"
             if old_history.exists() and not new_history.exists():
                 old_history.rename(new_history)
-        # Delete old metadata.
-        meta_path = SESSIONS_DIR / f"{session_id}.json"
-        meta_path.unlink(missing_ok=True)
+        # Delete old metadata ONLY when the resumed session got a
+        # different ID. For a same-ID resume (the current path for
+        # Claude and ACP agents), `create()` already wrote fresh
+        # metadata for the live session at exactly this path —
+        # deleting it here orphans the session: its history file
+        # survives but it has no metadata, so the next server restart
+        # can't rebuild it (it vanishes from the dashboard or renders
+        # as a tangled "Resume session" stub). Re-save instead.
+        if session.id != session_id:
+            meta_path = SESSIONS_DIR / f"{session_id}.json"
+            meta_path.unlink(missing_ok=True)
+        else:
+            # Same-ID resume — make sure the live session's metadata
+            # is on disk (create() wrote it, but be defensive).
+            self._save_metadata(session)
         # Delete old history ONLY if the session got a different ID
         # (we already moved or skipped it above). For same-ID resumes
         # the file IS the new session's history — keep it.
