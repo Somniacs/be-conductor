@@ -20,7 +20,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-agent = ["claude-agent-sdk>=0.1.0"]
+agent = ["claude-agent-sdk>=0.2.87"]
 # OpenCode SDK is installed from the `next` branch of the upstream repo
 # because PyPI's `opencode-ai 0.1.0a36` is incompatible with current
 # OpenCode servers (sends an empty body where `{}` is required). The

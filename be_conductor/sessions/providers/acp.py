@@ -83,14 +83,17 @@ ACP_PROTOCOL_VERSION = 1
 #
 # Package names (verified against the npm registry, May 2026):
 #   - Claude: @agentclientprotocol/claude-agent-acp — the current,
-#     maintained adapter (v0.33.x). It wraps the official Claude Code
-#     SDK. The older @zed-industries/claude-code-acp (v0.16.x) is the
-#     stale predecessor — do not use it.
+#     maintained adapter (v0.37.x). It wraps the official Claude Code
+#     SDK (@anthropic-ai/claude-agent-sdk, currently v0.3.146 — note
+#     this is the *JavaScript* SDK and versions independently of the
+#     Python claude-agent-sdk that be-conductor's native Claude sessions
+#     use). The older @zed-industries/claude-code-acp is the stale
+#     predecessor — do not use it.
 #   - Codex:  @zed-industries/codex-acp — the maintained Codex adapter
-#     (v0.14.x); the @agentclientprotocol/codex-acp package is still at
+#     (v0.15.x); the @agentclientprotocol/codex-acp package is still at
 #     v0.0.x and not ready.
 #   - Gemini: the Gemini CLI itself speaks ACP via `--experimental-acp`;
-#     no separate adapter package is needed.
+#     no separate adapter package is needed (v0.43.x).
 #
 # ALL of these need Node.js >= 20 (the Gemini CLI declares it; the
 # Claude / Codex SDKs require it in practice). `be-conductor doctor`
