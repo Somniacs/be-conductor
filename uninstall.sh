@@ -104,6 +104,20 @@ if [ -n "$OLD_PROJECT" ] && [ "$OLD_PROJECT" != "$PROJECT" ]; then
     remove_autostart "$OLD_PROJECT" "com.$OLD_PROJECT.server"
 fi
 
+# ── Claude Desktop registration + account profiles ───────────────────
+# Needs the CLI, so it runs before the package is removed.
+
+if command -v "$PROJECT" &>/dev/null; then
+    "$PROJECT" uninstall-mcp 2>/dev/null || true
+    if [ -d "$DATA_DIR/profiles" ]; then
+        if prompt_yn "Delete account profiles in $DATA_DIR/profiles (agent logins) and their stored API keys?" N; then
+            "$PROJECT" profile purge --yes 2>/dev/null || true
+        else
+            echo "  Kept profiles (their API keys stay in the OS keyring)"
+        fi
+    fi
+fi
+
 # ── Uninstall package ────────────────────────────────────────────────
 
 if command -v pipx &>/dev/null; then

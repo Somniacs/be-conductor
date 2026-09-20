@@ -205,6 +205,11 @@ class SessionRegistry:
                     if m:
                         meta["resume_id"] = m.group(1).strip('"').strip("'")
                     meta["status"] = "exited"
+                    # A headless run cannot survive the server — close it
+                    # out so callers polling for a result stop waiting.
+                    if meta.get("headless") and meta.get("task_status") in ("running", "needs_input"):
+                        meta["task_status"] = "failed"
+                        meta["fail_reason"] = "server_restart"
                     path.write_text(json.dumps(meta))
 
                 # PTY sessions: if resume_id is a name (not UUID), look up
@@ -325,7 +330,8 @@ class SessionRegistry:
         # shutting down (so no session is silently lost on restart).
         was_graceful = getattr(session, '_was_graceful', False) or session.status == "stopping"
         is_agent = getattr(session, 'session_type', 'pty') == 'agent'
-        if session.resume_id or session.worktree or was_graceful or self._shutting_down or is_agent:
+        is_task = getattr(session, 'headless', False)
+        if session.resume_id or session.worktree or was_graceful or self._shutting_down or is_agent or is_task:
             meta = session.to_dict()
             meta["status"] = "exited"
             self.resumable[session_id] = meta
@@ -339,7 +345,28 @@ class SessionRegistry:
                      worktree: bool = False,
                      session_type: str = "pty",
                      agent_options: dict | None = None,
-                     session_id: str | None = None) -> Session:
+                     session_id: str | None = None,
+                     profile: str | None = None,
+                     headless: dict | None = None) -> Session:
+        """Create and start a session.
+
+        *profile* runs it under an account profile (isolated login).
+        *headless* = {"prompt", "entry", "timeout_seconds"} runs the command
+        entry's headless form to completion instead of interactively.
+        """
+        # Resolve the profile first: a bad profile or a missing secret must
+        # fail before a worktree is created or anything is spawned.
+        from be_conductor.profiles import build_session_env, get_profile
+        profile_cfg = get_profile(profile) if profile else None
+        senv = build_session_env(profile, extra_env=env)
+        argv = None
+        if headless:
+            from be_conductor.sessions.headless import build_argv, headless_block
+            entry = headless["entry"]
+            argv = build_argv(entry, headless["prompt"],
+                              model=(profile_cfg or {}).get("model"))
+            command = entry["command"]
+
         # Agent sessions get a unique UUID; PTY sessions keep name as ID
         # for backwards compatibility.  Callers (e.g. resume) can pass an
         # explicit session_id to reuse the old ID and its history file.
@@ -399,12 +426,20 @@ class SessionRegistry:
             manager=self.notification_manager,
             patterns=notif_patterns,
         )
+        notifier.profile = profile
 
         if session_type == "agent":
             # Provider-based agent sessions (OpenCode, etc.) dispatch
             # to ProviderAgentSession; the existing Claude path
             # remains unchanged when no provider is specified.
             provider_name = (agent_options or {}).get("provider")
+            if provider_name and provider_name != "claude" and profile:
+                # These talk to a shared agent server/adapter whose login is
+                # not per-session — running "under a profile" would silently
+                # use the default account.
+                raise ValueError(
+                    f"Profiles are not supported for '{provider_name}' GUI sessions — "
+                    "use a terminal session, or the native Claude GUI session")
             if provider_name and provider_name != "claude":
                 from be_conductor.sessions.provider_agent_session import (
                     ProviderAgentSession,
@@ -431,26 +466,45 @@ class SessionRegistry:
                     session_id=session_id,
                     cwd=session_cwd,
                     on_exit=self._on_session_exit,
-                    env=env,
+                    env=senv.env or None,
                     worktree=worktree_info,
                     notifier=notifier,
                     agent_options=agent_options,
+                    profile=profile,
+                    strip_env=senv.strip or None,
                 )
         else:
-            session = Session(
+            pty_kwargs = dict(
                 name=name,
                 command=command,
                 session_id=session_id,
                 cwd=session_cwd,
                 on_exit=self._on_session_exit,
-                env=env,
+                env=senv.env or None,
                 resume_pattern=agent_cfg.get("resume_pattern"),
                 resume_flag=agent_cfg.get("resume_flag"),
                 resume_command=agent_cfg.get("resume_command"),
                 stop_sequence=agent_cfg.get("stop_sequence"),
                 worktree=worktree_info,
                 notifier=notifier,
+                profile=profile,
+                strip_env=senv.strip or None,
+                redact=senv.redact or None,
             )
+            if headless:
+                from be_conductor.sessions.headless import HeadlessSession
+                session = HeadlessSession(
+                    **pty_kwargs,
+                    argv=argv,
+                    prompt=headless["prompt"],
+                    block=headless_block(headless["entry"]),
+                    label=headless["entry"].get("label"),
+                    timeout_seconds=headless.get("timeout_seconds"),
+                    max_cost_usd=(profile_cfg or {}).get("max_cost_usd_per_run"),
+                )
+                notifier.on_notify = session.on_needs_input
+            else:
+                session = Session(**pty_kwargs)
         start_rows, start_cols = rows or 24, cols or 80
         await session.start(rows=start_rows, cols=start_cols)
         # Record initial size so the web client knows the PTY dimensions.
@@ -493,6 +547,14 @@ class SessionRegistry:
 
         if not meta:
             raise ValueError(f"No resumable session '{session_id}'")
+
+        # A finished headless task is only resumable as an interactive
+        # continuation, which needs the agent's own session id — re-running
+        # the bare command would just open an unrelated empty session.
+        if meta.get("headless") and not meta.get("resume_id"):
+            raise ValueError(
+                f"Task '{meta.get('name', session_id)}' cannot be continued — "
+                "this agent does not report a session id")
 
         # Guard: prevent two sessions from resuming the same Claude session.
         # If another running session already uses this resume_id, refuse.
@@ -572,11 +634,20 @@ class SessionRegistry:
             if prov and prov != "claude":
                 agent_opts["provider"] = prov
             command = "Resume session"  # display prompt (not sent to Claude)
+        # The conversation lives in the profile's config dir — resume there.
+        profile = meta.get("profile")
+        if profile:
+            from be_conductor.profiles import ProfileError, get_profile
+            try:
+                get_profile(profile)
+            except ProfileError as e:
+                raise ValueError(f"Cannot resume under its profile: {e}")
         session = await self.create(meta["name"], command, cwd=cwd,
                                     rows=rows, cols=cols,
                                     session_type=st,
                                     agent_options=agent_opts,
-                                    session_id=session_id)
+                                    session_id=session_id,
+                                    profile=profile)
         # Carry forward resume_id so fork works immediately
         if has_resume_id:
             session.resume_id = meta["resume_id"]
@@ -686,6 +757,12 @@ class SessionRegistry:
                     )
             if not parent.resume_id:
                 raise ValueError("Cannot clone: session has no resume ID yet (send a message first)")
+            if getattr(parent, "profile", None):
+                # The SDK's fork works on the server's own Claude config dir,
+                # not the profile's — it would not find this conversation.
+                raise ValueError(
+                    "Fork is not supported for GUI sessions running under a profile — "
+                    "use a terminal session for that")
             from claude_agent_sdk._internal.session_mutations import fork_session as _fork
             loop = asyncio.get_event_loop()
             result = await loop.run_in_executor(
@@ -703,9 +780,11 @@ class SessionRegistry:
         if parent.resume_id and _UUID_RE.match(parent.resume_id):
             try:
                 fork_cmd = f"claude --resume {parent.resume_id} --fork-session"
+                # The conversation lives in the parent's profile dir.
                 session = await self.create(
                     name, fork_cmd, cwd=effective_cwd,
                     rows=rows, cols=cols, source=source, worktree=worktree,
+                    profile=getattr(parent, "profile", None),
                 )
                 return session
             except Exception as e:
@@ -775,6 +854,7 @@ class SessionRegistry:
         session = await self.create(
             name, effective_cmd, cwd=effective_cwd,
             rows=rows, cols=cols, source=source, worktree=worktree,
+            profile=getattr(parent, "profile", None),
         )
 
         # Schedule context delivery once the agent is ready.
@@ -847,7 +927,8 @@ class SessionRegistry:
             # Try to extract resume info even after hard kill
             if hasattr(session, '_extract_resume_id'):
                 session._extract_resume_id()
-            if session.resume_id or session.worktree or self._shutting_down:
+            if (session.resume_id or session.worktree or self._shutting_down
+                    or getattr(session, 'headless', False)):
                 meta = session.to_dict()
                 meta["status"] = "exited"
                 self.resumable[session_id] = meta
@@ -887,11 +968,31 @@ class SessionRegistry:
         internal callers), this is an explicit user action — delete
         everything: metadata JSON *and* history file.
         """
-        self.resumable.pop(session_id, None)
+        meta = self.resumable.pop(session_id, None)
         meta_path = SESSIONS_DIR / f"{session_id}.json"
         meta_path.unlink(missing_ok=True)
         history_path = SESSIONS_DIR / f"{session_id}.history.json"
         history_path.unlink(missing_ok=True)
+        if meta and meta.get("headless"):
+            from be_conductor.sessions.headless import delete_task_record
+            delete_task_record(session_id)
+
+    def task_result(self, session_id: str) -> dict | None:
+        """Full task view (incl. result text) for a headless run, live or finished."""
+        session = self.get(session_id)
+        if session is not None and getattr(session, "headless", False):
+            return session.task_record()
+        from be_conductor.sessions.headless import load_task_record
+        record = load_task_record(session_id)
+        if record:
+            return record
+        meta = self.resumable.get(session_id)
+        if meta and meta.get("headless"):
+            # Never finalized (server died mid-run) — report what is known.
+            return {k: meta.get(k) for k in (
+                "id", "name", "label", "profile", "cwd", "prompt", "task_status",
+                "fail_reason", "cost_usd", "started_at", "finished_at")} | {"result": None}
+        return None
 
     def clear_all_resumable(self) -> int:
         """Remove all resumable entries that have no worktree. Returns count removed."""

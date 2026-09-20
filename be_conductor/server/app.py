@@ -24,6 +24,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from be_conductor.api.routes import router, registry
+from be_conductor.api.profile_routes import router as profile_router
 import be_conductor.utils.config as _config
 from be_conductor.utils.config import HOST, PORT, PID_FILE, VERSION, ensure_dirs
 
@@ -134,7 +135,14 @@ async def lifespan(app: FastAPI):
     # Start periodic notes cleanup
     cleanup_task = asyncio.create_task(_notes_cleanup_loop())
 
-    yield
+    mcp = getattr(app.state, "mcp", None)
+    if mcp is not None:
+        # The MCP session manager owns a task group that must live for as
+        # long as the server does.
+        async with mcp.session_manager.run():
+            yield
+    else:
+        yield
 
     cleanup_task.cancel()
     await registry.cleanup_all()
@@ -156,7 +164,20 @@ def create_app() -> FastAPI:
     # Auth middleware — always mounted; becomes active when a token is set
     app.add_middleware(BearerAuthMiddleware)
 
+    # Before the main router: /sessions/{id}/result etc. are plain additions,
+    # but keep the narrower paths ahead of any catch-all.
+    app.include_router(profile_router)
     app.include_router(router)
+
+    # MCP surface at /mcp — opt-in (mcp.enabled), and optional at import
+    # level so a broken/missing `mcp` package never takes the server down.
+    app.state.mcp = None
+    try:
+        from be_conductor.mcp_server.server import mount as _mount_mcp
+        app.state.mcp = _mount_mcp(app)
+    except Exception as e:
+        import logging
+        logging.getLogger("be_conductor.mcp").warning("MCP surface disabled: %s", e)
 
     # Serve dashboard
     static_dir = Path(__file__).resolve().parent.parent / "static"

@@ -233,6 +233,41 @@ if command -v "$PROJECT" &>/dev/null; then
     "$PROJECT" upgrade-sdk 2>/dev/null || true
 fi
 
+# ── Agent CLIs (reported only — never installed from here) ───────────
+echo "Agent CLIs on PATH:"
+for agent in claude codex opencode lean-ctx; do
+    if command -v "$agent" &>/dev/null; then
+        echo "  $agent ✓"
+    else
+        case "$agent" in
+            lean-ctx) echo "  $agent — not found (optional: context compression for profiles)" ;;
+            *)        echo "  $agent — not found" ;;
+        esac
+    fi
+done
+echo ""
+
+# ── Claude Desktop (MCP) ─────────────────────────────────────────────
+case "$(uname -s)" in
+    Darwin) CLAUDE_DESKTOP_DIR="$HOME/Library/Application Support/Claude" ;;
+    *)      CLAUDE_DESKTOP_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/Claude" ;;
+esac
+if command -v "$PROJECT" &>/dev/null && [ -d "$CLAUDE_DESKTOP_DIR" ]; then
+    if grep -q '"be-conductor"' "$CLAUDE_DESKTOP_DIR/claude_desktop_config.json" 2>/dev/null; then
+        # Already registered — refresh the entry so its command path stays valid.
+        "$PROJECT" install-mcp >/dev/null 2>&1 || true
+    else
+        printf "Claude Desktop found. Register be-conductor as an MCP server in it? [y/N] "
+        reply=""
+        if [ -t 0 ]; then read -r reply; elif [ -e /dev/tty ]; then read -r reply </dev/tty; fi
+        case "$reply" in
+            [Yy]*) "$PROJECT" install-mcp || true ;;
+            *)     echo "  Skipped — run '$PROJECT install-mcp' any time." ;;
+        esac
+    fi
+    echo ""
+fi
+
 # ── Restart any running server so the new version takes effect ──────
 # Without this, `up` would see the old process still running and do
 # nothing, leaving the dashboard stuck showing the old version.

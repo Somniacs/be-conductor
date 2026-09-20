@@ -80,6 +80,9 @@ Two session types run side-by-side. **PTY sessions** wrap terminal processes in 
 - **Run any terminal process** — AI coding agents, training jobs, builds, or any interactive command that runs in a terminal.
 - **Web dashboard** — full terminal rendering in the browser with split view, color themes, font controls, and keyboard input. Agent sessions render as rich structured UI in the same dashboard.
 - **Mobile-ready** — responsive layout with on-screen extra keys, horizontal and vertical touch scrolling, text selection via long-press, and auto-fullscreen when the keyboard opens.
+- **Account profiles** — run any agent under a second subscription or an API key, fully isolated from the machine's default login (`CLAUDE_CONFIG_DIR` / `CODEX_HOME` / OpenCode's XDG dirs). API keys live in the OS keyring. Log in from your phone, cap the cost per run, see spend per profile. Setup guide: [Profiles](docs/profiles.md).
+- **Headless tasks** — `be-conductor task "Claude Code — Max5" "fix the failing test"` runs a prompt to completion and prints the answer and cost; it is still a live session you can watch or answer if it stalls.
+- **MCP surface** — Claude Desktop (or any MCP client) can delegate work to your other agents and accounts, drive interactive sessions and land worktrees. One command to register: `be-conductor install-mcp`. Setup guide: [MCP](docs/mcp.md).
 - **Multi-machine** — connect to multiple be-conductor servers from one dashboard; sessions are grouped by machine.
 - **Git worktree isolation** — run agents in isolated branches so parallel sessions never conflict with each other or your work.
 - **Session resume** — exited sessions are saved and can be relaunched with one click or from the CLI. Agent sessions persist conversation history and resume via the SDK.
@@ -470,6 +473,12 @@ The web dashboard is a single HTML file served by the be-conductor server. See [
 | `be-conductor run -w COMMAND [NAME]` | Start session in an isolated git worktree |
 | `be-conductor run -d COMMAND [NAME]` | Start session in background (detached) |
 | `be-conductor run --json COMMAND [NAME]` | Start session and print JSON (implies detach) |
+| `be-conductor run --profile PROFILE COMMAND [NAME]` | Start session under an [account profile](docs/profiles.md) |
+| `be-conductor task COMMAND "PROMPT"` | Run a prompt headless, print the answer (`--profile`, `--dir`, `-w`, `--timeout`, `--json`) |
+| `be-conductor profile list\|add\|edit\|remove` | Manage account profiles |
+| `be-conductor profile login\|check\|set-key\|usage NAME` | Log a profile in, test it, store its API key, show its spend |
+| `be-conductor mcp` | stdio MCP server for Claude Desktop (bridges to the server's `/mcp`) |
+| `be-conductor install-mcp` / `uninstall-mcp` | Register / remove be-conductor in Claude Desktop |
 | `be-conductor attach NAME` | Attach to a running session |
 | `be-conductor resume NAME` | Resume an exited session (relaunch with resume token) |
 | `be-conductor resume NAME -t TOKEN` | Resume an external agent session inside be-conductor |

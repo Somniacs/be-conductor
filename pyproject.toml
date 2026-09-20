@@ -16,6 +16,8 @@ dependencies = [
     "qrcode>=7.0",
     "pyyaml>=6.0",
     "pyte>=0.8.0",
+    "keyring>=24.0",
+    "mcp>=1.12",
     "pywinpty>=2.0; sys_platform == 'win32'",
 ]
 

@@ -460,6 +460,21 @@
             gap: 3px;
             margin-top: 1px;
         }
+        .session-chips { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 2px; }
+        .session-chip {
+            font-size: 9px;
+            font-weight: 500;
+            padding: 0 5px;
+            border-radius: 7px;
+            background: #1a1a3e;
+            color: #9090d0;
+            line-height: 14px;
+            white-space: nowrap;
+        }
+        .session-chip.task-running { background: #14284a; color: #70a8ff; }
+        .session-chip.task-needs_input { background: #3a2a0a; color: #ffb040; }
+        .session-chip.task-done { background: #12301c; color: #60c080; }
+        .session-chip.task-failed, .session-chip.task-timeout { background: #3a1414; color: #ff8080; }
         .session-wt-actions { display: flex; gap: 2px; }
         .session-wt-actions button {
             font-size: 9px;
@@ -2138,9 +2153,14 @@
             gap: 0;
             margin-bottom: 14px;
             border-bottom: 1px solid #2a2a5a;
+            /* Seven tabs don't fit a phone-width dialog — scroll, don't clip. */
+            overflow-x: auto;
+            scrollbar-width: none;
         }
+        .settings-tabs::-webkit-scrollbar { display: none; }
         .settings-tab {
-            padding: 7px 16px;
+            flex: 0 0 auto;
+            padding: 7px 12px;
             font-size: 12px;
             color: #7878a0;
             background: none;
@@ -2272,6 +2292,17 @@
         .settings-edit-form .form-row input {
             flex: 1;
         }
+        .settings-edit-form .form-actions button {
+            padding: 5px 14px;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+            border: 1px solid #2a2a5a;
+            background: #14142e;
+            color: #a0a0c8;
+        }
+        .settings-edit-form .form-actions .btn-save { background: #3a3ab8; border-color: #4a4ad0; color: #fff; }
+        .settings-edit-form select, .settings-edit-form textarea { flex: 1; min-width: 0; font-family: inherit; }
         .settings-edit-form .form-actions {
             display: flex;
             justify-content: flex-end;
@@ -2679,6 +2710,10 @@
                 <div id="resume-manual-section">
                     <label>Command</label>
                     <select id="new-command" onchange="onCommandChange()"></select>
+                    <div id="new-profile-row" style="display:none;">
+                        <label>Profile <span style="font-weight:normal;color:#707090;">(account to run under)</span></label>
+                        <select id="new-profile"></select>
+                    </div>
                     <label>Session name</label>
                     <input type="text" id="new-name" placeholder="e.g. research" autocomplete="off">
                     <div id="name-error" style="font-size:11px;color:#ff6666;margin-top:2px;display:none;">Name already taken</div>
@@ -2819,6 +2854,18 @@
             <button class="about-close" onclick="toggleQR()">&times;</button>
             <h2 style="font-size:16px;margin-bottom:12px;">Link Device</h2>
             <div id="qr-content"></div>
+        </div>
+    </div>
+
+    <div class="about-overlay" id="task-result-dialog" onclick="if(event.target===this)this.classList.remove('open')">
+        <div class="about-box" style="min-width:min(560px,90vw);max-width:90vw;text-align:left;">
+            <button class="about-close" onclick="document.getElementById('task-result-dialog').classList.remove('open')">&times;</button>
+            <h2 style="font-size:15px;margin-bottom:8px;" id="task-result-title">Task result</h2>
+            <div id="task-result-meta" style="font-size:11px;color:#8080a0;margin-bottom:8px;"></div>
+            <div style="font-size:10px;color:#606080;text-transform:uppercase;letter-spacing:.5px;">Prompt</div>
+            <pre id="task-result-prompt" style="white-space:pre-wrap;word-break:break-word;font-size:11px;color:#9090b0;background:#0c0c20;border:1px solid #22224a;border-radius:5px;padding:7px;max-height:90px;overflow:auto;margin:3px 0 8px 0;"></pre>
+            <div style="font-size:10px;color:#606080;text-transform:uppercase;letter-spacing:.5px;">Result</div>
+            <pre id="task-result-body" style="white-space:pre-wrap;word-break:break-word;font-size:12px;color:#d0d0e8;background:#0c0c20;border:1px solid #22224a;border-radius:5px;padding:8px;max-height:50vh;overflow:auto;margin:3px 0 0 0;"></pre>
         </div>
     </div>
 
@@ -3545,8 +3592,10 @@
 
         function populateCommandSelect() {
             const sel = document.getElementById('new-command');
+            // data-profile: two entries may share a command and differ only in
+            // the profile they are bound to.
             sel.innerHTML = allowedCommands.map(c =>
-                `<option value="${c.command}">${c.label}</option>`
+                `<option value="${c.command}" data-profile="${c.profile || ''}">${c.label}</option>`
             ).join('');
             // Update Agent SDK toggle visibility based on selected command
             if (typeof onCommandChange === 'function') onCommandChange();
@@ -3778,8 +3827,18 @@
                 const mergeBtn = s.worktree && (s.worktree.commits_ahead || 0) > 0
                     ? `<button class="merge-btn-inline" onclick="event.stopPropagation();mergeWorktree('${cidEsc}','${nameEsc}')" title="Merge into base branch">&#8631;</button>`
                     : '';
+                // A finished headless task shows its result; it can only be
+                // resumed (continued interactively) if the agent reported a
+                // session id.
+                const resumeBtn = (!s.headless || s.resume_id)
+                    ? `<button class="resume-btn" onclick="event.stopPropagation();resumeSession('${cidEsc}')" title="${s.headless ? 'Continue this task interactively' : 'Resume session'}">&#9654;</button>`
+                    : '';
+                const resultBtn = s.headless
+                    ? `<button onclick="event.stopPropagation();showTaskResult('${cidEsc}')" title="Show result" style="font-size:12px;">&#9776;</button>`
+                    : '';
                 actions = `
-                    <button class="resume-btn" onclick="event.stopPropagation();resumeSession('${cidEsc}')" title="Resume session">&#9654;</button>
+                    ${resultBtn}
+                    ${resumeBtn}
                     ${mergeBtn}
                     <button onclick="event.stopPropagation();${dismissAction}" title="${dismissTitle}">&times;</button>
                 `;
@@ -3839,6 +3898,20 @@
 
             }
 
+            // Profile + headless task badges
+            let badges = '';
+            if (s.profile) {
+                badges += `<span class="session-chip" title="Runs under account profile ${escHtml(s.profile)}">${escHtml(s.profile)}</span>`;
+            }
+            if (s.headless) {
+                const ts = s.task_status || 'running';
+                const tsLabel = { running: 'running', needs_input: 'needs input', done: 'done', failed: 'failed', timeout: 'timeout' }[ts] || ts;
+                const cost = (ts !== 'running' && ts !== 'needs_input' && s.cost_usd !== null && s.cost_usd !== undefined)
+                    ? ` &middot; $${Number(s.cost_usd).toFixed(s.cost_usd < 1 ? 3 : 2)}` : '';
+                const tip = s.fail_reason ? `${tsLabel}: ${s.fail_reason}` : (s.prompt || '');
+                badges += `<span class="session-chip task-${ts}" title="${escHtml(tip)}">${tsLabel}${cost}</span>`;
+            }
+            if (badges) wtBadge += `<div class="session-chips">${badges}</div>`;
 
             return `
                 <div class="session-item ${isFocused ? 'focused' : isOpen ? 'open' : ''}" ${clickable ? `onclick="focusSession('${cidEsc}', '${nameEsc}', event, '${s.session_type || 'pty'}')"` : ''}>
@@ -6693,9 +6766,11 @@
             document.querySelectorAll('.settings-tab-panel').forEach(p => p.classList.toggle('active', p.dataset.tab === tab));
             // Show/hide footer buttons based on tab
             const resetBtn = document.querySelector('.settings-footer .btn-reset');
-            if (resetBtn) resetBtn.style.display = (tab !== 'notifications' && tab !== 'servers' && _isAdmin) ? '' : 'none';
+            if (resetBtn) resetBtn.style.display = (tab !== 'notifications' && tab !== 'servers' && tab !== 'profiles' && tab !== 'mcp' && _isAdmin) ? '' : 'none';
             // Load servers tab data on first switch
             if (tab === 'servers') _loadServersTabData();
+            if (tab === 'profiles') _loadProfilesTab();
+            if (tab === 'mcp') _loadMcpTab();
         }
 
         // ── Notification settings ────
@@ -7081,6 +7156,8 @@
                 html += `<button class="settings-tab${_settingsTab === 'general' ? ' active' : ''}" data-tab="general" onclick="switchSettingsTab('general')">General</button>`;
                 html += `<button class="settings-tab${_settingsTab === 'agents' ? ' active' : ''}" data-tab="agents" onclick="switchSettingsTab('agents')">Agents</button>`;
                 html += `<button class="settings-tab${_settingsTab === 'directories' ? ' active' : ''}" data-tab="directories" onclick="switchSettingsTab('directories')">Directories</button>`;
+                html += `<button class="settings-tab${_settingsTab === 'profiles' ? ' active' : ''}" data-tab="profiles" onclick="switchSettingsTab('profiles')">Profiles</button>`;
+                html += `<button class="settings-tab${_settingsTab === 'mcp' ? ' active' : ''}" data-tab="mcp" onclick="switchSettingsTab('mcp')">MCP</button>`;
             }
             html += `<button class="settings-tab${_settingsTab === 'servers' ? ' active' : ''}" data-tab="servers" onclick="switchSettingsTab('servers')">Servers</button>`;
             html += `<button class="settings-tab${_settingsTab === 'notifications' ? ' active' : ''}" data-tab="notifications" onclick="switchSettingsTab('notifications')">Notifications</button>`;
@@ -7111,7 +7188,7 @@
             (d.allowed_commands || []).forEach((cmd, i) => {
                 html += `<div class="settings-cmd-row" data-idx="${i}">`;
                 html += `<span class="cmd-label">${escHtml(cmd.label || '')}</span>`;
-                html += `<span class="cmd-command">${escHtml(cmd.command || '')}</span>`;
+                html += `<span class="cmd-command">${escHtml(cmd.command || '')}${cmd.profile ? ` <span class="session-chip">${escHtml(cmd.profile)}</span>` : ''}${cmd.headless ? ' <span class="session-chip task-running">headless</span>' : ''}</span>`;
                 html += `<span class="cmd-actions">`;
                 html += `<button onclick="editCommand(${i})" title="Edit">&#9998;</button>`;
                 html += `<button onclick="removeCommand(${i})" title="Remove">&times;</button>`;
@@ -7122,6 +7199,17 @@
             html += '</div>';
             html += '<div id="settings-cmd-edit" style="display:none"></div>';
             html += '</div>';
+
+            // ── Profiles / MCP tabs (admin; content loads on demand, changes apply immediately)
+            if (admin) {
+                html += `<div class="settings-tab-panel${_settingsTab === 'profiles' ? ' active' : ''}" data-tab="profiles">`;
+                html += '<div id="profiles-tab-content"><div style="font-size:12px;color:#505070;padding:4px 0;">Loading...</div></div>';
+                html += '<div id="profiles-tab-edit" style="display:none"></div>';
+                html += '</div>';
+                html += `<div class="settings-tab-panel${_settingsTab === 'mcp' ? ' active' : ''}" data-tab="mcp">`;
+                html += '<div id="mcp-tab-content"><div style="font-size:12px;color:#505070;padding:4px 0;">Loading...</div></div>';
+                html += '</div>';
+            }
 
             // ── Directories tab
             html += `<div class="settings-tab-panel${_settingsTab === 'directories' ? ' active' : ''}" data-tab="directories">`;
@@ -7307,6 +7395,12 @@
             }
             // Populate servers tab list
             _renderServersTabList();
+            if (_settingsTab === 'profiles') _loadProfilesTab();
+            if (_settingsTab === 'mcp') _loadMcpTab();
+            if (_settingsTab === 'profiles' || _settingsTab === 'mcp') {
+                const resetBtn = document.querySelector('.settings-footer .btn-reset');
+                if (resetBtn) resetBtn.style.display = 'none';
+            }
             // Load cross-server webhook status if multi-server
             if (_isMultiServer()) {
                 _loadCrossServerWebhookStatus();
@@ -7574,6 +7668,381 @@
             }
         }
 
+
+        // ── Profiles tab ─────────────────────────────────────────────────
+        // Account profiles = isolated agent logins. Unlike the rest of the
+        // dialog these apply immediately: Login / Test / Set key all need
+        // the profile to exist on the server.
+        let _profilesData = null;   // GET /profiles
+
+        const _PROFILE_BACKEND_VAR = {
+            claude: 'CLAUDE_CONFIG_DIR', codex: 'CODEX_HOME',
+            opencode: 'XDG_CONFIG_HOME + XDG_DATA_HOME', custom: 'env only',
+        };
+        const _smallBtn = 'padding:3px 9px;background:#1a1a3e;border:1px solid #2a2a5a;color:#c0c0e0;border-radius:3px;cursor:pointer;font-size:11px;';
+
+        async function _adminJson(url, method, body) {
+            const resp = await fetch(url, {
+                method: method || 'GET',
+                headers: body !== undefined ? { 'Content-Type': 'application/json' } : {},
+                body: body !== undefined ? JSON.stringify(body) : undefined,
+            });
+            let data = null;
+            try { data = await resp.json(); } catch (_) {}
+            if (!resp.ok) throw new Error((data && data.detail) || ('HTTP ' + resp.status));
+            return data;
+        }
+
+        async function _loadProfilesTab() {
+            const el = document.getElementById('profiles-tab-content');
+            if (!el) return;
+            try {
+                _profilesData = await _adminJson('/profiles');
+            } catch (e) {
+                el.innerHTML = `<div class="settings-hint">Could not load profiles: ${escHtml(e.message)}</div>`;
+                return;
+            }
+            _renderProfilesTab();
+        }
+
+        function _profileAuthText(p) {
+            if (p.secrets && p.secrets.length) {
+                return p.secrets.map(s => `${escHtml(s.env)} ${s.set ? '<span style="color:#60c080">set</span>' : '<span style="color:#ff9060">missing</span>'}`).join(', ');
+            }
+            if (p.logged_in === true) return '<span style="color:#60c080">logged in</span>';
+            if (p.logged_in === false) return '<span style="color:#ff9060">not logged in</span>';
+            return '<span style="color:#707090">n/a</span>';
+        }
+
+        function _renderProfilesTab() {
+            const el = document.getElementById('profiles-tab-content');
+            if (!el || !_profilesData) return;
+            const list = _profilesData.profiles || [];
+            let html = '<div class="settings-section"><div class="settings-section-title">Account Profiles</div>';
+            html += '<div class="settings-hint" style="margin-bottom:8px">A profile runs an agent under its own login or API key instead of this machine\'s default account. Each profile gets its own config directory — never point one at <code>~/.claude</code>, <code>~/.codex</code> or <code>~/.config</code>.</div>';
+            if (_profilesData.secret_backend === 'file') {
+                html += '<div style="margin-bottom:8px;padding:8px 10px;background:#2a1a0a;border:1px solid #5a3a1a;border-radius:5px;font-size:11px;color:#ff9060;">No OS keyring is available on this machine — API keys are stored in <code>~/.be-conductor/secrets/</code> (mode 0600) instead.</div>';
+            }
+            if (!list.length) {
+                html += '<div style="font-size:12px;color:#707090;padding:6px 0;">No profiles yet.</div>';
+            }
+            list.forEach((p, i) => {
+                const check = p.last_check ? (p.last_check.ok ? '<span style="color:#60c080" title="Last test passed">&#10003;</span>' : `<span style="color:#ff9060" title="${escHtml(p.last_check.detail || 'Last test failed')}">&#10007;</span>`) : '';
+                html += '<div style="border:1px solid #22224a;border-radius:6px;padding:8px 10px;margin-bottom:8px;">';
+                html += `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">`;
+                html += `<span style="font-weight:600;color:#d0d0f0;">${escHtml(p.name)}</span>`;
+                html += `<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:#1a1a3e;color:#9090d0;">${escHtml(p.backend)}</span>`;
+                if (p.leanctx && p.leanctx !== 'off') html += `<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:#1a2e1a;color:#80c080;">LeanCTX ${escHtml(p.leanctx)}</span>`;
+                html += `<span style="font-size:11px;">${_profileAuthText(p)} ${check}</span>`;
+                if (p.cli_found === false) html += '<span style="font-size:11px;color:#ff9060;">CLI not on PATH</span>';
+                html += `<span style="margin-left:auto;font-size:11px;color:#8080a0;">today $${(p.usage_today_usd || 0).toFixed(2)} &middot; week $${(p.usage_week_usd || 0).toFixed(2)}</span>`;
+                html += '</div>';
+                if (p.description) html += `<div style="font-size:11px;color:#8080a0;margin-top:3px;">${escHtml(p.description)}</div>`;
+                html += `<div style="font-size:11px;color:#606080;margin-top:3px;font-family:monospace;word-break:break-all;">${escHtml(p.config_dir || '—')}</div>`;
+                html += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:7px;">';
+                if (p.backend !== 'custom') html += `<button style="${_smallBtn}" onclick="_profileLogin(${i})" title="Open the agent's login flow in a terminal panel">Login</button>`;
+                html += `<button style="${_smallBtn}" id="profile-test-${i}" onclick="_profileTest(${i})" title="Run a trivial prompt under this profile">Test</button>`;
+                html += `<button style="${_smallBtn}" onclick="_profileSetKey(${i})">Set API key</button>`;
+                if (p.backend !== 'custom') html += `<button style="${_smallBtn}" onclick="_profileLeanCtx(${i})" title="Set up the LeanCTX context-compression layer for this profile">Init LeanCTX</button>`;
+                html += `<button style="${_smallBtn}" onclick="_editProfile(${i})">Edit</button>`;
+                html += `<button style="${_smallBtn}color:#ff9090;" onclick="_removeProfile(${i})">Remove</button>`;
+                html += '</div>';
+                html += `<div id="profile-msg-${i}" style="font-size:11px;color:#a0a0c0;margin-top:5px;white-space:pre-wrap;"></div>`;
+                html += '</div>';
+            });
+            html += '<button class="settings-add-btn" onclick="_editProfile(-1)">+ Add profile</button>';
+            html += '</div>';
+            el.innerHTML = html;
+        }
+
+        function _rawProfile(p) {
+            const keep = ['name', 'backend', 'config_dir', 'allow_default_dir', 'env', 'strip_env',
+                          'leanctx', 'max_cost_usd_per_run', 'model', 'description'];
+            const out = {};
+            keep.forEach(k => { if (p[k] !== undefined && p[k] !== null) out[k] = p[k]; });
+            out.secrets = (p.secrets || []).map(s => ({ env: s.env, keyring: s.keyring }));
+            return out;
+        }
+
+        async function _saveProfileList(list) {
+            await _adminJson('/admin/profiles', 'PUT', { profiles: list });
+            await _loadProfilesTab();
+            _profilesForNewDialog = null;
+        }
+
+        function _editProfile(idx) {
+            const p = idx >= 0 ? _profilesData.profiles[idx] : { name: '', backend: 'claude', env: {}, secrets: [], leanctx: 'off' };
+            const el = document.getElementById('profiles-tab-edit');
+            el.style.display = 'block';
+            const envText = Object.entries(p.env || {}).map(([k, v]) => `${k}=${v}`).join('\n');
+            const secText = (p.secrets || []).map(s => s.env).join(', ');
+            el.innerHTML = `
+                <div class="settings-edit-form">
+                    <div class="form-row"><label>Name</label><input class="settings-input" id="pf-name" value="${escHtml(p.name || '')}" ${idx >= 0 ? 'disabled' : ''} placeholder="claude-max5 (a-z 0-9 - _)"></div>
+                    <div class="form-row"><label>Backend</label><select class="settings-input" id="pf-backend" onchange="_profileBackendChanged()">
+                        ${['claude', 'codex', 'opencode', 'custom'].map(b => `<option value="${b}" ${p.backend === b ? 'selected' : ''}>${b}</option>`).join('')}
+                    </select></div>
+                    <div class="form-row" id="pf-row-dir"><label>Config dir</label><input class="settings-input" id="pf-dir" value="${escHtml(idx >= 0 ? (p.config_dir || '') : '')}" placeholder="default: ~/.be-conductor/profiles/<name>"></div>
+                    <div class="settings-hint" id="pf-dir-hint" style="margin:-2px 0 6px 0"></div>
+                    <div class="form-row"><label>API key env vars</label><input class="settings-input" id="pf-secrets" value="${escHtml(secText)}" placeholder="e.g. OPENROUTER_API_KEY (value is set separately)"></div>
+                    <div class="form-row" id="pf-row-model"><label>Model</label><input class="settings-input" id="pf-model" value="${escHtml(p.model || '')}" placeholder="for headless runs, e.g. openrouter/anthropic/claude-sonnet-4.6"></div>
+                    <div class="form-row" id="pf-row-cap"><label>Max cost / run (USD)</label><input class="settings-input" id="pf-cap" type="number" min="0" step="0.1" value="${p.max_cost_usd_per_run || ''}" placeholder="no cap"></div>
+                    <div class="form-row"><label>LeanCTX</label><select class="settings-input" id="pf-leanctx">
+                        ${['off', 'shadow', 'active'].map(m => `<option value="${m}" ${(p.leanctx || 'off') === m ? 'selected' : ''}>${m}</option>`).join('')}
+                    </select></div>
+                    <div class="form-row"><label>Extra env</label><textarea class="settings-input" id="pf-env" rows="2" placeholder="KEY=value, one per line">${escHtml(envText)}</textarea></div>
+                    <div class="form-row"><label>Description</label><input class="settings-input" id="pf-desc" value="${escHtml(p.description || '')}" placeholder="shown to MCP clients"></div>
+                    <div id="pf-error" style="font-size:11px;color:#ff9060;"></div>
+                    <div class="form-actions">
+                        <button class="btn-cancel" onclick="document.getElementById('profiles-tab-edit').style.display='none'">Cancel</button>
+                        <button class="btn-save" onclick="_saveProfile(${idx})">${idx >= 0 ? 'Apply' : 'Add'}</button>
+                    </div>
+                </div>`;
+            _profileBackendChanged();
+        }
+
+        function _profileBackendChanged() {
+            const b = document.getElementById('pf-backend').value;
+            document.getElementById('pf-row-dir').style.display = b === 'custom' ? 'none' : '';
+            document.getElementById('pf-row-model').style.display = (b === 'opencode' || b === 'custom') ? '' : 'none';
+            document.getElementById('pf-row-cap').style.display = (b === 'opencode' || b === 'custom') ? '' : 'none';
+            const hint = document.getElementById('pf-dir-hint');
+            hint.style.display = b === 'custom' ? 'none' : '';
+            hint.innerHTML = `Exported to the agent as <code>${_PROFILE_BACKEND_VAR[b]}</code>. Must not be a default config location.`;
+        }
+
+        async function _saveProfile(idx) {
+            const err = document.getElementById('pf-error');
+            const list = _profilesData.profiles.map(_rawProfile);
+            const old = idx >= 0 ? list[idx] : {};
+            const p = { name: document.getElementById('pf-name').value.trim(), backend: document.getElementById('pf-backend').value };
+            const dir = document.getElementById('pf-dir').value.trim();
+            if (dir && p.backend !== 'custom') p.config_dir = dir;
+            if (old.allow_default_dir) p.allow_default_dir = true;
+            if (old.strip_env) p.strip_env = old.strip_env;
+            const model = document.getElementById('pf-model').value.trim();
+            if (model) p.model = model;
+            const cap = parseFloat(document.getElementById('pf-cap').value);
+            if (cap > 0) p.max_cost_usd_per_run = cap;
+            p.leanctx = document.getElementById('pf-leanctx').value;
+            const desc = document.getElementById('pf-desc').value.trim();
+            if (desc) p.description = desc;
+            p.env = {};
+            document.getElementById('pf-env').value.split('\n').forEach(line => {
+                const i = line.indexOf('=');
+                if (i > 0) p.env[line.slice(0, i).trim()] = line.slice(i + 1).trim();
+            });
+            const oldSecrets = old.secrets || [];
+            p.secrets = document.getElementById('pf-secrets').value.split(',').map(x => x.trim()).filter(Boolean)
+                .map(env => oldSecrets.find(s => s.env === env) || { env });
+            if (idx >= 0) list[idx] = p; else list.push(p);
+            try {
+                await _saveProfileList(list);
+                document.getElementById('profiles-tab-edit').style.display = 'none';
+                if (idx >= 0 && old.leanctx !== p.leanctx) _profileLeanCtx(idx, p.leanctx);
+            } catch (e) {
+                err.textContent = e.message;
+            }
+        }
+
+        async function _removeProfile(idx) {
+            const p = _profilesData.profiles[idx];
+            if (!confirm(`Remove profile "${p.name}"?\n\nIts login directory (${p.config_dir || '-'}) stays on disk.`)) return;
+            try {
+                for (const s of (p.secrets || [])) {
+                    try { await _adminJson(`/admin/profiles/${encodeURIComponent(p.name)}/secret/${encodeURIComponent(s.env)}`, 'DELETE'); } catch (_) {}
+                }
+                await _saveProfileList(_profilesData.profiles.filter((_, i) => i !== idx).map(_rawProfile));
+            } catch (e) { showToast('Remove failed: ' + e.message); }
+        }
+
+        function _profileMsg(idx, text, color) {
+            const el = document.getElementById('profile-msg-' + idx);
+            if (el) { el.textContent = text; el.style.color = color || '#a0a0c0'; }
+        }
+
+        async function _profileLogin(idx) {
+            const p = _profilesData.profiles[idx];
+            try {
+                const s = await _adminJson(`/profiles/${encodeURIComponent(p.name)}/login`, 'POST', {});
+                document.getElementById('settings-dialog').classList.remove('open');
+                showToast(`Login session for ${p.name} started`);
+                await fetchAllSessions();
+                openSession(compoundId('local', s.id), s.name);
+            } catch (e) { _profileMsg(idx, 'Login failed: ' + e.message, '#ff9060'); }
+        }
+
+        async function _profileTest(idx) {
+            const p = _profilesData.profiles[idx];
+            const btn = document.getElementById('profile-test-' + idx);
+            if (btn) { btn.disabled = true; btn.textContent = 'Testing…'; }
+            _profileMsg(idx, 'Running a trivial prompt (up to 60 s)…');
+            try {
+                const r = await _adminJson(`/profiles/${encodeURIComponent(p.name)}/check`, 'POST', {});
+                await _loadProfilesTab();
+                if (r.ok) {
+                    const cost = (r.cost_usd !== null && r.cost_usd !== undefined) ? `, $${r.cost_usd.toFixed(4)}` : '';
+                    _profileMsg(idx, `OK — answered in ${Math.round(r.duration_s || 0)}s${cost}`, '#60c080');
+                } else {
+                    _profileMsg(idx, 'Failed: ' + (r.error || r.fail_reason || r.task_status) + (r.result ? '\n' + r.result : ''), '#ff9060');
+                }
+            } catch (e) {
+                _profileMsg(idx, 'Test failed: ' + e.message, '#ff9060');
+                if (btn) { btn.disabled = false; btn.textContent = 'Test'; }
+            }
+        }
+
+        async function _profileSetKey(idx) {
+            const p = _profilesData.profiles[idx];
+            const known = (p.secrets || []).map(s => s.env);
+            const dflt = known[0] || (p.backend === 'opencode' ? 'OPENROUTER_API_KEY' : p.backend === 'codex' ? 'OPENAI_API_KEY' : 'ANTHROPIC_API_KEY');
+            const env = prompt(`Environment variable to set for "${p.name}":`, dflt);
+            if (!env) return;
+            const value = prompt(`Value for ${env}\n\nStored in the ${_profilesData.secret_backend === 'keyring' ? 'OS keyring' : 'local secrets folder'}; it is never shown again.`);
+            if (!value) return;
+            try {
+                await _adminJson(`/admin/profiles/${encodeURIComponent(p.name)}/secret`, 'POST', { env: env.trim(), value });
+                await _loadProfilesTab();
+                _profileMsg(idx, `${env.trim()} stored.`, '#60c080');
+            } catch (e) { _profileMsg(idx, 'Could not store key: ' + e.message, '#ff9060'); }
+        }
+
+        async function _profileLeanCtx(idx, mode) {
+            const p = _profilesData.profiles[idx];
+            mode = mode || (p.leanctx && p.leanctx !== 'off' ? p.leanctx : 'active');
+            _profileMsg(idx, `Setting LeanCTX to ${mode}…`);
+            try {
+                const r = await _adminJson(`/admin/profiles/${encodeURIComponent(p.name)}/leanctx`, 'POST', { mode });
+                await _loadProfilesTab();
+                _profileMsg(idx, r.message || `LeanCTX ${mode}.`, r.ok === false ? '#ff9060' : '#60c080');
+            } catch (e) { _profileMsg(idx, 'LeanCTX: ' + e.message, '#ff9060'); }
+        }
+
+        // ── MCP tab ──────────────────────────────────────────────────────
+        let _mcpData = null;   // GET /admin/mcp
+
+        async function _loadMcpTab() {
+            const el = document.getElementById('mcp-tab-content');
+            if (!el) return;
+            try {
+                _mcpData = await _adminJson('/admin/mcp');
+            } catch (e) {
+                el.innerHTML = `<div class="settings-hint">Could not load MCP settings: ${escHtml(e.message)}</div>`;
+                return;
+            }
+            _renderMcpTab();
+        }
+
+        function _renderMcpTab() {
+            const el = document.getElementById('mcp-tab-content');
+            if (!el || !_mcpData) return;
+            const c = _mcpData.config || {};
+            const cmds = ((_settingsData && _settingsData.allowed_commands) || []).filter(x => x.label);
+            const exposed = c.expose_commands || [];
+            let html = '<div class="settings-section"><div class="settings-section-title">MCP Surface</div>';
+            html += '<div class="settings-toggle-row">';
+            html += '<div class="settings-toggle-label">Enable MCP<small>Lets Claude Desktop (or any MCP client) start, run, watch and answer sessions via <code>/mcp</code></small></div>';
+            html += `<label class="toggle-switch"><input type="checkbox" ${c.enabled ? 'checked' : ''} onchange="_mcpSet('enabled', this.checked)"><span class="toggle-slider"></span></label>`;
+            html += '</div>';
+
+            html += '<div class="settings-section-title" style="margin-top:12px">Commands exposed as run_* tools</div>';
+            html += '<div class="settings-hint" style="margin-bottom:6px">None selected = every command that has a Headless block (Agents tab).</div>';
+            cmds.forEach((cmd, i) => {
+                const on = exposed.includes(cmd.label);
+                html += `<label style="display:flex;align-items:center;gap:7px;font-size:12px;color:#c0c0e0;padding:2px 0;cursor:pointer;">`;
+                html += `<input type="checkbox" ${on ? 'checked' : ''} onchange="_mcpToggleCommand(${i}, this.checked)">`;
+                html += `${escHtml(cmd.label)}${cmd.profile ? ` <span style="font-size:10px;color:#9090d0;">[${escHtml(cmd.profile)}]</span>` : ''}</label>`;
+            });
+            if (_mcpData.exposed && _mcpData.exposed.length) {
+                html += `<div class="settings-hint" style="margin-top:4px">Active tools: ${_mcpData.exposed.map(l => '<code>' + escHtml(l) + '</code>').join(', ')}</div>`;
+            } else {
+                html += '<div class="settings-hint" style="margin-top:4px;color:#ff9060">No run_* tools are active — select a command above or give one a Headless block.</div>';
+            }
+
+            html += '<div class="settings-section-title" style="margin-top:12px">Allowed working directories</div>';
+            html += '<div class="settings-hint" style="margin-bottom:6px">MCP-started sessions may only run inside these. Empty = every MCP run is refused.</div>';
+            (c.allowed_dirs || []).forEach((dir, i) => {
+                html += '<div class="settings-dir-row">';
+                html += `<input class="settings-input" value="${escHtml(dir)}" onchange="_mcpSetDir(${i}, this.value)">`;
+                html += `<button onclick="_mcpSetDir(${i}, null)" title="Remove">&times;</button></div>`;
+            });
+            html += '<button class="settings-add-btn" onclick="_mcpAddDir()">+ Add directory</button>';
+
+            html += '<div class="settings-row" style="margin-top:12px"><label>Default timeout (seconds)</label>';
+            html += `<input type="number" min="10" value="${c.default_timeout_seconds || 900}" onchange="_mcpSet('default_timeout_seconds', parseInt(this.value) || 900)"></div>`;
+            html += '</div>';
+
+            const cd = _mcpData.claude_desktop || {};
+            html += '<div class="settings-section"><div class="settings-section-title">Claude Desktop</div>';
+            let st = cd.installed ? (cd.current ? '<span style="color:#60c080">registered</span>' : '<span style="color:#ffb070">registered with an outdated command — install again</span>')
+                                  : (cd.claude_desktop_found ? 'not registered' : 'Claude Desktop config folder not found on this machine');
+            if (cd.error) st = `<span style="color:#ff9060">${escHtml(cd.error)}</span>`;
+            html += `<div style="font-size:12px;color:#a0a0c0;margin-bottom:6px;">Status: ${st}</div>`;
+            const last = _mcpData.bridge && _mcpData.bridge.last_request;
+            html += `<div style="font-size:12px;color:#a0a0c0;margin-bottom:8px;">Last MCP request: ${last ? new Date(last * 1000).toLocaleString() : 'none since server start'}</div>`;
+            html += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">';
+            html += `<button style="${_smallBtn}" onclick="_mcpInstall(true)">Install into Claude Desktop</button>`;
+            html += `<button style="${_smallBtn}" onclick="_mcpInstall(false)">Uninstall</button>`;
+            html += `<button style="${_smallBtn}" onclick="_mcpCopySnippet()">Copy config snippet</button>`;
+            html += '</div>';
+            html += `<pre id="mcp-snippet" style="background:#0c0c20;border:1px solid #22224a;border-radius:5px;padding:8px;font-size:11px;color:#b0b0d0;overflow-x:auto;margin:0;">${escHtml(_mcpData.snippet || '')}</pre>`;
+            html += `<div class="settings-hint" style="margin-top:4px">${escHtml(cd.config_path || '')} &mdash; restart Claude Desktop after changing it. Remote clients can use <code>${escHtml(location.origin)}/mcp</code> directly (streamable HTTP, bearer token if one is set).</div>`;
+            html += '<div id="mcp-msg" style="font-size:11px;margin-top:5px;"></div>';
+            html += '</div>';
+            el.innerHTML = html;
+        }
+
+        async function _mcpSave() {
+            const c = _mcpData.config || {};
+            try {
+                await _adminJson('/admin/mcp', 'PUT', {
+                    enabled: !!c.enabled,
+                    expose_commands: c.expose_commands || [],
+                    allowed_dirs: (c.allowed_dirs || []).filter(d => d && d.trim()),
+                    default_timeout_seconds: c.default_timeout_seconds || 900,
+                });
+                await _loadMcpTab();
+            } catch (e) { showToast('MCP settings: ' + e.message); }
+        }
+        function _mcpSet(key, value) { _mcpData.config = _mcpData.config || {}; _mcpData.config[key] = value; _mcpSave(); }
+        function _mcpToggleCommand(i, on) {
+            const cmds = (_settingsData.allowed_commands || []).filter(x => x.label);
+            const c = _mcpData.config = _mcpData.config || {};
+            const set = new Set(c.expose_commands || []);
+            if (on) set.add(cmds[i].label); else set.delete(cmds[i].label);
+            c.expose_commands = [...set];
+            _mcpSave();
+        }
+        function _mcpSetDir(i, value) {
+            const c = _mcpData.config = _mcpData.config || {};
+            c.allowed_dirs = c.allowed_dirs || [];
+            if (value === null) c.allowed_dirs.splice(i, 1); else c.allowed_dirs[i] = value.trim();
+            _mcpSave();
+        }
+        function _mcpAddDir() {
+            const dir = prompt('Directory MCP sessions may work in:', '~/code');
+            if (!dir) return;
+            const c = _mcpData.config = _mcpData.config || {};
+            c.allowed_dirs = [...(c.allowed_dirs || []), dir.trim()];
+            _mcpSave();
+        }
+        async function _mcpInstall(install) {
+            try {
+                const r = await _adminJson(install ? '/admin/mcp/install' : '/admin/mcp/uninstall', 'POST', {});
+                await _loadMcpTab();
+                const msg = document.getElementById('mcp-msg');
+                if (msg) {
+                    msg.style.color = '#60c080';
+                    msg.textContent = install ? `Registered in ${r.config_path}${r.backup ? ' (backup: ' + r.backup + ')' : ''}. Restart Claude Desktop.`
+                                              : (r.removed ? 'Removed. Restart Claude Desktop.' : 'It was not registered.');
+                }
+            } catch (e) { showToast((install ? 'Install' : 'Uninstall') + ' failed: ' + e.message); }
+        }
+        function _mcpCopySnippet() {
+            try { navigator.clipboard.writeText(_mcpData.snippet || ''); showToast('Config snippet copied'); }
+            catch (_) { showToast('Copy failed — select the text manually'); }
+        }
+
         function editCommand(idx) {
             const cmd = _settingsData.allowed_commands[idx];
             if (!cmd) return;
@@ -7587,6 +8056,24 @@
                     <div class="form-row"><label>Resume pattern</label><input class="settings-input" id="cmd-edit-resume-pattern" value="${escHtml(cmd.resume_pattern || '')}" placeholder="e.g. --resume\\s+(\\S+)"></div>
                     <div class="form-row"><label>Resume flag</label><input class="settings-input" id="cmd-edit-resume-flag" value="${escHtml(cmd.resume_flag || '')}" placeholder="e.g. --resume"></div>
                     <div class="form-row"><label>Stop sequence</label><input class="settings-input" id="cmd-edit-stop" value="${escHtml((cmd.stop_sequence || []).join(', '))}" placeholder="e.g. \\x03, /exit, \\r"></div>
+                    <div class="form-row"><label>Profile</label><select class="settings-input" id="cmd-edit-profile">
+                        <option value="">Default login (none)</option>
+                        ${_profilesForCommand(cmd.command, cmd.profile).map(n => `<option value="${escHtml(n)}" ${cmd.profile === n ? 'selected' : ''}>${escHtml(n)}</option>`).join('')}
+                    </select></div>
+                    <details id="cmd-edit-headless-box" ${cmd.headless ? 'open' : ''} style="margin:6px 0;">
+                        <summary style="cursor:pointer;font-size:12px;color:#a0a0d0;">Headless (run as a task via CLI / MCP)</summary>
+                        <div style="padding:6px 0 0 0;">
+                            <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#c0c0e0;margin-bottom:6px;"><input type="checkbox" id="cmd-edit-hl-on" ${cmd.headless ? 'checked' : ''}> Allow headless runs of this command</label>
+                            <div class="form-row"><label>Args template</label><input class="settings-input" id="cmd-edit-hl-args" value="${escHtml(_hlField(cmd, 'args'))}" placeholder='built-in preset, or e.g. ["-p", "{prompt}", "--output-format", "json"]'></div>
+                            <div class="form-row"><label>Result JSON path</label><input class="settings-input" id="cmd-edit-hl-result" value="${escHtml(_hlField(cmd, 'result_json_path'))}" placeholder="e.g. result (empty = plain text output)"></div>
+                            <div class="form-row"><label>Cost JSON path</label><input class="settings-input" id="cmd-edit-hl-cost" value="${escHtml(_hlField(cmd, 'cost_json_path'))}" placeholder="e.g. total_cost_usd"></div>
+                            <div class="settings-hint">Placeholders: <code>{prompt}</code>, <code>{model}</code> (from the profile). Leave all three empty to use the built-in preset for claude / codex / opencode.</div>
+                            <div style="margin-top:6px;display:flex;align-items:center;gap:8px;">
+                                <button type="button" style="${_smallBtn}" onclick="_testHeadless(${idx})">Test headless</button>
+                                <span id="cmd-edit-hl-msg" style="font-size:11px;color:#a0a0c0;white-space:pre-wrap;"></span>
+                            </div>
+                        </div>
+                    </details>
                     <div class="form-actions">
                         <button class="btn-cancel" onclick="document.getElementById('settings-cmd-edit').style.display='none'">Cancel</button>
                         <button class="btn-save" onclick="saveCommand(${idx})">Apply</button>
@@ -7624,9 +8111,77 @@
                 delete cmd.stop_sequence;
             }
 
+            const prof = document.getElementById('cmd-edit-profile').value;
+            if (prof) cmd.profile = prof; else delete cmd.profile;
+
+            if (document.getElementById('cmd-edit-hl-on').checked) {
+                const hl = (cmd.headless && typeof cmd.headless === 'object') ? { ...cmd.headless } : {};
+                const argsStr = document.getElementById('cmd-edit-hl-args').value.trim();
+                if (argsStr) {
+                    try {
+                        const parsed = JSON.parse(argsStr);
+                        if (!Array.isArray(parsed)) throw new Error('not a list');
+                        hl.args = parsed.map(String);
+                    } catch (e) {
+                        document.getElementById('cmd-edit-hl-msg').textContent = 'Args template must be a JSON list of strings.';
+                        document.getElementById('cmd-edit-hl-msg').style.color = '#ff9060';
+                        return;
+                    }
+                } else delete hl.args;
+                const rp2 = document.getElementById('cmd-edit-hl-result').value.trim();
+                const cp2 = document.getElementById('cmd-edit-hl-cost').value.trim();
+                if (rp2) hl.result_json_path = rp2; else delete hl.result_json_path;
+                if (cp2) hl.cost_json_path = cp2; else delete hl.cost_json_path;
+                cmd.headless = Object.keys(hl).length ? hl : true;
+            } else {
+                delete cmd.headless;
+            }
+
             _settingsData.allowed_commands[idx] = cmd;
             document.getElementById('settings-cmd-edit').style.display = 'none';
             renderSettings();
+        }
+
+        function _hlField(cmd, key) {
+            const hl = cmd.headless;
+            if (!hl || typeof hl !== 'object' || hl[key] === undefined) return '';
+            return key === 'args' ? JSON.stringify(hl[key]) : String(hl[key]);
+        }
+
+        // Profile names that fit a command's executable (plus the one already set).
+        function _profilesForCommand(command, current) {
+            const base = (command || '').trim().split(/\s+/)[0].split('/').pop();
+            const all = ((_profilesData && _profilesData.profiles) || (_serverConfigs['local'] || {}).profiles || []);
+            const names = all.filter(p => !base || p.backend === 'custom' || _PROFILE_CLI[p.backend] === base).map(p => p.name);
+            if (current && !names.includes(current)) names.push(current);
+            return names;
+        }
+
+        // Runs the command as *saved on the server* — unsaved edits are not tested.
+        async function _testHeadless(idx) {
+            const cmd = _settingsData.allowed_commands[idx];
+            const msg = document.getElementById('cmd-edit-hl-msg');
+            const say = (t, c) => { msg.textContent = t; msg.style.color = c || '#a0a0c0'; };
+            if (!cmd || !cmd.label) { say('Give the command a label and save first.', '#ff9060'); return; }
+            say('Running “Reply OK” (uses the saved settings)…');
+            try {
+                const started = await _adminJson('/sessions/run', 'POST', {
+                    name: 'hl-test-' + Math.random().toString(16).slice(2, 8),
+                    command: cmd.label, label: cmd.label, headless: true,
+                    prompt: 'Reply with the single word OK and nothing else.',
+                    timeout_seconds: 90,
+                });
+                let r;
+                for (let i = 0; i < 100; i++) {
+                    await new Promise(res => setTimeout(res, 1000));
+                    r = await _adminJson(`/sessions/${encodeURIComponent(started.id)}/result`);
+                    if (r.task_status !== 'running' && r.task_status !== 'needs_input') break;
+                }
+                try { await fetch(`/sessions/${encodeURIComponent(started.id)}`, { method: 'DELETE' }); } catch (_) {}
+                const cost = r.cost_usd != null ? `, $${Number(r.cost_usd).toFixed(4)}` : '';
+                if (r.task_status === 'done') say(`OK (${Math.round(r.duration_s || 0)}s${cost}): ${(r.result || '').slice(0, 120)}`, '#60c080');
+                else say(`${r.task_status}${r.fail_reason ? ' (' + r.fail_reason + ')' : ''}: ${(r.result || '').slice(0, 300)}`, '#ff9060');
+            } catch (e) { say('Test failed: ' + e.message, '#ff9060'); }
         }
 
         function addCommand() {
@@ -8141,6 +8696,7 @@
                 if (worktreeRow) worktreeRow.style.display = '';
                 if (providerRow) providerRow.style.display = 'none';
             }
+            if (typeof _updateProfileSelect === 'function') _updateProfileSelect();
             validateNewSession();
         }
 
@@ -8261,6 +8817,7 @@
         }
 
         function onProviderChange() {
+            if (typeof _updateProfileSelect === 'function') setTimeout(_updateProfileSelect, 0);
             const sel = document.getElementById('new-provider');
             const ocFields = document.getElementById('provider-opencode-fields');
             // The free-text model field is only useful when the user
@@ -8311,7 +8868,37 @@
             // (browse name is auto-derived from slug, no field to reset)
         }
 
+        let _profilesForNewDialog = null;   // cache marker, cleared when profiles change
+
+        const _PROFILE_CLI = { claude: 'claude', codex: 'codex', opencode: 'opencode' };
+
+        // Offer the profiles whose backend matches the chosen command.
+        function _updateProfileSelect() {
+            const row = document.getElementById('new-profile-row');
+            const sel = document.getElementById('new-profile');
+            const cmdSel = document.getElementById('new-command');
+            if (!row || !sel || !cmdSel) return;
+            const cfgData = _serverConfigs[_newSessionServer] || {};
+            const isGui = _newSessionType === 'agent' && _newSessionMode === 'new';
+            // GUI mode hides the command dropdown — it is always Claude there.
+            const base = isGui ? 'claude' : (cmdSel.value || '').trim().split(/\s+/)[0].split('/').pop();
+            const fits = (cfgData.profiles || []).filter(p =>
+                p.backend === 'custom' || _PROFILE_CLI[p.backend] === base);
+            // GUI sessions: only the native Claude one can run under a profile.
+            const guiOther = isGui
+                && (document.getElementById('new-provider') || {}).value
+                && document.getElementById('new-provider').value !== 'claude';
+            if (!fits.length || guiOther) { row.style.display = 'none'; sel.innerHTML = ''; return; }
+            const opt = cmdSel.options[cmdSel.selectedIndex];
+            const bound = (!isGui && opt) ? (opt.dataset.profile || '') : '';
+            sel.innerHTML = '<option value="">Default login (this machine)</option>' + fits.map(p =>
+                `<option value="${escHtml(p.name)}" ${p.name === bound ? 'selected' : ''} title="${escHtml(p.description || '')}">${escHtml(p.name)}</option>`
+            ).join('');
+            row.style.display = '';
+        }
+
         function onCommandChange() {
+            _updateProfileSelect();
             if (_newSessionMode === 'resume') updateResumeFields();
             // Agent SDK only available for claude
             const command = document.getElementById('new-command').value;
@@ -8819,6 +9406,13 @@
                 const useWorktree = document.getElementById('new-worktree').checked;
                 body = { name, command, cwd };
                 if (useWorktree) body.worktree = true;
+            }
+            {
+                const profSel = document.getElementById('new-profile');
+                const profRow = document.getElementById('new-profile-row');
+                if (profSel && profRow && profRow.style.display !== 'none' && profSel.value) {
+                    body.profile = profSel.value;
+                }
             }
 
             // Close dialog and show busy spinner
@@ -9529,6 +10123,28 @@
         }
 
         let _resumingSession = null;  // guard against double-click
+        async function showTaskResult(cid) {
+            const { server, sessionId } = parseCompoundId(cid);
+            const dlg = document.getElementById('task-result-dialog');
+            try {
+                const resp = await fetch(serverUrl(server, `/sessions/${encodeURIComponent(sessionId)}/result`));
+                if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                const r = await resp.json();
+                document.getElementById('task-result-title').textContent = r.name || sessionId;
+                const meta = [r.label, r.profile ? 'profile ' + r.profile : null,
+                              r.task_status + (r.fail_reason && r.fail_reason !== r.task_status ? ' (' + r.fail_reason + ')' : ''),
+                              r.duration_s != null ? Math.round(r.duration_s) + 's' : null,
+                              r.cost_usd != null ? '$' + Number(r.cost_usd).toFixed(4) : null,
+                              r.cwd].filter(Boolean);
+                document.getElementById('task-result-meta').textContent = meta.join('  ·  ');
+                document.getElementById('task-result-prompt').textContent = r.prompt || '';
+                document.getElementById('task-result-body').textContent = r.result || '(no output)';
+                dlg.classList.add('open');
+            } catch (e) {
+                showToast('Could not load the result: ' + e.message);
+            }
+        }
+
         async function resumeSession(cid) {
             if (_resumingSession === cid) return;
             _resumingSession = cid;

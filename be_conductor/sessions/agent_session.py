@@ -121,10 +121,18 @@ class AgentSession:
         worktree: dict | None = None,
         notifier=None,
         agent_options: dict | None = None,
+        profile: str | None = None,
+        strip_env: list[str] | None = None,
     ):
         self.id = session_id or name
         self.name = name
         self.command = "claude"
+        # Account profile: env applied to (and auth vars blanked for) the
+        # CLI subprocess the SDK spawns, so it logs in from the profile's
+        # CLAUDE_CONFIG_DIR instead of ~/.claude.
+        self.profile = profile
+        self._profile_env = dict(env or {})
+        self._strip_env = list(strip_env or [])
         self.prompt = prompt
         self.cwd = cwd
         self.worktree = worktree
@@ -538,6 +546,12 @@ class AgentSession:
         # GPG, display, locale, everything.
         import os as _os
         opts_kwargs["env"] = dict(_os.environ)
+        # The SDK layers this dict over the parent environment, so a variable
+        # cannot be removed by omission — blank it instead (the CLI treats an
+        # empty auth variable as unset).
+        for _key in self._strip_env:
+            opts_kwargs["env"][_key] = ""
+        opts_kwargs["env"].update(self._profile_env)
 
         # Adaptive thinking (Opus 4.7+). Anthropic changed 4.7's default
         # to display:"omitted", which makes ThinkingBlock.thinking an
@@ -1918,6 +1932,8 @@ class AgentSession:
             d["resume_id"] = self.resume_id
         if self.worktree:
             d["worktree"] = self.worktree
+        if self.profile:
+            d["profile"] = self.profile
         # Persist the user-configurable subset of agent_options so a
         # resumed session picks up model/effort/mode/adaptive_thinking
         # from the user's last choice, not the session's initial value.

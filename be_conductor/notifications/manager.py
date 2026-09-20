@@ -170,6 +170,10 @@ class SessionNotifier:
         self._cooldowns: dict[str, float] = {}  # reason → last notify time
         self._loop: asyncio.AbstractEventLoop | None = None
 
+        # Set by the registry for profile-backed / headless sessions.
+        self.profile: str | None = None      # named in the notification text
+        self.on_notify: Callable | None = None  # called with the reason when one fires
+
     def on_output(self, data: bytes, buffer: bytearray):
         """Called when new output arrives from the session."""
         self._output_bytes += len(data)
@@ -250,6 +254,14 @@ class SessionNotifier:
 
             # Reset output counter so the same output doesn't re-trigger
             self._output_bytes = 0
+
+            if self.on_notify:
+                try:
+                    self.on_notify(reason)
+                except Exception:
+                    pass
+            if self.profile:
+                reason = f"{reason} [{self.profile}]"
 
             # Use the matched line as snippet (not the last screen line)
             snippet = matched_line.strip()[:120]

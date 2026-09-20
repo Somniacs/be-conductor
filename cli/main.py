@@ -360,7 +360,8 @@ def up():
 @click.option("--json", "use_json", is_flag=True, help="Output JSON (implies --detach)")
 @click.option("--rows", type=int, default=None, help="Terminal rows (auto-detected if omitted)")
 @click.option("--cols", type=int, default=None, help="Terminal columns (auto-detected if omitted)")
-def run(command, name, detach, worktree, use_json, rows, cols):
+@click.option("-p", "--profile", default=None, help="Run under an account profile (isolated login)")
+def run(command, name, detach, worktree, use_json, rows, cols, profile):
     """Run a command in a new be-conductor session.
 
     By default, attaches to the session so you see output in your terminal.
@@ -373,6 +374,7 @@ def run(command, name, detach, worktree, use_json, rows, cols):
         be-conductor run claude research
         be-conductor run -d claude coding
         be-conductor run -w claude feature-auth
+        be-conductor run --profile claude-max5 claude review
         be-conductor run "python train.py" training
     """
     if use_json:
@@ -418,6 +420,8 @@ def run(command, name, detach, worktree, use_json, rows, cols):
     }
     if worktree:
         payload["worktree"] = True
+    if profile:
+        payload["profile"] = profile
 
     r = httpx.post(
         f"{get_base_url()}/sessions/run",
@@ -446,10 +450,18 @@ def run(command, name, detach, worktree, use_json, rows, cols):
             _resize_session(data["name"])
             _attach_session(data["name"], stop_on_exit=True)
     elif r.status_code == 409:
+        # 409 is a name clash — or, with --profile, a profile that cannot be
+        # applied (unknown, missing key); show the server's reason.
+        try:
+            detail = r.json().get("detail") or ""
+        except ValueError:
+            detail = ""
+        if "already exists" in detail or not detail:
+            detail = f"Session '{name}' already exists"
         if use_json:
-            click.echo(json.dumps({"error": f"Session '{name}' already exists"}))
+            click.echo(json.dumps({"error": detail}))
         else:
-            click.echo(f"Session '{name}' already exists.", err=True)
+            click.echo(f"{detail}.", err=True)
         sys.exit(1)
     else:
         if use_json:
@@ -1662,8 +1674,10 @@ h1 {{ font-size:28px; color:#8080ff; margin:0 0 6px; font-weight:600; }}
 # ---------------------------------------------------------------------------
 
 from cli.doctor import register as _register_doctor  # noqa: E402
+from cli.profiles import register as _register_profiles  # noqa: E402
 
 _register_doctor(cli)
+_register_profiles(cli)
 
 
 if __name__ == "__main__":

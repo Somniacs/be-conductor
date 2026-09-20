@@ -225,6 +225,11 @@ class RunRequest(BaseModel):
     worktree: bool = False  # create an isolated git worktree for this session
     session_type: str = "pty"  # "pty" or "agent"
     agent_options: dict | None = None  # model, allowed_tools, permission_mode, etc.
+    profile: str | None = None  # account profile (isolated login) to run under
+    label: str | None = None    # allowed_commands label — picks that entry's profile
+    headless: bool = False      # run `command` (a label or command) as a task …
+    prompt: str | None = None   # … with this prompt, to completion
+    timeout_seconds: float | None = None
 
 
 class InputRequest(BaseModel):
@@ -463,11 +468,17 @@ async def get_config():
         {k: v for k, v in c.items() if k != "stop_sequence"}
         for c in cfg.ALLOWED_COMMANDS
     ]
+    from be_conductor.profiles import list_profiles
     return {
         "allowed_commands": safe,
         "default_directories": cfg.DEFAULT_DIRECTORIES,
         "upload_warn_size": cfg.UPLOAD_WARN_SIZE,
         "config_version": cfg.get_config_version(),
+        "profiles": [
+            {"name": p["name"], "backend": p["backend"],
+             "description": p.get("description", "")}
+            for p in list_profiles()
+        ],
     }
 
 
@@ -1269,8 +1280,9 @@ async def create_session(req: RunRequest, request: Request):
             detail="Invalid session name. Use letters, numbers, hyphens, underscores, or spaces (max 64 chars).",
         )
 
-    # Agent sessions bypass command whitelist (command = prompt, not a shell command)
-    if req.session_type != "agent":
+    # Agent sessions bypass command whitelist (command = prompt, not a shell command).
+    # Headless runs resolve their command from allowed_commands themselves.
+    if req.session_type != "agent" and not req.headless:
         # Validate command against whitelist (CLI is unrestricted, dashboard is restricted)
         if req.source != "cli":
             try:
@@ -1285,12 +1297,29 @@ async def create_session(req: RunRequest, request: Request):
                     detail=f"Command '{base_cmd}' is not allowed. Permitted: {', '.join(sorted(allowed))}",
                 )
 
+    # A label selects a specific allowed_commands entry — and with it the
+    # profile bound to that entry, unless the request names one itself.
+    profile = req.profile or None
+    if not profile and req.label:
+        for entry in cfg.ALLOWED_COMMANDS:
+            if entry.get("label") == req.label:
+                profile = entry.get("profile") or None
+                break
+
     try:
-        session = await registry.create(req.name, req.command, cwd=req.cwd, env=req.env,
-                                        rows=req.rows, cols=req.cols, source=req.source,
-                                        worktree=req.worktree,
-                                        session_type=req.session_type,
-                                        agent_options=req.agent_options)
+        if req.headless:
+            from be_conductor.sessions import tasks
+            session = await tasks.start_task(
+                registry, req.label or req.command, req.prompt or "",
+                cwd=req.cwd, profile=profile, worktree=req.worktree,
+                timeout_seconds=req.timeout_seconds, name=req.name)
+        else:
+            session = await registry.create(req.name, req.command, cwd=req.cwd, env=req.env,
+                                            rows=req.rows, cols=req.cols, source=req.source,
+                                            worktree=req.worktree,
+                                            session_type=req.session_type,
+                                            agent_options=req.agent_options,
+                                            profile=profile)
         d = session.to_dict()
         d["ws_url"] = _ws_url_for(request, session.id)
         return d

@@ -193,13 +193,23 @@ class Session:
                  resume_command: str | None = None,
                  stop_sequence: list[str] | None = None,
                  worktree: dict | None = None,
-                 notifier=None):
+                 notifier=None,
+                 profile: str | None = None,
+                 strip_env: list[str] | None = None,
+                 redact: list[str] | None = None,
+                 argv: list[str] | None = None):
         self.id = session_id or name
         self.name = name
         self.command = command
         self.cwd = cwd
         self.worktree: dict | None = worktree  # WorktreeInfo as dict (if worktree-backed)
-        self.pty = PTYProcess(command, cwd=cwd, env=env)
+        self.profile: str | None = profile    # account profile this session runs under
+        # Secret values injected by the profile — scrubbed from all output
+        # so they never reach the buffer, subscribers or logs.
+        self._redact: list[bytes] = [r.encode() for r in (redact or []) if len(r) >= 6]
+        # *argv* (exact argument list) overrides shell-splitting of *command*,
+        # which then is display-only.
+        self.pty = PTYProcess(argv or command, cwd=cwd, env=env, strip_env=strip_env)
         self.buffer = bytearray()
         self.subscribers: Set[asyncio.Queue] = set()
         self.status = "starting"
@@ -275,6 +285,7 @@ class Session:
                 pass
             if chunks:
                 data = b"".join(chunks) if len(chunks) > 1 else chunks[0]
+                data = self._scrub(data)
                 self._append_buffer(data)
                 self._broadcast(data)
         except OSError:
@@ -297,6 +308,7 @@ class Session:
             try:
                 data = self.pty.read()
                 if data:
+                    data = self._scrub(data)
                     self._loop.call_soon_threadsafe(self._append_buffer, data)
                     self._loop.call_soon_threadsafe(self._broadcast, data)
                 else:
@@ -310,6 +322,12 @@ class Session:
                 break
 
     # -- Buffer & broadcast ------------------------------------------------
+
+    def _scrub(self, data: bytes) -> bytes:
+        for secret in self._redact:
+            if secret in data:
+                data = data.replace(secret, b"[redacted]")
+        return data
 
     def _append_buffer(self, data: bytes):
         self.buffer.extend(data)
@@ -539,6 +557,7 @@ class Session:
                     data = os.read(self.pty.master_fd, 65536)
                     if not data:
                         break
+                    data = self._scrub(data)
                     self._append_buffer(data)
                     self._broadcast(data)
             except OSError:
@@ -567,8 +586,15 @@ class Session:
         self._broadcast_close()
         self.pty.close()
         self._cleanup_uploads()
+        try:
+            self._finalize()
+        except Exception:
+            logger.exception("Session finalize failed")
         if self._on_exit:
             await self._on_exit(self.id)
+
+    def _finalize(self):
+        """Hook run once the process has exited, before the registry is told."""
 
     def interrupt(self, timeout: float = 30.0):
         """Gracefully stop the session.
@@ -694,4 +720,6 @@ class Session:
             d["resume_command"] = self.resume_command
         if self.worktree:
             d["worktree"] = self.worktree
+        if self.profile:
+            d["profile"] = self.profile
         return d

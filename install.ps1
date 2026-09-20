@@ -217,6 +217,39 @@ if ($installed) {
     } catch {}
 }
 
+# ── Agent CLIs (reported only - never installed from here) ──────────
+Write-Host "Agent CLIs on PATH:"
+foreach ($agent in @("claude", "codex", "opencode", "lean-ctx")) {
+    if (Get-Command $agent -ErrorAction SilentlyContinue) {
+        Write-Host "  $agent" -NoNewline
+        Write-Host " OK" -ForegroundColor Green
+    } elseif ($agent -eq "lean-ctx") {
+        Write-Host "  $agent - not found (optional: context compression for profiles)"
+    } else {
+        Write-Host "  $agent - not found"
+    }
+}
+Write-Host ""
+
+# ── Claude Desktop (MCP) ────────────────────────────────────────────
+$claudeDesktopDir = Join-Path $env:APPDATA "Claude"
+if ($installed -and (Test-Path $claudeDesktopDir)) {
+    $claudeCfg = Join-Path $claudeDesktopDir "claude_desktop_config.json"
+    $registered = (Test-Path $claudeCfg) -and ((Get-Content $claudeCfg -Raw) -match '"be-conductor"')
+    if ($registered) {
+        # Already registered - refresh the entry so its command path stays valid.
+        try { & $Project install-mcp 2>&1 | Out-Null } catch {}
+    } else {
+        $answer = Read-Host "Claude Desktop found. Register be-conductor as an MCP server in it? [y/N]"
+        if ($answer -match "^[Yy]") {
+            try { & $Project install-mcp } catch {}
+        } else {
+            Write-Host "  Skipped - run '$Project install-mcp' any time."
+        }
+    }
+    Write-Host ""
+}
+
 # ── Restart any running server so the new version takes effect ──────
 # Without this, `up` would see the old process still running and do
 # nothing, leaving the dashboard stuck showing the old version.

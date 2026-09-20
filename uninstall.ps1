@@ -64,6 +64,22 @@ foreach ($name in @($TaskName, $OldProject, $OldTaskName) | Select-Object -Uniqu
     } catch {}
 }
 
+# ── Claude Desktop registration + account profiles ───────────────────
+# Needs the CLI, so it runs before the package is removed.
+
+if (Get-Command $Project -ErrorAction SilentlyContinue) {
+    try { & $Project uninstall-mcp 2>&1 | Out-Null } catch {}
+    $profilesDir = Join-Path $DataDir "profiles"
+    if (Test-Path $profilesDir) {
+        $answer = Read-Host "Delete account profiles in $profilesDir (agent logins) and their stored API keys? [y/N]"
+        if ($answer -match "^[Yy]") {
+            try { & $Project profile purge --yes 2>&1 | Out-Null } catch {}
+        } else {
+            Write-Host "  Kept profiles (their API keys stay in the OS keyring)"
+        }
+    }
+}
+
 # ── Uninstall package ────────────────────────────────────────────────
 
 $hasPipx = $false

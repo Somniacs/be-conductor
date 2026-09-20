@@ -26,11 +26,25 @@ _IS_WIN = sys.platform == "win32"
 class BasePTYProcess:
     """Common interface for PTY wrappers on all platforms."""
 
-    def __init__(self, command: str, cwd: str | None = None, env: dict | None = None):
+    def __init__(self, command: str | list[str], cwd: str | None = None,
+                 env: dict | None = None, strip_env: list[str] | None = None):
+        # A list is an exact argv (headless runs carry a free-text prompt
+        # that must not go through shell-style splitting).
         self.command = command
         self.cwd = cwd
         self.extra_env = env
+        self.strip_env = strip_env
         self.closed = False
+
+    def _apply_env(self, env: dict) -> None:
+        """Strip inherited agent/auth variables, then apply the session env."""
+        for key in list(env):
+            if key.startswith("CLAUDE"):
+                del env[key]
+        for key in self.strip_env or ():
+            env.pop(key, None)
+        if self.extra_env:
+            env.update(self.extra_env)
 
     def spawn(self, rows: int = 24, cols: int = 80) -> None:
         raise NotImplementedError
@@ -77,8 +91,9 @@ if not _IS_WIN:
     class UnixPTYProcess(BasePTYProcess):
         """Wraps a subprocess in a Unix pseudo-terminal."""
 
-        def __init__(self, command: str, cwd: str | None = None, env: dict | None = None):
-            super().__init__(command, cwd, env=env)
+        def __init__(self, command: str | list[str], cwd: str | None = None,
+                     env: dict | None = None, strip_env: list[str] | None = None):
+            super().__init__(command, cwd, env=env, strip_env=strip_env)
             self.master_fd: int = -1
             self.process: subprocess.Popen | None = None
 
@@ -88,7 +103,8 @@ if not _IS_WIN:
             winsize = struct.pack("HHHH", rows, cols, 0, 0)
             fcntl.ioctl(slave_fd, termios.TIOCSWINSZ, winsize)
 
-            args = shlex.split(self.command)
+            args = (list(self.command) if isinstance(self.command, list)
+                    else shlex.split(self.command))
             env = os.environ.copy()
             # Ensure common user-local bin dirs are in PATH — the daemon
             # may have been started with a minimal environment.
@@ -107,11 +123,7 @@ if not _IS_WIN:
             if resolved:
                 args[0] = resolved
             env["TERM"] = "xterm-256color"
-            for key in list(env):
-                if key.startswith("CLAUDE"):
-                    del env[key]
-            if self.extra_env:
-                env.update(self.extra_env)
+            self._apply_env(env)
 
             def _child_setup(fd=slave_fd):
                 os.setsid()
@@ -151,6 +163,17 @@ if not _IS_WIN:
                 try:
                     pgid = os.getpgid(self.process.pid)
                     os.killpg(pgid, signal.SIGTERM)
+                except (ProcessLookupError, OSError):
+                    pass
+
+        def kill_hard(self) -> None:
+            """SIGKILL the whole process group — for a run that ignores SIGTERM."""
+            if self.process:
+                try:
+                    # The session leader's pid is the pgid (setsid in the
+                    # child), so this still reaches orphaned grandchildren
+                    # after the leader itself is gone.
+                    os.killpg(self.process.pid, signal.SIGKILL)
                 except (ProcessLookupError, OSError):
                     pass
 
@@ -200,8 +223,9 @@ else:
     class WindowsPTYProcess(BasePTYProcess):
         """Wraps a subprocess in a Windows ConPTY pseudo-terminal."""
 
-        def __init__(self, command: str, cwd: str | None = None, env: dict | None = None):
-            super().__init__(command, cwd, env=env)
+        def __init__(self, command: str | list[str], cwd: str | None = None,
+                     env: dict | None = None, strip_env: list[str] | None = None):
+            super().__init__(command, cwd, env=env, strip_env=strip_env)
             self._pty: WinPTY | None = None
             self._pid: int | None = None
             self._proc_handle: int | None = None  # Win32 HANDLE for exit detection
@@ -211,17 +235,17 @@ else:
 
             env = os.environ.copy()
             env["TERM"] = "xterm-256color"
-            for key in list(env):
-                if key.startswith("CLAUDE"):
-                    del env[key]
-            if self.extra_env:
-                env.update(self.extra_env)
+            self._apply_env(env)
 
             # pywinpty spawn() expects: appname (str), cmdline (str|None),
             # cwd (str|None), env (null-separated str|None)
-            parts = self.command.split(None, 1)
-            appname = parts[0]
-            cmdline = parts[1] if len(parts) > 1 else None
+            if isinstance(self.command, list):
+                appname = shutil.which(self.command[0]) or self.command[0]
+                cmdline = subprocess.list2cmdline(self.command[1:]) or None
+            else:
+                parts = self.command.split(None, 1)
+                appname = parts[0]
+                cmdline = parts[1] if len(parts) > 1 else None
             cwd = self.cwd or os.getcwd()
             env_str = "\0".join(f"{k}={v}" for k, v in env.items()) + "\0"
             self._pty.spawn(appname, cmdline=cmdline, cwd=cwd, env=env_str)
@@ -269,6 +293,9 @@ else:
                 except Exception:
                     pass
 
+        def kill_hard(self) -> None:
+            self.kill()  # taskkill /F /T already takes the whole tree
+
         def poll(self) -> int | None:
             if self._pty:
                 if not self._pty.isalive():
@@ -315,8 +342,10 @@ else:
 # Factory — returns the right class for the current platform
 # ---------------------------------------------------------------------------
 
-def PTYProcess(command: str, cwd: str | None = None, env: dict | None = None) -> BasePTYProcess:
+def PTYProcess(command: str | list[str], cwd: str | None = None,
+               env: dict | None = None,
+               strip_env: list[str] | None = None) -> BasePTYProcess:
     """Create a platform-appropriate PTY wrapper."""
     if _IS_WIN:
-        return WindowsPTYProcess(command, cwd=cwd, env=env)
-    return UnixPTYProcess(command, cwd=cwd, env=env)
+        return WindowsPTYProcess(command, cwd=cwd, env=env, strip_env=strip_env)
+    return UnixPTYProcess(command, cwd=cwd, env=env, strip_env=strip_env)

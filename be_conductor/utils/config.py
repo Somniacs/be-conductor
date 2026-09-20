@@ -62,6 +62,8 @@ TOKEN_FILE = CONDUCTOR_DIR / "token"
 USER_CONFIG_FILE = CONDUCTOR_DIR / "config.yaml"
 WORKTREES_FILE = CONDUCTOR_DIR / "worktrees.json"
 NOTES_DB = CONDUCTOR_DIR / "notes.db"
+PROFILES_DIR = CONDUCTOR_DIR / "profiles"
+SECRETS_DIR = CONDUCTOR_DIR / "secrets"
 
 # ── SSL / TLS ────────────────────────────────────────────────────────────────
 
@@ -160,6 +162,11 @@ DEFAULT_DIRECTORIES: list[str] = list(_DEFAULT_DIRECTORIES)
 # user-preference hint — the dashboard always lists all ACP agents.
 ACP_AGENTS_ENABLED: list[str] = []
 
+# Account profiles (isolated logins) and the MCP surface. Both are opt-in:
+# empty means the feature is unused and nothing is written to config.yaml.
+PROFILES: list[dict] = []
+MCP_CONFIG: dict = {}
+
 _config_version: int = 0
 
 
@@ -196,7 +203,7 @@ def migrate_from_old_name():
 def load_user_config():
     """Load ~/.be-conductor/config.yaml and merge over defaults."""
     global ALLOWED_COMMANDS, DEFAULT_DIRECTORIES, BUFFER_MAX_BYTES, UPLOAD_WARN_SIZE, GRACEFUL_STOP_TIMEOUT
-    global SSL_CERTFILE, SSL_KEYFILE, ACP_AGENTS_ENABLED
+    global SSL_CERTFILE, SSL_KEYFILE, ACP_AGENTS_ENABLED, PROFILES, MCP_CONFIG
 
     if not USER_CONFIG_FILE.exists():
         return
@@ -210,6 +217,10 @@ def load_user_config():
         ALLOWED_COMMANDS = data["allowed_commands"]
     if "acp_agents" in data and isinstance(data["acp_agents"], list):
         ACP_AGENTS_ENABLED = [str(x) for x in data["acp_agents"]]
+    if "profiles" in data and isinstance(data["profiles"], list):
+        PROFILES = [p for p in data["profiles"] if isinstance(p, dict)]
+    if "mcp" in data and isinstance(data["mcp"], dict):
+        MCP_CONFIG = data["mcp"]
     if "default_directories" in data and isinstance(data["default_directories"], list):
         DEFAULT_DIRECTORIES = data["default_directories"]
     if "buffer_max_bytes" in data and isinstance(data["buffer_max_bytes"], int):
@@ -228,12 +239,16 @@ def load_user_config():
 def save_user_config(data: dict):
     """Write settings to ~/.be-conductor/config.yaml and update in-memory values."""
     global ALLOWED_COMMANDS, DEFAULT_DIRECTORIES, BUFFER_MAX_BYTES, UPLOAD_WARN_SIZE, GRACEFUL_STOP_TIMEOUT, _config_version
-    global SSL_CERTFILE, SSL_KEYFILE, ACP_AGENTS_ENABLED
+    global SSL_CERTFILE, SSL_KEYFILE, ACP_AGENTS_ENABLED, PROFILES, MCP_CONFIG
 
     if "allowed_commands" in data and isinstance(data["allowed_commands"], list):
         ALLOWED_COMMANDS = data["allowed_commands"]
     if "acp_agents" in data and isinstance(data["acp_agents"], list):
         ACP_AGENTS_ENABLED = [str(x) for x in data["acp_agents"]]
+    if "profiles" in data and isinstance(data["profiles"], list):
+        PROFILES = [p for p in data["profiles"] if isinstance(p, dict)]
+    if "mcp" in data and isinstance(data["mcp"], dict):
+        MCP_CONFIG = data["mcp"]
     if "default_directories" in data and isinstance(data["default_directories"], list):
         DEFAULT_DIRECTORIES = data["default_directories"]
     if "buffer_max_bytes" in data and isinstance(data["buffer_max_bytes"], int):
@@ -263,6 +278,12 @@ def save_user_config(data: dict):
     # be silently dropped on the next settings change.
     if ACP_AGENTS_ENABLED:
         config_out["acp_agents"] = ACP_AGENTS_ENABLED
+    # Same for profiles / mcp — and only written when in use, so a config
+    # without them round-trips unchanged.
+    if PROFILES:
+        config_out["profiles"] = PROFILES
+    if MCP_CONFIG:
+        config_out["mcp"] = MCP_CONFIG
 
     CONDUCTOR_DIR.mkdir(parents=True, exist_ok=True)
     USER_CONFIG_FILE.write_text(yaml.dump(config_out, default_flow_style=False, sort_keys=False))
@@ -314,6 +335,10 @@ def reset_to_defaults():
     if USER_CONFIG_FILE.exists():
         USER_CONFIG_FILE.unlink()
     _config_version += 1
+    # Profiles hold logins the user set up by hand — a settings reset must
+    # not orphan them, so write them (and the MCP block) straight back.
+    if PROFILES or MCP_CONFIG:
+        save_user_config({})
 
 
 def get_admin_settings() -> dict:
