@@ -7844,7 +7844,8 @@
                     <div class="form-row" id="pf-row-dir"><label>Config dir</label><input class="settings-input" id="pf-dir" value="${escHtml(idx >= 0 ? (p.config_dir || '') : '')}" placeholder="default: ~/.be-conductor/profiles/<name>"></div>
                     <div class="settings-hint" id="pf-dir-hint" style="margin:-2px 0 6px 0"></div>
                     <div class="form-row"><label>API key env vars</label><input class="settings-input" id="pf-secrets" value="${escHtml(secText)}" placeholder="e.g. OPENROUTER_API_KEY (value is set separately)"></div>
-                    <div class="form-row" id="pf-row-model"><label>Model</label><input class="settings-input" id="pf-model" value="${escHtml(p.model || '')}" placeholder="for headless runs, e.g. openrouter/anthropic/claude-sonnet-4.6"></div>
+                    <div class="form-row" id="pf-row-model"><label>Model</label><input class="settings-input" id="pf-model" list="pf-model-options" value="${escHtml(p.model || '')}" placeholder="fallback model — empty means choose per run"><datalist id="pf-model-options"></datalist></div>
+                    <div class="settings-hint" id="pf-model-hint" style="margin:-2px 0 6px 0">Only a fallback: a run that names its own model always wins.</div>
                     <div class="form-row" id="pf-row-cap"><label>Max cost / run (USD)</label><input class="settings-input" id="pf-cap" type="number" min="0" step="0.1" value="${p.max_cost_usd_per_run || ''}" placeholder="no cap"></div>
                     <div class="form-row"><label>LeanCTX</label><select class="settings-input" id="pf-leanctx">
                         ${['off', 'shadow', 'active'].map(m => `<option value="${m}" ${(p.leanctx || 'off') === m ? 'selected' : ''}>${m}</option>`).join('')}
@@ -7858,13 +7859,34 @@
                     </div>
                 </div>`;
             _profileBackendChanged();
+            if (idx >= 0) _loadModelOptions(p.name);
+            else document.getElementById('pf-model-hint').textContent =
+                'Add the profile first, then reopen it to pick from its model list.';
+        }
+
+        // The list comes from the profile's own environment, so it shows what
+        // that account can actually reach (OpenCode lists nothing for a
+        // provider it has no key for).
+        async function _loadModelOptions(name) {
+            const dl = document.getElementById('pf-model-options');
+            const hint = document.getElementById('pf-model-hint');
+            if (!dl || !name) return;
+            try {
+                const r = await _adminJson(`/profiles/${encodeURIComponent(name)}/models`);
+                const models = r.models || [];
+                dl.innerHTML = models.map(m => `<option value="${escHtml(m)}">`).join('');
+                if (hint) hint.textContent = models.length
+                    ? `${models.length} models available — click or type to filter. Only a fallback: a run that names its own model always wins.`
+                    : 'Only a fallback: a run that names its own model always wins.';
+            } catch (_) {}
         }
 
         function _profileBackendChanged() {
             const b = document.getElementById('pf-backend').value;
             document.getElementById('pf-row-dir').style.display = b === 'custom' ? 'none' : '';
-            document.getElementById('pf-row-model').style.display = (b === 'opencode' || b === 'custom') ? '' : 'none';
-            document.getElementById('pf-row-cap').style.display = (b === 'opencode' || b === 'custom') ? '' : 'none';
+            // Every preset takes a model now, and a cost cap is a runaway guard
+            // on any backend that reports cost.
+            document.getElementById('pf-model-hint').style.display = '';
             const hint = document.getElementById('pf-dir-hint');
             hint.style.display = b === 'custom' ? 'none' : '';
             hint.innerHTML = `Exported to the agent as <code>${_PROFILE_BACKEND_VAR[b]}</code>. Must not be a default config location.`;

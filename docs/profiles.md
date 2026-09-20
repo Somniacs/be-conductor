@@ -130,6 +130,12 @@ be-conductor task "Claude Code — Max5" "plan the refactor" --model claude-fabl
 for that one run. Order: the run's own model, then `model:` in the command's
 headless block, then the profile's `model:`, else the agent's default.
 
+A profile's `model:` is therefore only a fallback for calls that name none —
+leave it empty to always choose per run. In the dashboard the field is a
+dropdown of the models that profile can reach; `GET /profiles/<name>/models`
+returns the same list (it runs the backend's own listing with the profile's
+environment, so a provider the profile has no key for does not appear).
+
 `headless: true` uses the built-in preset for `claude`, `codex` or `opencode`.
 For those three a custom block *refines* the preset — set only what differs
 (e.g. just `args` to add a flag) and the rest, including the output parsing,

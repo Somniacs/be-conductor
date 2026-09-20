@@ -18,8 +18,8 @@ from pydantic import BaseModel
 
 from be_conductor.api.routes import _require_admin, _ws_url_for, registry
 from be_conductor.profiles import (
-    ProfileError, get_profile, ledger, list_profiles, profile_status,
-    save_profiles, secrets,
+    ProfileError, get_profile, ledger, list_models, list_profiles,
+    profile_status, save_profiles, secrets,
 )
 from be_conductor.sessions import tasks
 from be_conductor.utils import config as cfg
@@ -148,6 +148,16 @@ async def check_profile(name: str):
         return {"ok": False, "error": str(e)}
     except FileNotFoundError as e:
         return {"ok": False, "error": f"Command not found: {e}"}
+
+
+@router.get("/profiles/{name}/models")
+async def profile_models(name: str, refresh: bool = False):
+    """Model ids this profile can use, for the dashboard's model picker."""
+    import asyncio
+    _profile_or_404(name)
+    loop = asyncio.get_event_loop()
+    models = await loop.run_in_executor(None, list_models, name, refresh)
+    return {"models": models}
 
 
 @router.get("/profiles/{name}/usage")

@@ -354,3 +354,49 @@ def _cli_found(profile: dict) -> bool | None:
     import shutil
     cli = BACKEND_CLI.get(profile["backend"])
     return bool(shutil.which(cli)) if cli else None
+
+
+# Backend → how to list the models a profile can actually use. The command
+# runs with the profile's environment, so what comes back reflects that
+# account's providers (OpenCode lists nothing for a provider it has no key
+# for). Claude Code has no list command; it takes these aliases.
+MODEL_LIST_COMMAND: dict[str, list[str]] = {
+    "opencode": ["opencode", "models"],
+}
+STATIC_MODELS: dict[str, list[str]] = {
+    "claude": ["opus", "sonnet", "haiku", "opusplan", "default"],
+}
+
+_MODEL_CACHE: dict[str, tuple[float, list[str]]] = {}
+_MODEL_CACHE_TTL = 300
+
+
+def list_models(profile_name: str, refresh: bool = False) -> list[str]:
+    """Model ids available to this profile, newest listing cached briefly."""
+    import subprocess
+    import time
+
+    profile = get_profile(profile_name)
+    backend = profile["backend"]
+    if backend in STATIC_MODELS:
+        return list(STATIC_MODELS[backend])
+    argv = MODEL_LIST_COMMAND.get(backend)
+    if not argv:
+        return []
+
+    hit = _MODEL_CACHE.get(profile_name)
+    if hit and not refresh and time.time() - hit[0] < _MODEL_CACHE_TTL:
+        return hit[1]
+
+    senv = build_session_env(profile_name)
+    env = {k: v for k, v in os.environ.items() if k not in senv.strip}
+    env.update(senv.env)
+    try:
+        proc = subprocess.run(argv, env=env, capture_output=True, text=True,
+                              timeout=30, stdin=subprocess.DEVNULL)
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return []
+    models = [line.strip() for line in (proc.stdout or "").splitlines()
+              if line.strip() and "/" in line and not line.startswith(" ")]
+    _MODEL_CACHE[profile_name] = (time.time(), models)
+    return models
