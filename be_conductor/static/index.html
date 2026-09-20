@@ -1293,6 +1293,7 @@
         }
 
         .dir-picker .dir-entry:hover { background: #1a1a3e; }
+        .dir-picker .dir-entry > span:last-child:not(:first-child) { flex-shrink: 0; }
         .dir-picker .dir-icon { color: #6060aa; font-size: 11px; }
 
         .dir-picker .dir-empty {
@@ -7908,7 +7909,7 @@
         // is kept here and searched in the dialog; the inline datalist is only
         // populated when it is short enough to be useful.
         const _DATALIST_MAX = 400;
-        let _modelOptions = [];
+        let _modelOptions = [], _modelOptionsLive = false, _modelLabels = {};
 
         async function _loadModelOptions() {
             const dl = document.getElementById('pf-model-options');
@@ -7925,17 +7926,20 @@
                     const r = await _adminJson(`/profiles/${encodeURIComponent(name)}/models`);
                     models = r.models || [];
                     live = models.length > 0;
+                    if (live) _modelLabels = r.labels || {};
                 } catch (_) {}
             }
             if (!live) {
                 try {
                     const r = await _adminJson(`/profile-models?backend=${encodeURIComponent(backend)}&env=${encodeURIComponent(envs)}`);
                     models = r.models || [];
+                    _modelLabels = r.labels || {};
                 } catch (_) {}
             }
             _modelOptions = models;
+            _modelOptionsLive = live;
             dl.innerHTML = models.length <= _DATALIST_MAX
-                ? models.map(m => `<option value="${escHtml(m)}">`).join('') : '';
+                ? models.map(m => `<option value="${escHtml(m)}">${escHtml((_modelLabels[m] || {}).name || '')}</option>`).join('') : '';
             if (!hint) return;
             if (!models.length) hint.textContent = fallback;
             else if (live) hint.textContent = `${models.length} models this account can reach. ${fallback}`;
@@ -7947,7 +7951,11 @@
             if (!_modelOptions.length) await _loadModelOptions();
             const el = document.getElementById('pf-model');
             if (!_modelOptions.length) { showToast('No model list for this backend — type the id.'); return; }
-            const chosen = await pickFromList(_modelOptions, 'Model for this profile', el.value.trim());
+            const chosen = await pickFromList(
+                _modelOptions,
+                _modelOptionsLive ? 'Model — this account can reach these'
+                                  : 'Model — full catalogue, not checked against this account',
+                el.value.trim(), _modelLabels);
             if (chosen !== undefined) el.value = chosen;
         }
 
@@ -8014,7 +8022,10 @@
 
         async function _removeProfile(idx) {
             const p = _profilesData.profiles[idx];
-            if (!confirm(`Remove profile "${p.name}"?\n\nIts login directory (${p.config_dir || '-'}) stays on disk.`)) return;
+            const ok = await showConfirm(
+                `Remove profile "${p.name}"? Its login directory (${p.config_dir || '-'}) stays on disk.`,
+                'Remove', 'Keep');
+            if (!ok) return;
             try {
                 for (const s of (p.secrets || [])) {
                     try { await _adminJson(`/admin/profiles/${encodeURIComponent(p.name)}/secret/${encodeURIComponent(s.env)}`, 'DELETE'); } catch (_) {}
@@ -8163,11 +8174,12 @@
         // ── Searchable list picker ───────────────────────────────────────
         // A native datalist filters unpredictably and cannot show thousands of
         // entries, so long lists (models) get this instead: search + click.
-        let _listPickResolve = null, _listPickItems = [];
+        let _listPickResolve = null, _listPickItems = [], _listPickLabels = {};
         const _LIST_PICK_RENDER = 300;
 
-        function pickFromList(items, title, current) {
+        function pickFromList(items, title, current, labels) {
             _listPickItems = items || [];
+            _listPickLabels = labels || {};
             document.getElementById('list-pick-title').textContent = title || 'Choose';
             const search = document.getElementById('list-pick-search');
             search.value = '';
@@ -8179,11 +8191,26 @@
 
         function _listPickRender(current) {
             const q = document.getElementById('list-pick-search').value.trim().toLowerCase();
-            const hits = q ? _listPickItems.filter(x => x.toLowerCase().includes(q)) : _listPickItems;
+            const text = x => x + ' ' + ((_listPickLabels[x] || {}).name || '');
+            const hits = q ? _listPickItems.filter(x => text(x).toLowerCase().includes(q)) : _listPickItems;
             const shown = hits.slice(0, _LIST_PICK_RENDER);
-            document.getElementById('list-pick-items').innerHTML = shown.length
-                ? shown.map(x => `<div class="dir-entry" onclick="_listPickDone(${JSON.stringify(x).replace(/"/g, '&quot;')})"${x === current ? ' style="color:#8080ff"' : ''}><span>${escHtml(x)}</span></div>`).join('')
-                : '<div class="dir-empty">Nothing matches</div>';
+            let html = '', provider = null;
+            for (const x of shown) {
+                const meta = _listPickLabels[x] || {};
+                // A provider heading, as the agent's own picker shows it: the
+                // prefix is what decides which account is billed.
+                if (meta.provider && meta.provider !== provider) {
+                    provider = meta.provider;
+                    html += `<div style="padding:5px 10px 2px;font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#6a6aaa;">${escHtml(provider)}</div>`;
+                }
+                const sel = x === current ? ' style="color:#8080ff"' : '';
+                const arg = JSON.stringify(x).replace(/"/g, '&quot;');
+                html += `<div class="dir-entry" onclick="_listPickDone(${arg})"${sel}>`
+                     + (meta.name ? `<span>${escHtml(meta.name)}</span><span style="margin-left:auto;font-size:10px;color:#606080;font-family:monospace">${escHtml(x)}</span>`
+                                  : `<span>${escHtml(x)}</span>`)
+                     + '</div>';
+            }
+            document.getElementById('list-pick-items').innerHTML = shown.length ? html : '<div class="dir-empty">Nothing matches</div>';
             document.getElementById('list-pick-count').textContent = hits.length > shown.length
                 ? `${shown.length} of ${hits.length} matches shown — keep typing to narrow.`
                 : `${hits.length} of ${_listPickItems.length}`;

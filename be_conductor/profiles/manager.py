@@ -437,6 +437,34 @@ def _codex_models(profile: dict) -> list[str]:
     return [m["slug"] for m in models]
 
 
+def model_labels(ids: list[str]) -> dict[str, dict]:
+    """Human names for model ids, from OpenCode's catalogue.
+
+    A bare id says little — `openrouter/z-ai/glm-5.3-flashx` and
+    `zai/glm-5.3-flashx` differ only in the provider that bills them — so the
+    picker shows the catalogue's own name and provider alongside.
+    """
+    import json
+    if not OPENCODE_CATALOG.is_file():
+        return {}
+    try:
+        catalog = json.loads(OPENCODE_CATALOG.read_text())
+    except (OSError, ValueError):
+        return {}
+    out: dict[str, dict] = {}
+    for mid in ids:
+        prov_id, _, rest = mid.partition("/")
+        prov = catalog.get(prov_id)
+        if not rest or not isinstance(prov, dict):
+            continue
+        entry = {"provider": prov.get("name") or prov_id}
+        model = (prov.get("models") or {}).get(rest)
+        if isinstance(model, dict) and model.get("name"):
+            entry["name"] = model["name"]
+        out[mid] = entry
+    return out
+
+
 def list_models(profile_name: str, refresh: bool = False) -> list[str]:
     """Model ids available to this profile, newest listing cached briefly."""
     import subprocess
