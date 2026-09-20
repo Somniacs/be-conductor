@@ -240,8 +240,7 @@ for agent in claude codex opencode lean-ctx; do
         echo "  $agent ✓"
     else
         case "$agent" in
-            lean-ctx) echo "  $agent — not found (optional: context compression for profiles)"
-                      echo "             to use it:  cargo install lean-ctx   (see https://leanctx.com)" ;;
+            lean-ctx) echo "  $agent — not found (optional: context compression for profiles)" ;;
             *)        echo "  $agent — not found" ;;
         esac
     fi
@@ -281,6 +280,38 @@ if command -v "$PROJECT" &>/dev/null; then
 fi
 
 echo ""
+
+# ── Optional: LeanCTX ────────────────────────────────────────────────
+# Asked last, after the server is running again, so waiting here never
+# holds the server down. Times out into "no", so an unattended update
+# (the one the update dialog runs) is never blocked by it.
+if ! command -v lean-ctx &>/dev/null; then
+    echo "LeanCTX is an optional context-compression layer for agent sessions"
+    echo "(https://leanctx.com). be-conductor can use it per profile."
+    reply=""
+    if command -v cargo &>/dev/null; then
+        if [ -t 0 ]; then
+            printf "  Install it now with cargo? [y/N] (30s, then no) "
+            read -t 30 -r reply || true
+            echo ""
+        elif [ -e /dev/tty ]; then
+            printf "  Install it now with cargo? [y/N] (30s, then no) " > /dev/tty
+            read -t 30 -r reply < /dev/tty || true
+            echo "" > /dev/tty
+        fi
+        case "$reply" in
+            [Yy]*)
+                echo "  Building lean-ctx (this takes a few minutes)..."
+                cargo install lean-ctx && echo "  lean-ctx installed ✓" \
+                    || echo "  lean-ctx install failed — see https://leanctx.com"
+                ;;
+            *) echo "  Skipped — install later with: cargo install lean-ctx" ;;
+        esac
+    else
+        echo "  To use it: install Rust, then 'cargo install lean-ctx'"
+    fi
+    echo ""
+fi
 
 # ── Autostart setup ──────────────────────────────────────────────────
 

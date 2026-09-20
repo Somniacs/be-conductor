@@ -270,6 +270,54 @@ if ($installed) {
 
 Write-Host ""
 
+# ── Optional: LeanCTX ────────────────────────────────────────────────
+# Asked last, after the server is running again, so waiting here never
+# holds the server down. Read-Host cannot time out, so poll the console
+# instead and fall through to "no" - an unattended update must not block.
+function Read-WithTimeout($prompt, $seconds) {
+    Write-Host $prompt -NoNewline
+    $buf = ""
+    try {
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        while ($sw.Elapsed.TotalSeconds -lt $seconds) {
+            if ([Console]::KeyAvailable) {
+                $k = [Console]::ReadKey($true)
+                if ($k.Key -eq "Enter") { break }
+                $buf += $k.KeyChar
+                Write-Host $k.KeyChar -NoNewline
+            }
+            Start-Sleep -Milliseconds 100
+        }
+    } catch {
+        # No interactive console (piped install) - treat as no answer.
+        $buf = ""
+    }
+    Write-Host ""
+    return $buf
+}
+
+if (-not (Get-Command lean-ctx -ErrorAction SilentlyContinue)) {
+    Write-Host "LeanCTX is an optional context-compression layer for agent sessions"
+    Write-Host "(https://leanctx.com). be-conductor can use it per profile."
+    if (Get-Command cargo -ErrorAction SilentlyContinue) {
+        $answer = Read-WithTimeout "  Install it now with cargo? [y/N] (30s, then no) " 30
+        if ($answer -match "^[Yy]") {
+            Write-Host "  Building lean-ctx (this takes a few minutes)..."
+            try {
+                & cargo install lean-ctx
+                Write-Host "  lean-ctx installed" -NoNewline; Write-Host " OK" -ForegroundColor Green
+            } catch {
+                Write-Host "  lean-ctx install failed - see https://leanctx.com" -ForegroundColor Yellow
+            }
+        } else {
+            Write-Host "  Skipped - install later with: cargo install lean-ctx"
+        }
+    } else {
+        Write-Host "  To use it: install Rust, then 'cargo install lean-ctx'"
+    }
+    Write-Host ""
+}
+
 # ── Autostart setup (Startup folder) ──────────────────────────────────
 
 if ($installed) {
