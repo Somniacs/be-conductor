@@ -8054,9 +8054,15 @@
             const p = _profilesData.profiles[idx];
             const btn = document.getElementById('profile-test-' + idx);
             if (btn) { btn.disabled = true; btn.textContent = 'Testing…'; }
-            _profileMsg(idx, 'Running a trivial prompt (up to 60 s)…');
+            // A first run can take 20 s or more (the agent starts its own
+            // server), so count up rather than leave it looking hung.
+            const t0 = Date.now();
+            const tick = setInterval(() => _profileMsg(idx,
+                `Running a trivial prompt… ${Math.round((Date.now() - t0) / 1000)}s of up to 60 s`), 1000);
+            _profileMsg(idx, 'Running a trivial prompt… 0s of up to 60 s');
             try {
                 const r = await _adminJson(`/profiles/${encodeURIComponent(p.name)}/check`, 'POST', {});
+                clearInterval(tick);
                 await _loadProfilesTab();
                 if (r.ok) {
                     const cost = (r.cost_usd !== null && r.cost_usd !== undefined) ? `, $${r.cost_usd.toFixed(4)}` : '';
@@ -8065,6 +8071,7 @@
                     _profileMsg(idx, 'Failed: ' + (r.error || r.fail_reason || r.task_status) + (r.result ? '\n' + r.result : ''), '#ff9060');
                 }
             } catch (e) {
+                clearInterval(tick);
                 _profileMsg(idx, 'Test failed: ' + e.message, '#ff9060');
                 if (btn) { btn.disabled = false; btn.textContent = 'Test'; }
             }

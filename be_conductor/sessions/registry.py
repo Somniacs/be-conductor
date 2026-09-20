@@ -507,6 +507,7 @@ class SessionRegistry:
                     timeout_seconds=headless.get("timeout_seconds"),
                     max_cost_usd=(profile_cfg or {}).get("max_cost_usd_per_run"),
                     model=task_model,
+                    tty=(headless_block(entry) or {}).get("tty", True),
                 )
                 notifier.on_notify = session.on_needs_input
             else:

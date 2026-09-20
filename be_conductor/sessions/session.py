@@ -197,7 +197,8 @@ class Session:
                  profile: str | None = None,
                  strip_env: list[str] | None = None,
                  redact: list[str] | None = None,
-                 argv: list[str] | None = None):
+                 argv: list[str] | None = None,
+                 tty: bool = True):
         self.id = session_id or name
         self.name = name
         self.command = command
@@ -209,7 +210,9 @@ class Session:
         self._redact: list[bytes] = [r.encode() for r in (redact or []) if len(r) >= 6]
         # *argv* (exact argument list) overrides shell-splitting of *command*,
         # which then is display-only.
-        self.pty = PTYProcess(argv or command, cwd=cwd, env=env, strip_env=strip_env)
+        self.tty = tty
+        self.pty = PTYProcess(argv or command, cwd=cwd, env=env,
+                              strip_env=strip_env, tty=tty)
         self.buffer = bytearray()
         self.subscribers: Set[asyncio.Queue] = set()
         self.status = "starting"

@@ -153,6 +153,8 @@ stays. A full block for another tool looks like this:
       error_json_path: is_error                 # truthy → failed
       result_match: {"item.type": "agent_message"}   # jsonl: which events carry the result
       error_match: {"type": "error"}                 # jsonl: which events mean failure
+      tty: false                # run on pipes with stdin closed (OpenCode needs
+                                # this: through a terminal it never finishes)
 ```
 
 A headless run is a normal session: it appears in the sidebar with a status

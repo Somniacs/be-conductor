@@ -16,6 +16,7 @@
 import os
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 
@@ -339,13 +340,127 @@ else:
 
 
 # ---------------------------------------------------------------------------
+# No terminal at all — pipes, with stdin closed
+# ---------------------------------------------------------------------------
+
+
+class PipeProcess(BasePTYProcess):
+    """Runs a command with pipes instead of a terminal, stdin closed.
+
+    Some agents block forever reading a terminal stdin when run headless
+    (OpenCode's `run` does: through a PTY it emits nothing and never exits,
+    through pipes it finishes in seconds). Such a command asks for this with
+    ``tty: false`` in its headless block. There is no input side, so nothing
+    can be typed into the session — which is what headless already means.
+    """
+
+    def __init__(self, command: str | list[str], cwd: str | None = None,
+                 env: dict | None = None, strip_env: list[str] | None = None):
+        super().__init__(command, cwd, env=env, strip_env=strip_env)
+        self.process: subprocess.Popen | None = None
+
+    def spawn(self, rows: int = 24, cols: int = 80) -> None:
+        args = (list(self.command) if isinstance(self.command, list)
+                else shlex.split(self.command))
+        env = os.environ.copy()
+        home = os.path.expanduser("~")
+        path_dirs = env.get("PATH", "").split(os.pathsep)
+        for d in (os.path.join(home, ".local", "bin"), os.path.join(home, "bin")):
+            if d not in path_dirs and os.path.isdir(d):
+                path_dirs.insert(0, d)
+        env["PATH"] = os.pathsep.join(path_dirs)
+        resolved = shutil.which(args[0], path=env["PATH"])
+        if resolved:
+            args[0] = resolved
+        env["TERM"] = "dumb"
+        self._apply_env(env)
+
+        kwargs: dict = dict(
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            cwd=self.cwd,
+            env=env,
+            bufsize=0,
+        )
+        if _IS_WIN:
+            kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+        else:
+            kwargs["start_new_session"] = True
+        self.process = subprocess.Popen(args, **kwargs)
+        self.master_fd = self.process.stdout.fileno()
+        if not _IS_WIN:
+            os.set_blocking(self.master_fd, False)
+
+    def read(self) -> bytes:
+        try:
+            return os.read(self.master_fd, 65536)
+        except (BlockingIOError, InterruptedError):
+            return b""
+
+    def write(self, data: bytes) -> None:
+        """No input side — a pipe-backed run cannot be typed into."""
+
+    def resize(self, rows: int, cols: int) -> None:
+        """No terminal, so no size."""
+
+    def kill(self) -> None:
+        if self.process and self.process.poll() is None:
+            if _IS_WIN:
+                subprocess.run(["taskkill", "/F", "/T", "/PID", str(self.process.pid)],
+                               capture_output=True)
+            else:
+                try:
+                    os.killpg(os.getpgid(self.process.pid), signal.SIGTERM)
+                except (ProcessLookupError, OSError):
+                    pass
+
+    def kill_hard(self) -> None:
+        if self.process and self.process.poll() is None:
+            if _IS_WIN:
+                self.kill()
+            else:
+                try:
+                    os.killpg(self.process.pid, signal.SIGKILL)
+                except (ProcessLookupError, OSError):
+                    pass
+
+    def interrupt_pg(self) -> None:
+        if self.process and self.process.poll() is None and not _IS_WIN:
+            try:
+                os.killpg(os.getpgid(self.process.pid), signal.SIGINT)
+            except (ProcessLookupError, OSError):
+                pass
+
+    def poll(self) -> int | None:
+        return self.process.poll() if self.process else None
+
+    def close(self) -> None:
+        if not self.closed:
+            self.closed = True
+            self.kill()
+            if self.process and self.process.stdout:
+                try:
+                    self.process.stdout.close()
+                except OSError:
+                    pass
+
+    @property
+    def pid(self) -> int | None:
+        return self.process.pid if self.process else None
+
+
+# ---------------------------------------------------------------------------
 # Factory — returns the right class for the current platform
 # ---------------------------------------------------------------------------
 
 def PTYProcess(command: str | list[str], cwd: str | None = None,
                env: dict | None = None,
-               strip_env: list[str] | None = None) -> BasePTYProcess:
-    """Create a platform-appropriate PTY wrapper."""
+               strip_env: list[str] | None = None,
+               tty: bool = True) -> BasePTYProcess:
+    """Create a platform-appropriate PTY wrapper, or a pipe-backed one."""
+    if not tty:
+        return PipeProcess(command, cwd=cwd, env=env, strip_env=strip_env)
     if _IS_WIN:
         return WindowsPTYProcess(command, cwd=cwd, env=env, strip_env=strip_env)
     return UnixPTYProcess(command, cwd=cwd, env=env, strip_env=strip_env)

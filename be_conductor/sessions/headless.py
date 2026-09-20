@@ -45,6 +45,8 @@ TASKS_DIR = cfg.CONDUCTOR_DIR / "tasks"
 #   result_match restricts which events may carry the result.
 #   error_match marks an event as a failure even when the CLI exits 0
 #   (OpenCode does); error_message_json_path is its human-readable text.
+#   tty: false runs the command on pipes with stdin closed, for agents that
+#   block reading a terminal stdin.
 HEADLESS_PRESETS: dict[str, dict] = {
     "claude": {
         "args": ["-p", "{prompt}", "--output-format", "json", "--model", "{model}"],
@@ -73,6 +75,8 @@ HEADLESS_PRESETS: dict[str, dict] = {
         "tokens_json_path": "part.tokens",
         "error_match": {"type": "error"},
         "error_message_json_path": "error.data.message",
+        # Through a terminal, `opencode run` emits nothing and never exits.
+        "tty": False,
     },
 }
 
@@ -334,6 +338,8 @@ class HeadlessSession(Session):
         # Wide terminal: nothing here wraps, but some CLIs size their own
         # output to the reported width.
         await super().start(rows=rows, cols=max(cols, 200))
+        if not self.tty:
+            self.task_status = "running"
         if self.timeout_seconds:
             self._timeout_task = asyncio.create_task(self._enforce_timeout())
 
@@ -350,6 +356,8 @@ class HeadlessSession(Session):
 
     def on_needs_input(self, _reason: str = ""):
         """Notifier callback — the run is waiting on a prompt."""
+        if not self.tty:
+            return   # nothing can be typed into a pipe-backed run
         if self.task_status == "running":
             self.task_status = "needs_input"
 
