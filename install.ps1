@@ -270,9 +270,51 @@ if ($installed) {
 
 Write-Host ""
 
+# ── Autostart setup (Startup folder) ──────────────────────────────────
+
+if ($installed) {
+    $answer = Read-Host "Start $Project automatically on login? [Y/n]"
+    if ($answer -eq "" -or $answer -match "^[Yy]") {
+        $conductorPath = (Get-Command $Project -ErrorAction SilentlyContinue).Source
+        if (-not $conductorPath) {
+            $conductorPath = "$env:USERPROFILE\.local\bin\$Project.exe"
+        }
+
+        # Clean up legacy autostart (old scheduled task, VBS, shortcut)
+        try {
+            $oldTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+            if ($oldTask) {
+                Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
+            }
+        } catch {}
+        $startupDir = [System.Environment]::GetFolderPath("Startup")
+        foreach ($ext in @("vbs", "lnk")) {
+            $old = Join-Path $startupDir "$Project.$ext"
+            if (Test-Path $old) { Remove-Item $old -Force }
+        }
+
+        # Scheduled task — runs hidden, no console window flash
+        $action   = New-ScheduledTaskAction -Execute $conductorPath -Argument "up"
+        $trigger  = New-ScheduledTaskTrigger -AtLogOn
+        $trigger.UserId = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+        $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan)
+        Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings -Force | Out-Null
+
+        Write-Host "  Autostart configured (scheduled task)" -NoNewline
+        Write-Host " OK" -ForegroundColor Green
+
+        # Start the server now
+        & $conductorPath up
+    } else {
+        Write-Host "  Skipped. See docs -> Auto-Start on Boot"
+    }
+}
+
 # ── Optional: LeanCTX ────────────────────────────────────────────────
-# Asked last, after the server is running again, so waiting here never
-# holds the server down. Read-Host cannot time out, so poll the console
+# Dead last, after autostart has the server running again: the build can
+# take minutes, and the installer stops the server early on, so anything
+# slow placed before that leaves the server down for its duration.
+# Read-Host cannot time out, so poll the console
 # instead and fall through to "no" - an unattended update must not block.
 function Read-WithTimeout($prompt, $seconds) {
     Write-Host $prompt -NoNewline
@@ -316,46 +358,6 @@ if (-not (Get-Command lean-ctx -ErrorAction SilentlyContinue)) {
         Write-Host "  To use it: install Rust, then 'cargo install lean-ctx'"
     }
     Write-Host ""
-}
-
-# ── Autostart setup (Startup folder) ──────────────────────────────────
-
-if ($installed) {
-    $answer = Read-Host "Start $Project automatically on login? [Y/n]"
-    if ($answer -eq "" -or $answer -match "^[Yy]") {
-        $conductorPath = (Get-Command $Project -ErrorAction SilentlyContinue).Source
-        if (-not $conductorPath) {
-            $conductorPath = "$env:USERPROFILE\.local\bin\$Project.exe"
-        }
-
-        # Clean up legacy autostart (old scheduled task, VBS, shortcut)
-        try {
-            $oldTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-            if ($oldTask) {
-                Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
-            }
-        } catch {}
-        $startupDir = [System.Environment]::GetFolderPath("Startup")
-        foreach ($ext in @("vbs", "lnk")) {
-            $old = Join-Path $startupDir "$Project.$ext"
-            if (Test-Path $old) { Remove-Item $old -Force }
-        }
-
-        # Scheduled task — runs hidden, no console window flash
-        $action   = New-ScheduledTaskAction -Execute $conductorPath -Argument "up"
-        $trigger  = New-ScheduledTaskTrigger -AtLogOn
-        $trigger.UserId = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-        $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan)
-        Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings -Force | Out-Null
-
-        Write-Host "  Autostart configured (scheduled task)" -NoNewline
-        Write-Host " OK" -ForegroundColor Green
-
-        # Start the server now
-        & $conductorPath up
-    } else {
-        Write-Host "  Skipped. See docs -> Auto-Start on Boot"
-    }
 }
 
 Write-Host ""
