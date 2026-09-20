@@ -170,9 +170,8 @@ def _run_tool_description(entry: dict) -> str:
     parts.append(_HEADLESS_NOTE)
     parts.append(
         "model is optional: pass it only when the user names a model for this "
-        "run (it goes to the agent's --model flag, e.g. a Claude model id or "
-        "alias for Claude Code, a GPT model id for Codex, provider/model for "
-        "OpenCode); omit it to use the account's default. "
+        "run; list_models gives the ids this agent accepts. Omit it to use the "
+        "account's default. "
         "working_dir must be inside the server's allowed directories. "
         "worktree=true runs in an isolated git worktree (review it with "
         "list_worktrees / merge_worktree). wait=true blocks until the run is "
@@ -333,6 +332,28 @@ def create_mcp() -> ConductorMCP:
             return f"No running session '{session}'."
         await _registry().remove(live.id)
         return f"Session '{session}' stopped."
+
+    @mcp.tool(name="list_models")
+    async def list_models_tool(agent: str, contains: str | None = None) -> str:
+        """Model ids an agent can run, to pass as `model` to its run_* tool.
+
+        `agent` is a command label or its run_* tool name (see list_profiles).
+        `contains` filters the list — some accounts reach hundreds of models.
+        Only call this when the user wants a model other than the default."""
+        entry = next((e for e in exposed_entries()
+                      if (e.get("label") or e["command"]) == agent
+                      or f"run_{tasks.slugify(e.get('label') or e['command'])}" == agent), None)
+        if entry is None:
+            names = [e.get("label") or e["command"] for e in exposed_entries()]
+            return f"Unknown agent '{agent}'. Exposed: {', '.join(names) or '(none)'}"
+        models = tasks.models_for_entry(entry)
+        if contains:
+            models = [m for m in models if contains.lower() in m.lower()]
+        if not models:
+            return ("No model list available for this agent — it runs its "
+                    "account's default unless you pass a model id you know.")
+        head, extra = models[:60], len(models) - 60
+        return "\n".join(head) + (f"\n… and {extra} more — narrow it with `contains`." if extra > 0 else "")
 
     @mcp.tool(name="list_profiles")
     async def list_profiles_tool() -> str:

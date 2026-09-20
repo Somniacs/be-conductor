@@ -65,6 +65,7 @@ off, `/mcp` answers 404.
 | `read_output(session, lines=100)` | Plain-text tail of the terminal. |
 | `list_sessions()` / `stop_session(session)` | |
 | `list_profiles()` | Profiles, key status, today's spend, and the `run_*` tools. |
+| `list_models(agent, contains?)` | Model ids that agent accepts, to pass as its `model`. `contains` filters — an OpenRouter key reaches hundreds. |
 | `list_worktrees()` / `merge_worktree(name, strategy="squash")` / `discard_worktree(name)` | Review and land what a `worktree=true` run produced. |
 
 The `run_*` tools follow `allowed_commands` live — edit a label or add a

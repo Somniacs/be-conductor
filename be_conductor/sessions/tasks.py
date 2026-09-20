@@ -15,6 +15,7 @@
 
 import os
 import re
+import shlex
 import uuid
 from pathlib import Path
 
@@ -146,6 +147,22 @@ async def check_profile(registry, profile_name: str, timeout: float = 60) -> dic
             "fail_reason": record.get("fail_reason"),
             "result": detail, "cost_usd": record.get("cost_usd"),
             "duration_s": record.get("duration_s")}
+
+
+def models_for_entry(entry: dict) -> list[str]:
+    """Models an exposed command can run: its profile's real list when it has
+    one, else the backend's catalogue."""
+    from be_conductor.profiles.manager import catalog_models
+    from be_conductor.profiles import list_models
+    profile = entry.get("profile")
+    if profile:
+        try:
+            return list_models(profile)
+        except ProfileError:
+            return []
+    exe = os.path.basename(shlex.split(entry.get("command") or "")[0]) if entry.get("command") else ""
+    backend = next((b for b, cli in BACKEND_CLI.items() if cli == exe), None)
+    return catalog_models(backend, None) if backend else []
 
 
 def format_footer(record: dict, dashboard_url: str | None = None) -> str:

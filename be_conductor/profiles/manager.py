@@ -363,6 +363,10 @@ def _cli_found(profile: dict) -> bool | None:
 MODEL_LIST_COMMAND: dict[str, list[str]] = {
     "opencode": ["opencode", "models"],
 }
+
+# Codex has no list command, but caches what the account may use, inside the
+# profile's own CODEX_HOME — so it is already account-accurate.
+CODEX_MODEL_CACHE = "models_cache.json"
 STATIC_MODELS: dict[str, list[str]] = {
     "claude": ["opus", "sonnet", "haiku", "opusplan", "default"],
 }
@@ -403,6 +407,25 @@ def catalog_models(backend: str, env_names: list[str] | None = None) -> list[str
     return sorted(out)
 
 
+def _codex_models(profile: dict) -> list[str]:
+    """Models this Codex login may use, from the cache Codex keeps itself.
+
+    Written after the first run, so it is empty until the profile has been
+    used once. Hidden entries (internal / special-purpose) are left out.
+    """
+    import json
+    path = config_dir_of(profile) / CODEX_MODEL_CACHE
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return []
+    models = [m for m in (data.get("models") or [])
+              if isinstance(m, dict) and m.get("slug")
+              and str(m.get("visibility", "list")).lower() != "hide"]
+    models.sort(key=lambda m: m.get("priority") if isinstance(m.get("priority"), int) else 9999)
+    return [m["slug"] for m in models]
+
+
 def list_models(profile_name: str, refresh: bool = False) -> list[str]:
     """Model ids available to this profile, newest listing cached briefly."""
     import subprocess
@@ -412,6 +435,8 @@ def list_models(profile_name: str, refresh: bool = False) -> list[str]:
     backend = profile["backend"]
     if backend in STATIC_MODELS:
         return list(STATIC_MODELS[backend])
+    if backend == "codex":
+        return _codex_models(profile)
     argv = MODEL_LIST_COMMAND.get(backend)
     if not argv:
         return []
