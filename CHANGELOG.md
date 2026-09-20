@@ -2,6 +2,20 @@
 
 All notable changes to be-conductor are documented here.
 
+## v0.3.55 (unreleased)
+
+### New
+
+- **Account profiles — run agents on a second subscription or an API key** — a profile is a named, isolated login: Claude Code on your second Max plan, Codex on its own ChatGPT account, OpenCode on an OpenRouter key. Each gets its own config directory, so your machine's default login is never read or touched, and inherited API-key variables are stripped before the agent starts. Pick the profile in the new-session dialog, or `be-conductor run --profile claude-max5 claude`. Sign a profile in from the dashboard — also from your phone — with the new **Login** button. API keys are stored in the OS keyring, never in the config file, and are scrubbed from session output. New Settings → **Profiles** tab, `be-conductor profile …` commands, and a [setup guide](docs/profiles.md)
+- **Headless tasks** — `be-conductor task "Claude Code — Max5" "summarize the TODOs"` runs a prompt to completion and prints the agent's answer and cost. It is still a normal session: it shows in the sidebar with a status badge (running / needs input / done / failed / timeout), you can watch it live, and if it stops to ask something you get the usual notification and can answer from your phone. Finished tasks show their cost, ☰ shows the result, and a finished Claude task can be continued as an interactive session with ▶. Per-run cost caps and a per-profile spend ledger (`be-conductor profile usage`) are built in
+- **Claude Desktop can now drive be-conductor (MCP)** — enable Settings → **MCP**, run `be-conductor install-mcp`, restart Claude Desktop, and it gets a `run_…` tool for each agent you expose ("run this on the Max5 subscription", "have Codex review that"), plus tools to start and steer interactive sessions, read their output, and merge or discard worktrees. Runs are limited to the directories you allow. Works across machines over Tailscale, and if the server isn't running the bridge starts it. [Setup guide](docs/mcp.md)
+- **Optional LeanCTX per profile** — if you use the `lean-ctx` context-compression layer, `be-conductor profile leanctx NAME active` sets it up for that one profile only. Your default login is guarded: if LeanCTX writes there anyway it is reverted on the spot. [Details](docs/leanctx.md)
+- **Installers report your agent CLIs** — `install.sh` / `install.ps1` now list which of `claude`, `codex`, `opencode` and `lean-ctx` are on your PATH, and offer to register be-conductor in Claude Desktop when it is installed. The uninstallers remove that registration and ask before deleting profile logins and stored keys
+
+### Fixed
+
+- **"Update available" kept coming back on installs from a git clone** — when be-conductor is installed from a source checkout, the version it reported was frozen at install time, so after a `git pull` it still claimed to be the old version and offered the same update again and again. The version now comes straight from the source tree in that case, and an install whose version can't be determined no longer prompts at all
+
 ## v0.3.54 (unreleased)
 
 ### New
