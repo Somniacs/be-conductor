@@ -225,6 +225,7 @@ foreach ($agent in @("claude", "codex", "opencode", "lean-ctx")) {
         Write-Host " OK" -ForegroundColor Green
     } elseif ($agent -eq "lean-ctx") {
         Write-Host "  $agent - not found (optional: context compression for profiles)"
+        Write-Host "             to use it:  cargo install lean-ctx   (see https://leanctx.com)"
     } else {
         Write-Host "  $agent - not found"
     }

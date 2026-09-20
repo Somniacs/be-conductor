@@ -240,7 +240,8 @@ for agent in claude codex opencode lean-ctx; do
         echo "  $agent ✓"
     else
         case "$agent" in
-            lean-ctx) echo "  $agent — not found (optional: context compression for profiles)" ;;
+            lean-ctx) echo "  $agent — not found (optional: context compression for profiles)"
+                      echo "             to use it:  cargo install lean-ctx   (see https://leanctx.com)" ;;
             *)        echo "  $agent — not found" ;;
         esac
     fi

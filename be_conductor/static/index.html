@@ -7740,6 +7740,7 @@
         // dialog these apply immediately: Login / Test / Set key all need
         // the profile to exist on the server.
         let _profilesData = null;   // GET /profiles
+        let _leanctx = { available: false, install: '' };
 
         const _PROFILE_BACKEND_VAR = {
             claude: 'CLAUDE_CONFIG_DIR', codex: 'CODEX_HOME',
@@ -7764,6 +7765,7 @@
             if (!el) return;
             try {
                 _profilesData = await _adminJson('/profiles');
+                _leanctx = _profilesData.leanctx || _leanctx;
             } catch (e) {
                 el.innerHTML = `<div class="settings-hint">Could not load profiles: ${escHtml(e.message)}</div>`;
                 return;
@@ -7820,7 +7822,8 @@
                 if (p.backend !== 'custom') html += `<button style="${_smallBtn}" onclick="_profileLogin(${i})" title="Open the agent's login flow in a terminal panel">Login</button>`;
                 html += `<button style="${_smallBtn}" id="profile-test-${i}" onclick="_profileTest(${i})" title="Run a trivial prompt under this profile">Test</button>`;
                 html += `<button style="${_smallBtn}" onclick="_profileSetKey(${i})">Set API key</button>`;
-                if (p.backend !== 'custom') html += `<button style="${_smallBtn}" onclick="_profileLeanCtx(${i})" title="Set up the LeanCTX context-compression layer for this profile">Init LeanCTX</button>`;
+                // Only offer LeanCTX when it is actually installed.
+                if (p.backend !== 'custom' && _leanctx.available) html += `<button style="${_smallBtn}" onclick="_profileLeanCtx(${i})" title="Set up the LeanCTX context-compression layer for this profile">Init LeanCTX</button>`;
                 html += `<button style="${_smallBtn}" onclick="_editProfile(${i})">Edit</button>`;
                 html += `<button style="${_smallBtn}color:#ff9090;" onclick="_removeProfile(${i})">Remove</button>`;
                 html += '</div>';
@@ -7886,9 +7889,10 @@
                     <div class="form-row" id="pf-row-model"><label>Model</label><input class="settings-input" id="pf-model" list="pf-model-options" value="${escHtml(p.model || '')}" placeholder="fallback model — empty means choose per run"><datalist id="pf-model-options"></datalist><button type="button" class="folder-pick-btn" style="margin-left:6px" onclick="_pickModel()">Choose…</button></div>
                     <div class="settings-hint" id="pf-model-hint" style="margin:-2px 0 6px 0">Only a fallback: a run that names its own model always wins.</div>
                     <div class="form-row" id="pf-row-cap"><label>Max cost / run (USD)</label><input class="settings-input" id="pf-cap" type="number" min="0" step="0.1" value="${p.max_cost_usd_per_run || ''}" placeholder="no cap"></div>
-                    <div class="form-row"><label>LeanCTX</label><select class="settings-input" id="pf-leanctx">
+                    <div class="form-row"><label>LeanCTX</label><select class="settings-input" id="pf-leanctx" ${_leanctx.available ? '' : 'disabled'}>
                         ${['off', 'shadow', 'active'].map(m => `<option value="${m}" ${(p.leanctx || 'off') === m ? 'selected' : ''}>${m}</option>`).join('')}
                     </select></div>
+                    ${_leanctx.available ? '' : `<div class="settings-hint" style="margin:-2px 0 6px 0">Optional context compression, not installed on this machine. To use it: <code>${escHtml(_leanctx.install)}</code></div>`}
                     <div class="form-row"><label>Extra env</label><textarea class="settings-input" id="pf-env" rows="2" placeholder="KEY=value, one per line">${escHtml(envText)}</textarea></div>
                     <div class="form-row"><label>Description</label><input class="settings-input" id="pf-desc" value="${escHtml(p.description || '')}" placeholder="shown to MCP clients"></div>
                     <div id="pf-error" style="font-size:11px;color:#ff9060;"></div>

@@ -37,6 +37,14 @@ from be_conductor.utils import config as cfg
 
 _AGENT_NAME = {"claude": "claude", "codex": "codex", "opencode": "opencode"}
 
+# be-conductor never installs lean-ctx; it only reports whether it is there,
+# so the dashboard can grey out an action that cannot work.
+INSTALL_HINT = "cargo install lean-ctx   (or see https://leanctx.com)"
+
+
+def available() -> bool:
+    return bool(shutil.which("lean-ctx"))
+
 # Session data / caches — large, and never what an init touches.
 _SKIP_DIRS = {"projects", "todos", "shell-snapshots", "statsig", "data", "sessions",
               "log", "logs", "cache", "node_modules", "leanctx-backup", "file-history"}

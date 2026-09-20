@@ -39,9 +39,12 @@ def _profile_or_404(name: str) -> dict:
 @router.get("/profiles")
 async def get_profiles():
     """List profiles with status. Never includes secret values."""
+    from be_conductor.profiles import leanctx
     return {
         "profiles": [profile_status(p) for p in list_profiles()],
         "secret_backend": secrets.backend_name(),
+        "leanctx": {"available": leanctx.available(),
+                    "install": leanctx.INSTALL_HINT},
     }
 
 

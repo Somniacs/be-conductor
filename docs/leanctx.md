@@ -11,9 +11,14 @@ Recommended: `active` on headless/worker profiles only; leave your default
 login alone.
 
 ```bash
+cargo install lean-ctx          # or see https://leanctx.com — be-conductor never installs it
 be-conductor profile leanctx claude-max5 active
 be-conductor profile leanctx claude-max5 off
 ```
+
+Until `lean-ctx` is on the PATH the dashboard hides the **Init LeanCTX** button
+and disables the profile's LeanCTX setting, rather than offering an action that
+can only fail.
 
 (or **Init LeanCTX** / the LeanCTX field in Settings → Profiles.)
 
