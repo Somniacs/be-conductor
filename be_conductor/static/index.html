@@ -2064,6 +2064,18 @@
             outline: none;
             border-color: #4040aa;
         }
+        .folder-pick-btn {
+            padding: 5px 14px;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+            border: 1px solid #2a2a5a;
+            background: #14142e;
+            color: #a0a0c8;
+        }
+        .folder-pick-btn:hover { border-color: #4040aa; color: #d0d0f0; }
+        .folder-pick-btn.primary { background: #3a3ab8; border-color: #4a4ad0; color: #fff; }
+
         .settings-dir-row {
             display: flex;
             align-items: center;
@@ -2866,6 +2878,20 @@
             <pre id="task-result-prompt" style="white-space:pre-wrap;word-break:break-word;font-size:11px;color:#9090b0;background:#0c0c20;border:1px solid #22224a;border-radius:5px;padding:7px;max-height:90px;overflow:auto;margin:3px 0 8px 0;"></pre>
             <div style="font-size:10px;color:#606080;text-transform:uppercase;letter-spacing:.5px;">Result</div>
             <pre id="task-result-body" style="white-space:pre-wrap;word-break:break-word;font-size:12px;color:#d0d0e8;background:#0c0c20;border:1px solid #22224a;border-radius:5px;padding:8px;max-height:50vh;overflow:auto;margin:3px 0 0 0;"></pre>
+        </div>
+    </div>
+
+    <div class="about-overlay" id="folder-pick-dialog" onclick="if(event.target===this)_folderPickDone(null)">
+        <div class="about-box" style="min-width:min(460px,90vw);text-align:left;">
+            <button class="about-close" onclick="_folderPickDone(null)">&times;</button>
+            <h2 style="font-size:15px;margin-bottom:10px;" id="folder-pick-title">Choose a folder</h2>
+            <input type="text" class="settings-input" id="folder-pick-path" style="width:100%;margin-bottom:6px;"
+                   onkeydown="if(event.key==='Enter')_folderPickBrowse(this.value)" autocomplete="off">
+            <div class="dir-picker" id="folder-pick-list" style="max-height:min(300px,45vh)"></div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;">
+                <button class="folder-pick-btn" onclick="_folderPickDone(null)">Cancel</button>
+                <button class="folder-pick-btn primary" onclick="_folderPickDone(document.getElementById('folder-pick-path').value.trim())">Use this folder</button>
+            </div>
         </div>
     </div>
 
@@ -7218,6 +7244,7 @@
             (d.default_directories || []).forEach((dir, i) => {
                 html += `<div class="settings-dir-row">`;
                 html += `<input class="settings-input" value="${escHtml(dir)}" onchange="updateDir(${i}, this.value)">`;
+                html += `<button onclick="browseDir(${i})" title="Browse">&#128193;</button>`;
                 html += `<button onclick="removeDir(${i})" title="Remove">&times;</button>`;
                 html += `</div>`;
             });
@@ -7950,6 +7977,50 @@
             } catch (e) { _profileMsg(idx, 'LeanCTX: ' + e.message, '#ff9060'); }
         }
 
+        // ── Folder picker ────────────────────────────────────────────────
+        // A browser can't open a native folder dialog that yields a path, and
+        // the folders being chosen are the *server's* anyway (it may not be
+        // this machine) — so browse it over /browse, like the new-session
+        // dialog does. Paths under the home directory are stored as ~/… so a
+        // config stays portable.
+        let _folderPickResolve = null;
+
+        function _shortHome(p) {
+            return p.replace(/^\/home\/[^/]+/, '~').replace(/^C:\\Users\\[^\\]+/, '~');
+        }
+
+        function pickFolder(startPath, title) {
+            document.getElementById('folder-pick-title').textContent = title || 'Choose a folder';
+            document.getElementById('folder-pick-dialog').classList.add('open');
+            _folderPickBrowse(startPath || '~');
+            return new Promise(resolve => { _folderPickResolve = resolve; });
+        }
+
+        function _folderPickDone(value) {
+            document.getElementById('folder-pick-dialog').classList.remove('open');
+            const resolve = _folderPickResolve;
+            _folderPickResolve = null;
+            if (resolve) resolve(value || null);
+        }
+
+        async function _folderPickBrowse(path) {
+            const list = document.getElementById('folder-pick-list');
+            try {
+                const resp = await fetch(`/browse?path=${encodeURIComponent(path || '~')}`);
+                if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                const data = await resp.json();
+                document.getElementById('folder-pick-path').value = _shortHome(data.current);
+                const go = p => `_folderPickBrowse('${p.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')`;
+                let html = `<div class="dir-current">${data.parent ? `<button onclick="${go(data.parent)}" title="Go up">&#8592;</button>` : ''}<span>${escHtml(_shortHome(data.current))}</span></div>`;
+                html += data.directories.length
+                    ? data.directories.map(d => `<div class="dir-entry" onclick="${go(d.path)}"><span class="dir-icon">&#128193;</span><span>${escHtml(d.name)}</span></div>`).join('')
+                    : '<div class="dir-empty">No subfolders</div>';
+                list.innerHTML = html;
+            } catch (e) {
+                list.innerHTML = `<div class="dir-empty">Cannot open ${escHtml(path)}</div>`;
+            }
+        }
+
         // ── MCP tab ──────────────────────────────────────────────────────
         let _mcpData = null;   // GET /admin/mcp
 
@@ -7996,6 +8067,7 @@
             (c.allowed_dirs || []).forEach((dir, i) => {
                 html += '<div class="settings-dir-row">';
                 html += `<input class="settings-input" value="${escHtml(dir)}" onchange="_mcpSetDir(${i}, this.value)">`;
+                html += `<button onclick="_mcpBrowseDir(${i})" title="Browse">&#128193;</button>`;
                 html += `<button onclick="_mcpSetDir(${i}, null)" title="Remove">&times;</button></div>`;
             });
             html += '<button class="settings-add-btn" onclick="_mcpAddDir()">+ Add directory</button>';
@@ -8057,12 +8129,17 @@
             if (value === null) c.allowed_dirs.splice(i, 1); else c.allowed_dirs[i] = value.trim();
             _mcpSave();
         }
-        function _mcpAddDir() {
-            const dir = prompt('Directory MCP sessions may work in:', '~/code');
+        async function _mcpAddDir() {
+            const dir = await pickFolder('~', 'Directory MCP sessions may work in');
             if (!dir) return;
             const c = _mcpData.config = _mcpData.config || {};
-            c.allowed_dirs = [...(c.allowed_dirs || []), dir.trim()];
+            c.allowed_dirs = [...(c.allowed_dirs || []), dir];
             _mcpSave();
+        }
+        async function _mcpBrowseDir(i) {
+            const c = _mcpData.config || {};
+            const dir = await pickFolder((c.allowed_dirs || [])[i] || '~', 'Directory MCP sessions may work in');
+            if (dir) _mcpSetDir(i, dir);
         }
         async function _mcpInstall(install) {
             try {
@@ -8306,12 +8383,19 @@
             _settingsData.default_directories[idx] = value;
         }
 
-        function addDir() {
-            _settingsData.default_directories.push('');
+        async function addDir() {
+            const dir = await pickFolder('~', 'Folder to offer in the new-session dialog');
+            if (!dir) return;
+            _settingsData.default_directories.push(dir);
             renderSettings();
-            // Focus the last input
-            const inputs = document.querySelectorAll('#settings-dirs input');
-            if (inputs.length) inputs[inputs.length - 1].focus();
+        }
+
+        async function browseDir(idx) {
+            const dir = await pickFolder(_settingsData.default_directories[idx] || '~',
+                                         'Folder to offer in the new-session dialog');
+            if (!dir) return;
+            _settingsData.default_directories[idx] = dir;
+            renderSettings();
         }
 
         function removeDir(idx) {

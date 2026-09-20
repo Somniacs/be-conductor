@@ -6,6 +6,7 @@ All notable changes to be-conductor are documented here.
 
 ### New
 
+- **Folder picker instead of typing paths** — the MCP tab's allowed directories and the Directories tab now open a folder browser instead of a bare text prompt. It browses the machine the server runs on (which is the one that matters, and may not be the one you're sitting at), and stores paths under your home directory as `~/…`. You can still type or paste a path
 - **A profile's command builds itself** — a profile already says which agent it is, so you no longer retype that on the Agents tab. Each profile row has a **+ Command** button that creates its agent command filled in from the backend — name, command, resume behaviour, headless on — and opens it for review; the row afterwards shows which command uses the profile. Picking a profile in the command editor fills in the same blanks for you
 
 ### Fixed
