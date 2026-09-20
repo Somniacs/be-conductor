@@ -7852,7 +7852,7 @@
             const secText = (p.secrets || []).map(s => s.env).join(', ');
             el.innerHTML = `
                 <div class="settings-edit-form">
-                    <div class="form-row"><label>Name</label><input class="settings-input" id="pf-name" value="${escHtml(p.name || '')}" ${idx >= 0 ? 'disabled' : ''} placeholder="claude-max5 (a-z 0-9 - _)"></div>
+                    <div class="form-row"><label>Name</label><input class="settings-input" id="pf-name" value="${escHtml(p.name || '')}" ${idx >= 0 ? 'disabled' : ''} placeholder="e.g. openrouter-any" oninput="this.style.borderColor=''"></div>
                     <div class="form-row"><label>Backend</label><select class="settings-input" id="pf-backend" onchange="_profileBackendChanged(); _loadModelOptions()">
                         ${['claude', 'codex', 'opencode', 'custom'].map(b => `<option value="${b}" ${p.backend === b ? 'selected' : ''}>${b}</option>`).join('')}
                     </select></div>
@@ -7928,8 +7928,15 @@
             if (chosen !== undefined) el.value = chosen;
         }
 
+        const _PROFILE_NAME_EXAMPLE = {
+            claude: 'e.g. claude-max5', codex: 'e.g. codex-pro5',
+            opencode: 'e.g. openrouter-any', custom: 'e.g. my-agent',
+        };
+
         function _profileBackendChanged() {
             const b = document.getElementById('pf-backend').value;
+            const nameEl = document.getElementById('pf-name');
+            if (nameEl && !nameEl.disabled) nameEl.placeholder = _PROFILE_NAME_EXAMPLE[b] || 'e.g. my-agent';
             document.getElementById('pf-row-dir').style.display = b === 'custom' ? 'none' : '';
             // Every preset takes a model now, and a cost cap is a runaway guard
             // on any backend that reports cost.
@@ -7941,6 +7948,15 @@
 
         async function _saveProfile(idx) {
             const err = document.getElementById('pf-error');
+            const nameEl = document.getElementById('pf-name');
+            if (!nameEl.disabled && !/^[a-z0-9_-]+$/.test(nameEl.value.trim())) {
+                err.textContent = nameEl.value.trim()
+                    ? `"${nameEl.value.trim()}" is not a valid name — use lowercase letters, digits, - and _.`
+                    : `Give the profile a name first (${(_PROFILE_NAME_EXAMPLE[document.getElementById('pf-backend').value] || '').replace('e.g. ', 'for example ')}).`;
+                nameEl.style.borderColor = '#ff6060';
+                nameEl.focus();
+                return;
+            }
             const list = _profilesData.profiles.map(_rawProfile);
             const old = idx >= 0 ? list[idx] : {};
             const p = { name: document.getElementById('pf-name').value.trim(), backend: document.getElementById('pf-backend').value };
