@@ -298,7 +298,8 @@ def build_session_env(profile_name: str | None,
         if not value:
             raise ProfileError(
                 f"profile '{profile_name}': secret {s['env']} is not set — "
-                f"run `be-conductor profile set-key {profile_name} {s['env']}`")
+                f"use the 'Set API key' button in Settings → Profiles, or run "
+                f"`be-conductor profile set-key {profile_name} {s['env']}`")
         out.env[s["env"]] = value
         out.redact.append(value)
 
