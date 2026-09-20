@@ -76,8 +76,13 @@ def check_allowed_dir(path: str | None) -> str:
 async def start_task(registry, command_ref: str, prompt: str, *,
                      cwd: str | None = None, profile: str | None = None,
                      worktree: bool = False, timeout_seconds: float | None = None,
-                     name: str | None = None, model: str | None = None):
-    """Start a headless run. Returns the live HeadlessSession."""
+                     name: str | None = None, model: str | None = None,
+                     continue_session: str | None = None):
+    """Start a headless run. Returns the live HeadlessSession.
+
+    *continue_session* names a finished run of the same agent; its
+    conversation is carried on instead of starting cold.
+    """
     if not prompt or not prompt.strip():
         raise hl.HeadlessError("prompt is empty")
     entry = resolve_entry(command_ref, profile)
@@ -85,6 +90,22 @@ async def start_task(registry, command_ref: str, prompt: str, *,
         raise hl.HeadlessError(
             f"command '{entry.get('label') or entry['command']}' has no headless block")
     profile = profile or entry.get("profile") or None
+    agent_session = None
+    if continue_session:
+        if not hl.can_resume(entry):
+            raise hl.HeadlessError(
+                f"'{entry.get('label') or entry['command']}' cannot continue a "
+                "previous run — this agent reports no conversation id")
+        prev = registry.task_result(continue_session)
+        if prev is None:
+            raise hl.HeadlessError(f"no previous run named '{continue_session}'")
+        agent_session = prev.get("agent_session")
+        if not agent_session:
+            raise hl.HeadlessError(
+                f"run '{continue_session}' recorded no conversation id to continue "
+                "(it may predate this feature, or the agent never reported one)")
+        # Carry the account forward; a thread belongs to the login that made it.
+        profile = profile or prev.get("profile")
     if timeout_seconds is None:
         timeout_seconds = cfg.MCP_CONFIG.get("default_timeout_seconds") or 900
     return await registry.create(
@@ -95,7 +116,8 @@ async def start_task(registry, command_ref: str, prompt: str, *,
         profile=profile,
         headless={"entry": entry, "prompt": prompt,
                   "timeout_seconds": timeout_seconds,
-                  "model": (model or "").strip() or None},
+                  "model": (model or "").strip() or None,
+                  "continue_session": agent_session},
     )
 
 
@@ -173,6 +195,8 @@ def format_footer(record: dict, dashboard_url: str | None = None) -> str:
         parts.append(f"profile={record['profile']}")
     if record.get("model"):
         parts.append(f"model={record['model']}")
+    if record.get("can_continue"):
+        parts.append("continuable")
     status = record.get("task_status") or "unknown"
     if record.get("fail_reason") and record["fail_reason"] != status:
         status += f"({record['fail_reason']})"

@@ -2,6 +2,13 @@
 
 All notable changes to be-conductor are documented here.
 
+## v0.3.57 (unreleased)
+
+### New
+
+- **Carry a task on instead of starting cold** — every `run_*` tool takes `continue_session`: name a finished run of the same agent and it resumes that conversation, so a multi-step job keeps its context across calls. Verified across all three: Codex remembers through `codex exec resume`, Claude through `--resume`, OpenCode through `--session`. The answer's footer says `continuable` when a run can be carried on, and `get_result` spells out the call. The account follows the thread, since a conversation belongs to the login that opened it
+- **A question comes straight back to you** — when a delegated run stops to ask something, the tool returns at once with the question instead of sitting until its timeout, and tells the caller to put it to you rather than answer on your behalf. Answer with `send_input`, then `read_output`
+
 ## v0.3.56
 
 ### New

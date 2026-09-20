@@ -58,7 +58,7 @@ off, `/mcp` answers 404.
 
 | Tool | |
 |---|---|
-| `run_<label>(prompt, working_dir, model?, worktree=false, wait=true, timeout_seconds?)` | One per exposed headless command, e.g. `run_claude_code_max5`. Runs the prompt to completion and returns the agent's answer with a footer: `[session=… profile=… model=… status=… duration=…s cost=$… dashboard=…]`. `model` picks the model for this one run (the agent's `--model` flag); without it the profile's model, else the agent's default, is used. `wait=false` returns the session name at once. |
+| `run_<label>(prompt, working_dir, model?, continue_session?, worktree=false, wait=true, timeout_seconds?)` | One per exposed headless command, e.g. `run_claude_code_max5`. Runs the prompt to completion and returns the agent's answer with a footer: `[session=… profile=… model=… status=… duration=…s cost=$… dashboard=…]`. `model` picks the model for this one run (the agent's `--model` flag); without it the profile's model, else the agent's default, is used. `wait=false` returns the session name at once. |
 | `get_result(session)` | Status + result; while still running, the tail of the output. |
 | `start_session(command_label, cwd, name?, profile?, worktree=false)` | Interactive session you drive with the next two tools — and can open in the dashboard. |
 | `send_input(session, text?, keys?)` | `keys` e.g. `["ENTER"]`, `["CTRL+C"]`, `["UP"]`. |
@@ -78,7 +78,20 @@ and never to swap in a different agent or chain further ones on its own. "Make
 a plan with run_claude_code_max5 on claude-fable-5-1 and show it to me", then
 "hand that plan to run_codex_pro5" — each step is your call.
 
-**Headless means no questions.** The agent cannot ask the caller anything, so
+**Continuing a task.** A headless run is one process, but the agent's
+conversation outlives it. Pass `continue_session=<session name of a finished
+run>` and the next run resumes that thread with its context — Claude via
+`--resume`, Codex via `codex exec resume`, OpenCode via `--session`. A run
+that can be carried on says `continuable` in its footer. Use it for the steps
+of one job; omit it for unrelated work. To keep a *process* alive instead, use
+`start_session`.
+
+**A question comes back to you.** If a run stops to ask something, the tool
+returns straight away with the question rather than waiting out its timeout.
+Answer with `send_input`, then `read_output`. This needs a terminal, so it does
+not apply to commands marked `tty: false` (OpenCode).
+
+**Headless means no questions asked of the agent.** The agent cannot ask the caller anything, so
 prompts must be self-contained. If a run does stop at a prompt, its status
 becomes `needs_input`, the usual notification fires (Telegram/Slack/browser),
 and you can answer from the dashboard or with `send_input`; `get_result`

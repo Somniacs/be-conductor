@@ -107,7 +107,10 @@ def _format_result(record: dict, tail: str | None = None) -> str:
     footer = tasks.format_footer(record, _dashboard_link(record.get("name") or record["id"]))
     status = record.get("task_status")
     if status in ("running", "needs_input"):
-        head = ("The run is WAITING FOR INPUT — answer it from the dashboard or with send_input."
+        head = ("The agent has STOPPED TO ASK something — the question is at the end "
+                "of the output below. Put it to the user, then send their answer with "
+                f"send_input(session=\"{record.get('name') or record['id']}\", text=...) "
+                "and read_output to see what follows. Do not answer on their behalf."
                 if status == "needs_input" else "The run is still in progress.")
         body = f"{head}\n\n--- output so far ---\n{tail or '(no output yet)'}"
     else:
@@ -116,6 +119,9 @@ def _format_result(record: dict, tail: str | None = None) -> str:
             body = "The run hit its timeout and was stopped. Partial output:\n\n" + body
         elif status == "failed":
             body = f"The run failed ({record.get('fail_reason') or 'error'}).\n\n" + body
+    if record.get("can_continue") and status not in ("running", "needs_input"):
+        body += ("\n\n(To carry this conversation on, call the same run_* tool with "
+                 f"continue_session=\"{record.get('name') or record['id']}\".)")
     return f"{body}\n\n{footer}"
 
 
@@ -172,6 +178,10 @@ def _run_tool_description(entry: dict) -> str:
         "model is optional: pass it only when the user names a model for this "
         "run; list_models gives the ids this agent accepts. Omit it to use the "
         "account's default. "
+        "continue_session carries on a finished run of this same agent instead "
+        "of starting cold — pass the session name from an earlier answer's "
+        "footer (it says 'continuable'), and the agent keeps its conversation. "
+        "Use it for follow-up steps of one task; omit it for unrelated work. "
         "working_dir must be inside the server's allowed directories. "
         "worktree=true runs in an isolated git worktree (review it with "
         "list_worktrees / merge_worktree). wait=true blocks until the run is "
@@ -185,6 +195,7 @@ def _make_run_tool(entry: dict):
     label = entry.get("label") or entry["command"]
 
     async def run(prompt: str, working_dir: str, model: str | None = None,
+                  continue_session: str | None = None,
                   worktree: bool = False, wait: bool = True,
                   timeout_seconds: int | None = None,
                   ctx: Context | None = None) -> str:
@@ -192,7 +203,8 @@ def _make_run_tool(entry: dict):
             cwd = tasks.check_allowed_dir(working_dir)
             session = await tasks.start_task(
                 _registry(), label, prompt, cwd=cwd, worktree=worktree,
-                timeout_seconds=timeout_seconds, model=model)
+                timeout_seconds=timeout_seconds, model=model,
+                continue_session=continue_session)
         except (PermissionError, ValueError, FileNotFoundError) as e:
             return f"Refused: {e}"
 
@@ -203,6 +215,10 @@ def _make_run_tool(entry: dict):
         # The run enforces its own timeout; the margin only covers teardown.
         deadline = time.monotonic() + (session.timeout_seconds or 900) + 20
         while not await session.wait(timeout=10):
+            # A run that stopped to ask something comes back now rather than
+            # sitting until the timeout — the question is for the user.
+            if session.task_status == "needs_input":
+                break
             if time.monotonic() > deadline:
                 break
             if ctx is not None:

@@ -47,6 +47,9 @@ TASKS_DIR = cfg.CONDUCTOR_DIR / "tasks"
 #   (OpenCode does); error_message_json_path is its human-readable text.
 #   tty: false runs the command on pipes with stdin closed, for agents that
 #   block reading a terminal stdin.
+#   session_json_path picks the agent's own conversation id out of the output;
+#   resume_args is the command line that continues it ({session}). Together
+#   they let a later run carry on a finished one instead of starting cold.
 HEADLESS_PRESETS: dict[str, dict] = {
     "claude": {
         "args": ["-p", "{prompt}", "--output-format", "json", "--model", "{model}"],
@@ -56,6 +59,8 @@ HEADLESS_PRESETS: dict[str, dict] = {
         "tokens_json_path": "usage",
         "error_json_path": "is_error",
         "session_json_path": "session_id",
+        "resume_args": ["-p", "{prompt}", "--resume", "{session}",
+                        "--output-format", "json", "--model", "{model}"],
     },
     "codex": {
         "args": ["exec", "{prompt}", "--json", "--skip-git-repo-check", "--model", "{model}"],
@@ -65,6 +70,10 @@ HEADLESS_PRESETS: dict[str, dict] = {
         "tokens_json_path": "usage",
         "error_match": {"type": "turn.failed"},
         "error_message_json_path": "error.message",
+        # Only thread.started carries it, which is the one that opens a thread.
+        "session_json_path": "thread_id",
+        "resume_args": ["exec", "resume", "{session}", "{prompt}",
+                        "--json", "--skip-git-repo-check", "--model", "{model}"],
     },
     "opencode": {
         "args": ["run", "{prompt}", "--model", "{model}", "--format", "json"],
@@ -77,6 +86,9 @@ HEADLESS_PRESETS: dict[str, dict] = {
         "error_message_json_path": "error.data.message",
         # Through a terminal, `opencode run` emits nothing and never exits.
         "tty": False,
+        "session_json_path": "sessionID",
+        "resume_args": ["run", "{prompt}", "--session", "{session}",
+                        "--model", "{model}", "--format", "json"],
     },
 }
 
@@ -148,14 +160,26 @@ def is_exposed_headless(entry: dict) -> bool:
     return bool(entry.get("headless")) and headless_block(entry) is not None
 
 
-def build_argv(entry: dict, prompt: str, model: str | None = None) -> list[str]:
+def can_resume(entry: dict) -> bool:
+    """True when a finished run of this command can be carried on."""
+    block = headless_block(entry) or {}
+    return bool(block.get("session_json_path") and block.get("resume_args"))
+
+
+def build_argv(entry: dict, prompt: str, model: str | None = None,
+               session: str | None = None) -> list[str]:
+    """Command line for a run. With *session*, the one that continues it."""
     block = headless_block(entry)
     if not block:
         raise HeadlessError(
             f"command '{entry.get('label') or entry['command']}' has no headless block")
+    if session and not block.get("resume_args"):
+        raise HeadlessError(
+            f"command '{entry.get('label') or entry['command']}' cannot continue "
+            "a previous run — it has no resume_args")
     argv = shlex.split(entry["command"])
-    values = {"prompt": prompt, "model": model or ""}
-    args = list(block["args"])
+    values = {"prompt": prompt, "model": model or "", "session": session or ""}
+    args = list(block["resume_args"] if session else block["args"])
     i = 0
     while i < len(args):
         arg = str(args[i])
@@ -330,8 +354,9 @@ class HeadlessSession(Session):
         self._collector = HeadlessCollector(block)
         self._timeout_task: asyncio.Task | None = None
         self._done = asyncio.Event()
-        # A finished task can be continued interactively when the agent
-        # reported its own session id (Claude Code does).
+        # The agent's own conversation id, once it reports one: what a later
+        # run resumes, and what the sidebar's continue button needs.
+        self.agent_session: str | None = None
         self._can_continue = bool(block.get("session_json_path") and self.resume_flag)
 
     async def start(self, rows: int = 24, cols: int = 80):
@@ -365,8 +390,9 @@ class HeadlessSession(Session):
         # Only the agent-reported session id makes a finished task resumable;
         # the inherited buffer scan would match stray text in the answer.
         self._collector.finish()
-        if self._can_continue and self._collector.agent_session_id:
-            self.resume_id = self._collector.agent_session_id
+        self.agent_session = self._collector.agent_session_id or self.agent_session
+        if self._can_continue and self.agent_session:
+            self.resume_id = self.agent_session
 
     def _abort(self, reason: str):
         self.fail_reason = reason
@@ -465,6 +491,8 @@ class HeadlessSession(Session):
             "label": self.label,
             "profile": self.profile,
             "model": self.model,
+            "agent_session": self.agent_session,
+            "can_continue": bool(self.agent_session),
             "cwd": self.cwd,
             "prompt": self.prompt,
             "task_status": self.task_status,
@@ -488,6 +516,7 @@ class HeadlessSession(Session):
             "prompt": self.prompt[:500],
             "task_status": self.task_status,
             "cost_usd": self.cost_usd,
+            "agent_session": self.agent_session,
             "started_at": self.created_at,
             "finished_at": self.finished_at,
         })

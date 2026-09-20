@@ -369,7 +369,8 @@ class SessionRegistry:
             task_model = (headless.get("model")
                           or (headless_block(entry) or {}).get("model")
                           or (profile_cfg or {}).get("model") or None)
-            argv = build_argv(entry, headless["prompt"], model=task_model)
+            argv = build_argv(entry, headless["prompt"], model=task_model,
+                              session=headless.get("continue_session") or None)
             command = entry["command"]
 
         # Agent sessions get a unique UUID; PTY sessions keep name as ID
