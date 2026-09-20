@@ -2,7 +2,7 @@
 
 All notable changes to be-conductor are documented here.
 
-## v0.3.55 (unreleased)
+## v0.3.55
 
 ### New
 
@@ -10,13 +10,15 @@ All notable changes to be-conductor are documented here.
 - **Headless tasks** — `be-conductor task "Claude Code — Max5" "summarize the TODOs"` runs a prompt to completion and prints the agent's answer and cost (`--model` picks the model for that run). It is still a normal session: it shows in the sidebar with a status badge (running / needs input / done / failed / timeout), you can watch it live, and if it stops to ask something you get the usual notification and can answer from your phone. Finished tasks show their cost, ☰ shows the result, and a finished Claude task can be continued as an interactive session with ▶. Per-run cost caps and a per-profile spend ledger (`be-conductor profile usage`) are built in
 - **Claude can now conduct be-conductor (MCP)** — enable Settings → **MCP**, run `be-conductor install-mcp`, and Claude gets a `run_…` tool for each agent you expose ("run this on the Max5 subscription", "have Codex review that"), plus tools to start and steer interactive sessions, read their output, and merge or discard worktrees. `install-mcp` registers in both places Claude looks — Claude Desktop's chat side *and* Claude Code, which is also what the Code tab of Claude Desktop uses. You stay the conductor: every `run_…` tool takes an optional `model` for that one run, and the tools tell Claude never to delegate, pick an agent or chain further agents on its own. Runs are limited to the directories you allow. Works across machines over Tailscale, and if the server isn't running the bridge starts it. [Setup guide](docs/mcp.md)
 - **Optional LeanCTX per profile** — if you use the `lean-ctx` context-compression layer, `be-conductor profile leanctx NAME active` sets it up for that one profile only. Your default login is guarded: if LeanCTX writes there anyway it is reverted on the spot. [Details](docs/leanctx.md)
-- **Installers report your agent CLIs** — `install.sh` / `install.ps1` now list which of `claude`, `codex`, `opencode` and `lean-ctx` are on your PATH, and offer to register be-conductor as an MCP server when Claude Desktop or the `claude` CLI is installed. The uninstallers remove that registration and ask before deleting profile logins and stored keys
+- **Installers report your agent CLIs** — `install.sh` / `install.ps1` now list which of `claude`, `codex`, `opencode` and `lean-ctx` are on your PATH, and point you to `be-conductor install-mcp` when Claude Desktop or the `claude` CLI is installed (an existing registration is refreshed automatically). The uninstallers remove that registration and ask before deleting profile logins and stored keys
 
 ### Fixed
 
 - **"Update available" kept coming back on installs from a git clone** — when be-conductor is installed from a source checkout, the version it reported was frozen at install time, so after a `git pull` it still claimed to be the old version and offered the same update again and again. The version now comes straight from the source tree in that case, and an install whose version can't be determined no longer prompts at all
 
-## v0.3.54 (unreleased)
+## v0.3.54
+
+_Not released on its own — everything below shipped as part of v0.3.55._
 
 ### New
 

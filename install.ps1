@@ -246,12 +246,10 @@ if ($installed -and ((Test-Path $claudeDesktopDir) -or $hasClaudeCli)) {
         # Already registered - refresh so the command path stays valid.
         try { & $Project install-mcp 2>&1 | Out-Null } catch {}
     } else {
-        $answer = Read-Host "Claude found. Register be-conductor as an MCP server in Claude Desktop / Claude Code? [y/N]"
-        if ($answer -match "^[Yy]") {
-            try { & $Project install-mcp } catch {}
-        } else {
-            Write-Host "  Skipped - run '$Project install-mcp' any time."
-        }
+        # A hint, never a question: this script also runs unattended from the
+        # update dialog, and a prompt here would hold up the server restart.
+        Write-Host "Claude found - to let it conduct be-conductor sessions (MCP), run:"
+        Write-Host "  $Project install-mcp"
     }
     Write-Host ""
 }

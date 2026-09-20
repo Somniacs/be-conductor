@@ -261,13 +261,10 @@ if command -v "$PROJECT" &>/dev/null && { [ -d "$CLAUDE_DESKTOP_DIR" ] || comman
         # Already registered — refresh so the command path stays valid.
         "$PROJECT" install-mcp >/dev/null 2>&1 || true
     else
-        printf "Claude found. Register be-conductor as an MCP server in Claude Desktop / Claude Code? [y/N] "
-        reply=""
-        if [ -t 0 ]; then read -r reply; elif [ -e /dev/tty ]; then read -r reply </dev/tty; fi
-        case "$reply" in
-            [Yy]*) "$PROJECT" install-mcp || true ;;
-            *)     echo "  Skipped — run '$PROJECT install-mcp' any time." ;;
-        esac
+        # A hint, never a question: this script also runs unattended from the
+        # update dialog, and a prompt here would hold up the server restart.
+        echo "Claude found — to let it conduct be-conductor sessions (MCP), run:"
+        echo "  $PROJECT install-mcp"
     fi
     echo ""
 fi
