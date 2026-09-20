@@ -2,7 +2,7 @@
 
 All notable changes to be-conductor are documented here.
 
-## v0.3.57 (unreleased)
+## v0.3.57
 
 ### New
 
