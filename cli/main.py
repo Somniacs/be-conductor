@@ -212,6 +212,9 @@ def _get_latest_version() -> str | None:
         latest = r.json().get("tag_name", "").lstrip("v")
         if not latest:
             return None
+        # Unknown local version (metadata missing) — never nag on a guess.
+        if VERSION == "0.0.0":
+            return None
         current = VERSION.split(".")
         remote = latest.split(".")
         for a, b in zip(current, remote):

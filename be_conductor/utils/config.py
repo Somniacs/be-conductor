@@ -19,10 +19,33 @@ from pathlib import Path
 
 import yaml
 
-try:
-    VERSION = _pkg_version("be-conductor")
-except Exception:
-    VERSION = "0.0.0"
+def _resolve_version() -> str:
+    """The running code's version.
+
+    In a source checkout (editable install, or run from a clone) the
+    pyproject.toml next to the package is the truth — installed metadata is
+    frozen at install time there, so after a `git pull` it reports a stale
+    version and every update check claims a new release is available.
+    Wheels do not ship pyproject.toml, so regular installs use metadata.
+    """
+    import re
+    try:
+        pyproject = Path(__file__).resolve().parents[2] / "pyproject.toml"
+        if pyproject.is_file():
+            text = pyproject.read_text(encoding="utf-8")
+            if re.search(r'^name\s*=\s*"be-conductor"', text, re.M):
+                m = re.search(r'^version\s*=\s*"([^"]+)"', text, re.M)
+                if m:
+                    return m.group(1)
+    except Exception:
+        pass
+    try:
+        return _pkg_version("be-conductor")
+    except Exception:
+        return "0.0.0"
+
+
+VERSION = _resolve_version()
 CONDUCTOR_TOKEN = os.environ.get("BE_CONDUCTOR_TOKEN") or os.environ.get("CONDUCTOR_TOKEN")
 _TOKEN_FROM_ENV = CONDUCTOR_TOKEN is not None  # True if token came from environment
 
