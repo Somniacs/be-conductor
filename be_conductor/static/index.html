@@ -2895,6 +2895,21 @@
         </div>
     </div>
 
+    <div class="about-overlay" id="list-pick-dialog" onclick="if(event.target===this)_listPickDone(undefined)">
+        <div class="about-box" style="min-width:min(520px,92vw);text-align:left;">
+            <button class="about-close" onclick="_listPickDone(undefined)">&times;</button>
+            <h2 style="font-size:15px;margin-bottom:10px;" id="list-pick-title">Choose</h2>
+            <input type="text" class="settings-input" id="list-pick-search" style="width:100%;margin-bottom:6px;"
+                   placeholder="Type to filter…" oninput="_listPickRender()" autocomplete="off">
+            <div class="dir-picker" id="list-pick-items" style="max-height:min(340px,50vh)"></div>
+            <div class="settings-hint" id="list-pick-count" style="margin-top:5px"></div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px;">
+                <button class="folder-pick-btn" onclick="_listPickDone(undefined)">Cancel</button>
+                <button class="folder-pick-btn" onclick="_listPickDone('')">Clear (use default)</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Servers dialog removed — now part of the Settings dialog Servers tab -->
 
     <div class="confirm-overlay" id="confirm-dialog">
@@ -7844,7 +7859,7 @@
                     <div class="form-row" id="pf-row-dir"><label>Config dir</label><input class="settings-input" id="pf-dir" value="${escHtml(idx >= 0 ? (p.config_dir || '') : '')}" placeholder="default: ~/.be-conductor/profiles/<name>"></div>
                     <div class="settings-hint" id="pf-dir-hint" style="margin:-2px 0 6px 0"></div>
                     <div class="form-row"><label>API key env vars</label><input class="settings-input" id="pf-secrets" value="${escHtml(secText)}" placeholder="e.g. OPENROUTER_API_KEY (value is set separately)" onchange="_loadModelOptions()"></div>
-                    <div class="form-row" id="pf-row-model"><label>Model</label><input class="settings-input" id="pf-model" list="pf-model-options" value="${escHtml(p.model || '')}" placeholder="fallback model — empty means choose per run"><datalist id="pf-model-options"></datalist></div>
+                    <div class="form-row" id="pf-row-model"><label>Model</label><input class="settings-input" id="pf-model" list="pf-model-options" value="${escHtml(p.model || '')}" placeholder="fallback model — empty means choose per run"><datalist id="pf-model-options"></datalist><button type="button" class="folder-pick-btn" style="margin-left:6px" onclick="_pickModel()">Choose…</button></div>
                     <div class="settings-hint" id="pf-model-hint" style="margin:-2px 0 6px 0">Only a fallback: a run that names its own model always wins.</div>
                     <div class="form-row" id="pf-row-cap"><label>Max cost / run (USD)</label><input class="settings-input" id="pf-cap" type="number" min="0" step="0.1" value="${p.max_cost_usd_per_run || ''}" placeholder="no cap"></div>
                     <div class="form-row"><label>LeanCTX</label><select class="settings-input" id="pf-leanctx">
@@ -7865,7 +7880,12 @@
         // Two sources: a saved profile's own environment (what that account can
         // really reach), and the backend's catalogue for a profile that has no
         // key yet — narrowed by the API-key variables named on the form.
-        const _MODEL_OPTION_LIMIT = 1500;
+        // Never truncate a sorted list into the picker — that silently hid
+        // every OpenRouter model, which sorts past any cut-off. The full list
+        // is kept here and searched in the dialog; the inline datalist is only
+        // populated when it is short enough to be useful.
+        const _DATALIST_MAX = 400;
+        let _modelOptions = [];
 
         async function _loadModelOptions() {
             const dl = document.getElementById('pf-model-options');
@@ -7890,13 +7910,22 @@
                     models = r.models || [];
                 } catch (_) {}
             }
-            const shown = models.slice(0, _MODEL_OPTION_LIMIT);
-            dl.innerHTML = shown.map(m => `<option value="${escHtml(m)}">`).join('');
+            _modelOptions = models;
+            dl.innerHTML = models.length <= _DATALIST_MAX
+                ? models.map(m => `<option value="${escHtml(m)}">`).join('') : '';
             if (!hint) return;
             if (!models.length) hint.textContent = fallback;
-            else if (live) hint.textContent = `${models.length} models this account can reach — click or type to filter. ${fallback}`;
-            else if (models.length > shown.length) hint.textContent = `Catalogue of ${models.length} models, showing ${shown.length} — name your API key variable above to narrow it. ${fallback}`;
-            else hint.textContent = `${models.length} models from the catalogue — click or type to filter. ${fallback}`;
+            else if (live) hint.textContent = `${models.length} models this account can reach. ${fallback}`;
+            else if (models.length > _DATALIST_MAX) hint.textContent = `Catalogue of ${models.length} models — use Choose… to search it, or name your API key variable above to narrow it. ${fallback}`;
+            else hint.textContent = `${models.length} models from the catalogue. ${fallback}`;
+        }
+
+        async function _pickModel() {
+            if (!_modelOptions.length) await _loadModelOptions();
+            const el = document.getElementById('pf-model');
+            if (!_modelOptions.length) { showToast('No model list for this backend — type the id.'); return; }
+            const chosen = await pickFromList(_modelOptions, 'Model for this profile', el.value.trim());
+            if (chosen !== undefined) el.value = chosen;
         }
 
         function _profileBackendChanged() {
@@ -8059,6 +8088,43 @@
             } catch (e) {
                 list.innerHTML = `<div class="dir-empty">Cannot open ${escHtml(path)}</div>`;
             }
+        }
+
+        // ── Searchable list picker ───────────────────────────────────────
+        // A native datalist filters unpredictably and cannot show thousands of
+        // entries, so long lists (models) get this instead: search + click.
+        let _listPickResolve = null, _listPickItems = [];
+        const _LIST_PICK_RENDER = 300;
+
+        function pickFromList(items, title, current) {
+            _listPickItems = items || [];
+            document.getElementById('list-pick-title').textContent = title || 'Choose';
+            const search = document.getElementById('list-pick-search');
+            search.value = '';
+            document.getElementById('list-pick-dialog').classList.add('open');
+            _listPickRender(current);
+            setTimeout(() => search.focus(), 30);
+            return new Promise(resolve => { _listPickResolve = resolve; });
+        }
+
+        function _listPickRender(current) {
+            const q = document.getElementById('list-pick-search').value.trim().toLowerCase();
+            const hits = q ? _listPickItems.filter(x => x.toLowerCase().includes(q)) : _listPickItems;
+            const shown = hits.slice(0, _LIST_PICK_RENDER);
+            document.getElementById('list-pick-items').innerHTML = shown.length
+                ? shown.map(x => `<div class="dir-entry" onclick="_listPickDone(${JSON.stringify(x).replace(/"/g, '&quot;')})"${x === current ? ' style="color:#8080ff"' : ''}><span>${escHtml(x)}</span></div>`).join('')
+                : '<div class="dir-empty">Nothing matches</div>';
+            document.getElementById('list-pick-count').textContent = hits.length > shown.length
+                ? `${shown.length} of ${hits.length} matches shown — keep typing to narrow.`
+                : `${hits.length} of ${_listPickItems.length}`;
+        }
+
+        function _listPickDone(value) {
+            document.getElementById('list-pick-dialog').classList.remove('open');
+            const resolve = _listPickResolve;
+            _listPickResolve = null;
+            _listPickItems = [];
+            if (resolve) resolve(value);
         }
 
         // ── MCP tab ──────────────────────────────────────────────────────
