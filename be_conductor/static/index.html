@@ -7972,21 +7972,27 @@
             html += `<input type="number" min="10" value="${c.default_timeout_seconds || 900}" onchange="_mcpSet('default_timeout_seconds', parseInt(this.value) || 900)"></div>`;
             html += '</div>';
 
-            const cd = _mcpData.claude_desktop || {};
-            html += '<div class="settings-section"><div class="settings-section-title">Claude Desktop</div>';
-            let st = cd.installed ? (cd.current ? '<span style="color:#60c080">registered</span>' : '<span style="color:#ffb070">registered with an outdated command — install again</span>')
-                                  : (cd.claude_desktop_found ? 'not registered' : 'Claude Desktop config folder not found on this machine');
-            if (cd.error) st = `<span style="color:#ff9060">${escHtml(cd.error)}</span>`;
-            html += `<div style="font-size:12px;color:#a0a0c0;margin-bottom:6px;">Status: ${st}</div>`;
+            // Two clients read MCP servers from two different places: Claude
+            // Desktop's chat side, and Claude Code (= the Code tab + the CLI).
+            const clients = _mcpData.clients || {};
+            const labels = _mcpData.client_labels || {};
+            html += '<div class="settings-section"><div class="settings-section-title">Claude Desktop &amp; Claude Code</div>';
+            ['desktop', 'code'].forEach(key => {
+                const c = clients[key] || {};
+                let st = c.installed ? (c.current ? '<span style="color:#60c080">registered</span>' : '<span style="color:#ffb070">registered with an outdated command — install again</span>')
+                                     : (c.found ? 'not registered' : '<span style="color:#707090">not found on this machine</span>');
+                if (c.error) st = `<span style="color:#ff9060">${escHtml(c.error)}</span>`;
+                html += `<div style="font-size:12px;color:#a0a0c0;margin-bottom:4px;" title="${escHtml(c.config_path || '')}">${escHtml(labels[key] || key)}: ${st}</div>`;
+            });
             const last = _mcpData.bridge && _mcpData.bridge.last_request;
             html += `<div style="font-size:12px;color:#a0a0c0;margin-bottom:8px;">Last MCP request: ${last ? new Date(last * 1000).toLocaleString() : 'none since server start'}</div>`;
             html += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">';
-            html += `<button style="${_smallBtn}" onclick="_mcpInstall(true)">Install into Claude Desktop</button>`;
+            html += `<button style="${_smallBtn}" onclick="_mcpInstall(true)" title="Registers the be-conductor MCP server in Claude Desktop and in Claude Code, whichever is installed">Install into Claude</button>`;
             html += `<button style="${_smallBtn}" onclick="_mcpInstall(false)">Uninstall</button>`;
             html += `<button style="${_smallBtn}" onclick="_mcpCopySnippet()">Copy config snippet</button>`;
             html += '</div>';
             html += `<pre id="mcp-snippet" style="background:#0c0c20;border:1px solid #22224a;border-radius:5px;padding:8px;font-size:11px;color:#b0b0d0;overflow-x:auto;margin:0;">${escHtml(_mcpData.snippet || '')}</pre>`;
-            html += `<div class="settings-hint" style="margin-top:4px">${escHtml(cd.config_path || '')} &mdash; restart Claude Desktop after changing it. Remote clients can use <code>${escHtml(location.origin)}/mcp</code> directly (streamable HTTP, bearer token if one is set).</div>`;
+            html += `<div class="settings-hint" style="margin-top:4px">Restart Claude Desktop, or start a new Claude Code session, after changing it. The snippet is for other MCP clients. Remote clients can use <code>${escHtml(location.origin)}/mcp</code> directly (streamable HTTP, bearer token if one is set).</div>`;
             html += '<div id="mcp-msg" style="font-size:11px;margin-top:5px;"></div>';
             html += '</div>';
             el.innerHTML = html;
@@ -8032,9 +8038,18 @@
                 await _loadMcpTab();
                 const msg = document.getElementById('mcp-msg');
                 if (msg) {
-                    msg.style.color = '#60c080';
-                    msg.textContent = install ? `Registered in ${r.config_path}${r.backup ? ' (backup: ' + r.backup + ')' : ''}. Restart Claude Desktop.`
-                                              : (r.removed ? 'Removed. Restart Claude Desktop.' : 'It was not registered.');
+                    const labels = (_mcpData && _mcpData.client_labels) || {};
+                    let failed = false;
+                    const lines = Object.entries(r.results || {}).map(([key, x]) => {
+                        const name = labels[key] || key;
+                        if (x.error) { failed = true; return `${name}: failed — ${x.error}`; }
+                        if (x.skipped) return `${name}: skipped (not found)`;
+                        if (install) return `${name}: ${x.changed === false ? 'already registered' : 'registered'}${x.backup ? ' (backup: ' + x.backup + ')' : ''}`;
+                        return `${name}: ${x.removed ? 'removed' : 'was not registered'}`;
+                    });
+                    msg.style.color = failed ? '#ff9060' : '#60c080';
+                    msg.style.whiteSpace = 'pre-wrap';
+                    msg.textContent = lines.join('\n');
                 }
             } catch (e) { showToast((install ? 'Install' : 'Uninstall') + ' failed: ' + e.message); }
         }

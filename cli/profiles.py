@@ -348,35 +348,57 @@ def register(cli):
             run_bridge(m.get_base_url(), token or cfg.CONDUCTOR_TOKEN,
                        local=True, verify=not cfg.SSL_CERTFILE)
 
+    _target_opt = click.option(
+        "--target", type=click.Choice(["desktop", "code", "both"]), default="both",
+        help="desktop = Claude Desktop chat, code = Claude Code (CLI + the Code tab)")
+
+    def _report(results: dict, verb: str) -> bool:
+        from be_conductor.mcp_server.install import LABELS
+        ok = True
+        for target, r in results.items():
+            label = LABELS[target]
+            if r.get("error"):
+                click.echo(f"  {label}: FAILED — {r['error']}", err=True)
+                ok = False
+            elif r.get("skipped"):
+                click.echo(f"  {label}: skipped ({r['skipped']})")
+            elif verb == "install":
+                state = "registered" if r.get("changed", True) else "already registered"
+                click.echo(f"  {label}: {state} in {r['config_path']}"
+                           + (f"  (backup: {r['backup']})" if r.get("backup") else ""))
+            else:
+                click.echo(f"  {label}: " + ("removed" if r.get("removed") else "was not registered"))
+        return ok
+
     @cli.command("install-mcp")
-    def install_mcp():
-        """Register be-conductor as an MCP server in Claude Desktop."""
+    @_target_opt
+    def install_mcp(target):
+        """Register be-conductor as an MCP server in Claude Desktop and Claude Code."""
         from be_conductor.mcp_server import install
         import be_conductor.utils.config as cfg
         try:
-            r = install.install()
+            results = install.install(target)
         except Exception as e:
             click.echo(f"Error: {e}", err=True)
             sys.exit(1)
-        click.echo(f"Added 'be-conductor' to {r['config_path']}")
-        if r["backup"]:
-            click.echo(f"Backup: {r['backup']}")
-        click.echo(f"Command: {r['entry']['command']} mcp")
+        ok = _report(results, "install")
+        click.echo(f"  Command: {install.bridge_command()} mcp")
         if not cfg.MCP_CONFIG.get("enabled"):
             click.echo("\nMCP is not enabled yet — set `mcp: {enabled: true, allowed_dirs: [...]}` in "
                        "~/.be-conductor/config.yaml or use Settings → MCP in the dashboard.")
-        click.echo("Restart Claude Desktop to pick it up.")
+        click.echo("Restart Claude Desktop / start a new Claude Code session to pick it up.")
+        if not ok:
+            sys.exit(1)
 
     @cli.command("uninstall-mcp")
-    def uninstall_mcp():
-        """Remove be-conductor from Claude Desktop's MCP servers."""
+    @_target_opt
+    def uninstall_mcp(target):
+        """Remove be-conductor from Claude Desktop's and Claude Code's MCP servers."""
         from be_conductor.mcp_server import install
         try:
-            r = install.uninstall()
+            results = install.uninstall(target)
         except Exception as e:
             click.echo(f"Error: {e}", err=True)
             sys.exit(1)
-        if r["removed"]:
-            click.echo(f"Removed 'be-conductor' from {r['config_path']} (backup: {r['backup']})")
-        else:
-            click.echo("be-conductor was not registered in Claude Desktop.")
+        if not _report(results, "uninstall"):
+            sys.exit(1)

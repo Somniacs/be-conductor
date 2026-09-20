@@ -247,17 +247,21 @@ for agent in claude codex opencode lean-ctx; do
 done
 echo ""
 
-# ── Claude Desktop (MCP) ─────────────────────────────────────────────
+# ── Claude Desktop / Claude Code (MCP) ───────────────────────────────
+# Two separate MCP lists: Claude Desktop's chat side reads
+# claude_desktop_config.json, Claude Code (CLI + the Code tab) reads its
+# own. `install-mcp` registers in whichever of the two exists.
 case "$(uname -s)" in
     Darwin) CLAUDE_DESKTOP_DIR="$HOME/Library/Application Support/Claude" ;;
     *)      CLAUDE_DESKTOP_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/Claude" ;;
 esac
-if command -v "$PROJECT" &>/dev/null && [ -d "$CLAUDE_DESKTOP_DIR" ]; then
-    if grep -q '"be-conductor"' "$CLAUDE_DESKTOP_DIR/claude_desktop_config.json" 2>/dev/null; then
-        # Already registered — refresh the entry so its command path stays valid.
+if command -v "$PROJECT" &>/dev/null && { [ -d "$CLAUDE_DESKTOP_DIR" ] || command -v claude &>/dev/null; }; then
+    if grep -q '"be-conductor"' "$CLAUDE_DESKTOP_DIR/claude_desktop_config.json" 2>/dev/null \
+       || grep -q '"be-conductor": *{' "$HOME/.claude.json" 2>/dev/null; then
+        # Already registered — refresh so the command path stays valid.
         "$PROJECT" install-mcp >/dev/null 2>&1 || true
     else
-        printf "Claude Desktop found. Register be-conductor as an MCP server in it? [y/N] "
+        printf "Claude found. Register be-conductor as an MCP server in Claude Desktop / Claude Code? [y/N] "
         reply=""
         if [ -t 0 ]; then read -r reply; elif [ -e /dev/tty ]; then read -r reply </dev/tty; fi
         case "$reply" in

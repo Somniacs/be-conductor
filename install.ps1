@@ -231,16 +231,22 @@ foreach ($agent in @("claude", "codex", "opencode", "lean-ctx")) {
 }
 Write-Host ""
 
-# ── Claude Desktop (MCP) ────────────────────────────────────────────
+# ── Claude Desktop / Claude Code (MCP) ──────────────────────────────
+# Two separate MCP lists: Claude Desktop's chat side reads
+# claude_desktop_config.json, Claude Code (CLI + the Code tab) reads its
+# own. install-mcp registers in whichever of the two exists.
 $claudeDesktopDir = Join-Path $env:APPDATA "Claude"
-if ($installed -and (Test-Path $claudeDesktopDir)) {
+$hasClaudeCli = [bool](Get-Command claude -ErrorAction SilentlyContinue)
+if ($installed -and ((Test-Path $claudeDesktopDir) -or $hasClaudeCli)) {
     $claudeCfg = Join-Path $claudeDesktopDir "claude_desktop_config.json"
-    $registered = (Test-Path $claudeCfg) -and ((Get-Content $claudeCfg -Raw) -match '"be-conductor"')
+    $claudeCodeCfg = Join-Path $env:USERPROFILE ".claude.json"
+    $registered = ((Test-Path $claudeCfg) -and ((Get-Content $claudeCfg -Raw) -match '"be-conductor"')) -or `
+                  ((Test-Path $claudeCodeCfg) -and ((Get-Content $claudeCodeCfg -Raw) -match '"be-conductor"\s*:\s*\{'))
     if ($registered) {
-        # Already registered - refresh the entry so its command path stays valid.
+        # Already registered - refresh so the command path stays valid.
         try { & $Project install-mcp 2>&1 | Out-Null } catch {}
     } else {
-        $answer = Read-Host "Claude Desktop found. Register be-conductor as an MCP server in it? [y/N]"
+        $answer = Read-Host "Claude found. Register be-conductor as an MCP server in Claude Desktop / Claude Code? [y/N]"
         if ($answer -match "^[Yy]") {
             try { & $Project install-mcp } catch {}
         } else {

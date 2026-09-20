@@ -182,7 +182,8 @@ async def get_mcp_settings(request: Request):
         "config": cfg.MCP_CONFIG,
         "enabled": bool(cfg.MCP_CONFIG.get("enabled")),
         "exposed": [e.get("label") or e["command"] for e in exposed_entries()],
-        "claude_desktop": mcp_install.status(),
+        "clients": mcp_install.status(),          # {"desktop": {...}, "code": {...}}
+        "client_labels": mcp_install.LABELS,
         "snippet": mcp_install.snippet(),
         "bridge": bridge_status(),
     }
@@ -216,9 +217,11 @@ async def put_mcp_settings(request: Request):
 @router.post("/admin/mcp/install")
 async def install_mcp(request: Request):
     _require_admin(request)
+    import asyncio
     from be_conductor.mcp_server import install as mcp_install
-    try:
-        return {"status": "ok", **mcp_install.install()}
+    loop = asyncio.get_event_loop()
+    try:   # shells out to the `claude` CLI — keep it off the event loop
+        return {"status": "ok", "results": await loop.run_in_executor(None, mcp_install.install)}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -226,8 +229,10 @@ async def install_mcp(request: Request):
 @router.post("/admin/mcp/uninstall")
 async def uninstall_mcp(request: Request):
     _require_admin(request)
+    import asyncio
     from be_conductor.mcp_server import install as mcp_install
+    loop = asyncio.get_event_loop()
     try:
-        return {"status": "ok", **mcp_install.uninstall()}
+        return {"status": "ok", "results": await loop.run_in_executor(None, mcp_install.uninstall)}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
