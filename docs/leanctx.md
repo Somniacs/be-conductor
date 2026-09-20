@@ -22,6 +22,21 @@ can only fail.
 
 (or **Init LeanCTX** / the LeanCTX field in Settings → Profiles.)
 
+## What we measured (lean-ctx 3.10.2)
+
+`init --agent opencode` **ignored** the profile's `XDG_CONFIG_HOME` and wrote
+to the default login instead. The guard below caught it, restored
+`~/.config/opencode/opencode.jsonc` and `AGENTS.md`, and did not enable the
+profile — so nothing broke, but per-profile LeanCTX did not work either.
+
+Its plain `init` is machine-wide as well: a shell hook in `~/.bashrc`, 24
+aliases, a daemon and a proxy. Note that be-conductor spawns agents directly
+rather than through an interactive shell, so those aliases do not affect
+be-conductor sessions; the per-agent config edits do.
+
+Treat LeanCTX as an all-or-nothing choice for the machine. The per-profile
+setting below still exists, and still refuses rather than pretending.
+
 ## What be-conductor does
 
 `active` runs `lean-ctx init --agent <claude|codex|opencode>` with the
