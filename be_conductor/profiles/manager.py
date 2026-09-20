@@ -272,13 +272,17 @@ def ensure_config_dir(profile: dict) -> Path | None:
 
 
 def build_session_env(profile_name: str | None,
-                      extra_env: dict | None = None) -> SessionEnv:
+                     extra_env: dict | None = None,
+                     require_secrets: bool = True) -> SessionEnv:
     """Resolve a profile into the env changes for a spawned session.
 
     Session env = os.environ − strip_env + backend var + env + secrets,
     then *extra_env* on top.  Secrets are read from the keyring here, at
     spawn time; a declared secret that is missing is an error so a keyed
     profile never silently runs on some other credential.
+
+    *require_secrets* is False for the login session itself — that is the
+    flow that obtains credentials, so demanding them first is circular.
     """
     if not profile_name:
         return SessionEnv(env=dict(extra_env or {}))
@@ -295,6 +299,8 @@ def build_session_env(profile_name: str | None,
 
     for s in profile["secrets"]:
         value = secrets.get_secret(s["keyring"])
+        if not value and not require_secrets:
+            continue
         if not value:
             login_hint = (" Or drop this variable from the profile and press "
                           "'Login' to sign it in the way you would in a terminal."

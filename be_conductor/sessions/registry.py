@@ -347,7 +347,8 @@ class SessionRegistry:
                      agent_options: dict | None = None,
                      session_id: str | None = None,
                      profile: str | None = None,
-                     headless: dict | None = None) -> Session:
+                     headless: dict | None = None,
+                     require_secrets: bool = True) -> Session:
         """Create and start a session.
 
         *profile* runs it under an account profile (isolated login).
@@ -358,7 +359,8 @@ class SessionRegistry:
         # fail before a worktree is created or anything is spawned.
         from be_conductor.profiles import build_session_env, get_profile
         profile_cfg = get_profile(profile) if profile else None
-        senv = build_session_env(profile, extra_env=env)
+        senv = build_session_env(profile, extra_env=env,
+                                 require_secrets=require_secrets)
         argv = None
         if headless:
             from be_conductor.sessions.headless import build_argv, headless_block

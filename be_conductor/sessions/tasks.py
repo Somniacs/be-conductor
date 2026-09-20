@@ -107,9 +107,11 @@ async def start_login(registry, profile_name: str,
     if not command:
         raise ProfileError(
             f"profile '{profile_name}' ({profile['backend']}) has no login command")
+    # The login flow is how credentials are obtained, so it must start even
+    # when the profile's declared key is still missing.
     return await registry.create(
         f"login-{profile_name}", command, cwd=str(Path.home()),
-        rows=rows, cols=cols, profile=profile_name)
+        rows=rows, cols=cols, profile=profile_name, require_secrets=False)
 
 
 async def check_profile(registry, profile_name: str, timeout: float = 60) -> dict:

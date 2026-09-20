@@ -14,6 +14,7 @@ All notable changes to be-conductor are documented here.
 
 ### Fixed
 
+- **Login worked again for a profile that declares an API key** — pressing Login on such a profile was refused because its key was not set yet, which is circular: signing in is how you get credentials. The login session now starts without it, while an actual run still refuses
 - **Agent errors read as plain text** — when an agent passed an API error straight through as JSON (Codex does), the profile test and task results showed the raw `{"detail": ...}` instead of the message inside it
 - **Stop sequences are readable** — control characters in a command's stop sequence showed as invisible characters in the settings field; they now show as `\x03` and so on, which is what the field already accepted as input
 
