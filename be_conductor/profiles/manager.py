@@ -296,10 +296,14 @@ def build_session_env(profile_name: str | None,
     for s in profile["secrets"]:
         value = secrets.get_secret(s["keyring"])
         if not value:
+            login_hint = (" Or drop this variable from the profile and press "
+                          "'Login' to sign it in the way you would in a terminal."
+                          if profile["backend"] in BACKEND_CLI else "")
             raise ProfileError(
                 f"profile '{profile_name}': secret {s['env']} is not set — "
                 f"use the 'Set API key' button in Settings → Profiles, or run "
-                f"`be-conductor profile set-key {profile_name} {s['env']}`")
+                f"`be-conductor profile set-key {profile_name} {s['env']}`."
+                + login_hint)
         out.env[s["env"]] = value
         out.redact.append(value)
 
