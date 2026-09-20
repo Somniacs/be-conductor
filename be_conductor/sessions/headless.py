@@ -40,12 +40,14 @@ TASKS_DIR = cfg.CONDUCTOR_DIR / "tasks"
 #   format   json  — one JSON document (last parsable line wins)
 #            jsonl — an event stream: result = last match, cost/tokens summed
 #            text  — no structure: result = the ANSI-stripped output
+#   {model} is optional: with no model (none asked for, none on the profile)
+#   the placeholder and its flag are dropped and the CLI uses its default.
 #   result_match restricts which events may carry the result.
 #   error_match marks an event as a failure even when the CLI exits 0
 #   (OpenCode does); error_message_json_path is its human-readable text.
 HEADLESS_PRESETS: dict[str, dict] = {
     "claude": {
-        "args": ["-p", "{prompt}", "--output-format", "json"],
+        "args": ["-p", "{prompt}", "--output-format", "json", "--model", "{model}"],
         "format": "json",
         "result_json_path": "result",
         "cost_json_path": "total_cost_usd",
@@ -54,7 +56,7 @@ HEADLESS_PRESETS: dict[str, dict] = {
         "session_json_path": "session_id",
     },
     "codex": {
-        "args": ["exec", "{prompt}", "--json", "--skip-git-repo-check"],
+        "args": ["exec", "{prompt}", "--json", "--skip-git-repo-check", "--model", "{model}"],
         "format": "jsonl",
         "result_json_path": "item.text",
         "result_match": {"item.type": "agent_message"},
@@ -122,10 +124,13 @@ def headless_block(entry: dict) -> dict | None:
     block = entry.get("headless")
     preset = HEADLESS_PRESETS.get(_base_exe(entry["command"]))
     if isinstance(block, dict):
-        if "args" not in block:
-            if not preset:
-                return None
+        if preset:
+            # Custom fields refine the preset rather than replace it, so
+            # e.g. a Codex block that only adds a flag to `args` keeps the
+            # preset's event-stream parsing.
             return {**preset, **block}
+        if "args" not in block:
+            return None
         out = dict(block)
         if "format" not in out:
             out["format"] = "json" if out.get("result_json_path") else "text"
@@ -285,11 +290,13 @@ class HeadlessSession(Session):
 
     def __init__(self, *args, prompt: str, block: dict, label: str | None = None,
                  timeout_seconds: float | None = None,
-                 max_cost_usd: float | None = None, **kwargs):
+                 max_cost_usd: float | None = None,
+                 model: str | None = None, **kwargs):
         super().__init__(*args, **kwargs)
         self.headless = True
         self.prompt = prompt
         self.label = label
+        self.model = model   # the model this run was told to use (None = CLI default)
         self.timeout_seconds = timeout_seconds
         self.max_cost_usd = max_cost_usd
         self.task_status = "running"
@@ -431,6 +438,7 @@ class HeadlessSession(Session):
             "name": self.name,
             "label": self.label,
             "profile": self.profile,
+            "model": self.model,
             "cwd": self.cwd,
             "prompt": self.prompt,
             "task_status": self.task_status,
@@ -450,6 +458,7 @@ class HeadlessSession(Session):
         d.update({
             "headless": True,
             "label": self.label,
+            "model": self.model,
             "prompt": self.prompt[:500],
             "task_status": self.task_status,
             "cost_usd": self.cost_usd,

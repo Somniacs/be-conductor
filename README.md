@@ -474,11 +474,11 @@ The web dashboard is a single HTML file served by the be-conductor server. See [
 | `be-conductor run -d COMMAND [NAME]` | Start session in background (detached) |
 | `be-conductor run --json COMMAND [NAME]` | Start session and print JSON (implies detach) |
 | `be-conductor run --profile PROFILE COMMAND [NAME]` | Start session under an [account profile](docs/profiles.md) |
-| `be-conductor task COMMAND "PROMPT"` | Run a prompt headless, print the answer (`--profile`, `--dir`, `-w`, `--timeout`, `--json`) |
+| `be-conductor task COMMAND "PROMPT"` | Run a prompt headless, print the answer (`--profile`, `--model`, `--dir`, `-w`, `--timeout`, `--json`) |
 | `be-conductor profile list\|add\|edit\|remove` | Manage account profiles |
 | `be-conductor profile login\|check\|set-key\|usage NAME` | Log a profile in, test it, store its API key, show its spend |
 | `be-conductor mcp` | stdio MCP server for Claude Desktop (bridges to the server's `/mcp`) |
-| `be-conductor install-mcp` / `uninstall-mcp` | Register / remove be-conductor in Claude Desktop |
+| `be-conductor install-mcp` / `uninstall-mcp` | Register / remove be-conductor in Claude Desktop and Claude Code (`--target desktop\|code\|both`) |
 | `be-conductor attach NAME` | Attach to a running session |
 | `be-conductor resume NAME` | Resume an exited session (relaunch with resume token) |
 | `be-conductor resume NAME -t TOKEN` | Resume an external agent session inside be-conductor |

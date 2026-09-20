@@ -230,6 +230,7 @@ class RunRequest(BaseModel):
     headless: bool = False      # run `command` (a label or command) as a task …
     prompt: str | None = None   # … with this prompt, to completion
     timeout_seconds: float | None = None
+    model: str | None = None    # headless: model for this run (overrides the profile's)
 
 
 class InputRequest(BaseModel):
@@ -1312,7 +1313,7 @@ async def create_session(req: RunRequest, request: Request):
             session = await tasks.start_task(
                 registry, req.label or req.command, req.prompt or "",
                 cwd=req.cwd, profile=profile, worktree=req.worktree,
-                timeout_seconds=req.timeout_seconds, name=req.name)
+                timeout_seconds=req.timeout_seconds, name=req.name, model=req.model)
         else:
             session = await registry.create(req.name, req.command, cwd=req.cwd, env=req.env,
                                             rows=req.rows, cols=req.cols, source=req.source,

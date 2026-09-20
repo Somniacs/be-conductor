@@ -26,17 +26,26 @@ Two transports, one tool set:
      default_timeout_seconds: 900
    ```
 
-2. Register the bridge in Claude Desktop:
+2. Register the bridge:
 
    ```bash
    be-conductor install-mcp
    ```
 
-   This merges the entry below into `claude_desktop_config.json`
-   (`~/.config/Claude/`, `~/Library/Application Support/Claude/`,
-   `%APPDATA%\Claude\`) after backing the file up. Restart Claude Desktop.
+   Claude has **two separate MCP lists**, and this registers in whichever of
+   them exists on the machine:
+
+   | Target | Used by | Where |
+   |---|---|---|
+   | `desktop` | Claude Desktop's chat side | `claude_desktop_config.json` (`~/.config/Claude/`, `~/Library/Application Support/Claude/`, `%APPDATA%\Claude\`) — backed up first |
+   | `code` | Claude Code: the CLI **and the Code tab of Claude Desktop** | user scope in `~/.claude.json`, written through `claude mcp add` (that file is live, so it is never edited directly) |
+
+   `--target desktop|code|both` limits it (default `both`).
    `be-conductor uninstall-mcp` removes it again; both are also buttons in
-   Settings → MCP.
+   Settings → MCP, which shows the status of each target. Restart Claude
+   Desktop, or start a new Claude Code session, afterwards.
+
+   For any other MCP client:
 
    ```json
    { "mcpServers": { "be-conductor": { "command": "/abs/path/to/be-conductor", "args": ["mcp"] } } }
@@ -49,7 +58,7 @@ off, `/mcp` answers 404.
 
 | Tool | |
 |---|---|
-| `run_<label>(prompt, working_dir, worktree=false, wait=true, timeout_seconds?)` | One per exposed headless command, e.g. `run_claude_code_max5`. Runs the prompt to completion and returns the agent's answer with a footer: `[session=… profile=… status=… duration=…s cost=$… dashboard=…]`. `wait=false` returns the session name at once. |
+| `run_<label>(prompt, working_dir, model?, worktree=false, wait=true, timeout_seconds?)` | One per exposed headless command, e.g. `run_claude_code_max5`. Runs the prompt to completion and returns the agent's answer with a footer: `[session=… profile=… model=… status=… duration=…s cost=$… dashboard=…]`. `model` picks the model for this one run (the agent's `--model` flag); without it the profile's model, else the agent's default, is used. `wait=false` returns the session name at once. |
 | `get_result(session)` | Status + result; while still running, the tail of the output. |
 | `start_session(command_label, cwd, name?, profile?, worktree=false)` | Interactive session you drive with the next two tools — and can open in the dashboard. |
 | `send_input(session, text?, keys?)` | `keys` e.g. `["ENTER"]`, `["CTRL+C"]`, `["UP"]`. |
@@ -60,6 +69,13 @@ off, `/mcp` answers 404.
 
 The `run_*` tools follow `allowed_commands` live — edit a label or add a
 headless block and the tool list changes without a restart.
+
+**You conduct.** Nothing is delegated unless you ask for it: the tool
+descriptions tell the calling model to use a `run_*` tool only when you named
+that agent or account for the task, to pass `model` only when you named one,
+and never to swap in a different agent or chain further ones on its own. "Make
+a plan with run_claude_code_max5 on claude-fable-5-1 and show it to me", then
+"hand that plan to run_codex_pro5" — each step is your call.
 
 **Headless means no questions.** The agent cannot ask the caller anything, so
 prompts must be self-contained. If a run does stop at a prompt, its status

@@ -75,7 +75,7 @@ def check_allowed_dir(path: str | None) -> str:
 async def start_task(registry, command_ref: str, prompt: str, *,
                      cwd: str | None = None, profile: str | None = None,
                      worktree: bool = False, timeout_seconds: float | None = None,
-                     name: str | None = None):
+                     name: str | None = None, model: str | None = None):
     """Start a headless run. Returns the live HeadlessSession."""
     if not prompt or not prompt.strip():
         raise hl.HeadlessError("prompt is empty")
@@ -93,7 +93,8 @@ async def start_task(registry, command_ref: str, prompt: str, *,
         worktree=worktree,
         profile=profile,
         headless={"entry": entry, "prompt": prompt,
-                  "timeout_seconds": timeout_seconds},
+                  "timeout_seconds": timeout_seconds,
+                  "model": (model or "").strip() or None},
     )
 
 
@@ -151,6 +152,8 @@ def format_footer(record: dict, dashboard_url: str | None = None) -> str:
     parts = [f"session={record.get('name') or record.get('id')}"]
     if record.get("profile"):
         parts.append(f"profile={record['profile']}")
+    if record.get("model"):
+        parts.append(f"model={record['model']}")
     status = record.get("task_status") or "unknown"
     if record.get("fail_reason") and record["fail_reason"] != status:
         status += f"({record['fail_reason']})"

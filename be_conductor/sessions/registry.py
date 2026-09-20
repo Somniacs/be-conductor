@@ -351,8 +351,8 @@ class SessionRegistry:
         """Create and start a session.
 
         *profile* runs it under an account profile (isolated login).
-        *headless* = {"prompt", "entry", "timeout_seconds"} runs the command
-        entry's headless form to completion instead of interactively.
+        *headless* = {"prompt", "entry", "timeout_seconds", "model"?} runs the
+        command entry's headless form to completion instead of interactively.
         """
         # Resolve the profile first: a bad profile or a missing secret must
         # fail before a worktree is created or anything is spawned.
@@ -363,8 +363,11 @@ class SessionRegistry:
         if headless:
             from be_conductor.sessions.headless import build_argv, headless_block
             entry = headless["entry"]
-            argv = build_argv(entry, headless["prompt"],
-                              model=(profile_cfg or {}).get("model"))
+            # Model: asked for on this run > the command's block > the profile.
+            task_model = (headless.get("model")
+                          or (headless_block(entry) or {}).get("model")
+                          or (profile_cfg or {}).get("model") or None)
+            argv = build_argv(entry, headless["prompt"], model=task_model)
             command = entry["command"]
 
         # Agent sessions get a unique UUID; PTY sessions keep name as ID
@@ -501,6 +504,7 @@ class SessionRegistry:
                     label=headless["entry"].get("label"),
                     timeout_seconds=headless.get("timeout_seconds"),
                     max_cost_usd=(profile_cfg or {}).get("max_cost_usd_per_run"),
+                    model=task_model,
                 )
                 notifier.on_notify = session.on_needs_input
             else:

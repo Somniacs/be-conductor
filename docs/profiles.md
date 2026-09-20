@@ -117,10 +117,17 @@ A command with a `headless` block can be run to completion for its answer:
 be-conductor task "Claude Code — Max5" "summarize the open TODOs in this repo"
 be-conductor task claude "fix the failing test" -w --timeout 1200   # in a git worktree
 be-conductor task opencode "review src/" --profile openrouter-any --json
+be-conductor task "Claude Code — Max5" "plan the refactor" --model claude-fable-5-1
 ```
 
+`--model` (and the `model` argument of the MCP `run_*` tools) picks the model
+for that one run. Order: the run's own model, then `model:` in the command's
+headless block, then the profile's `model:`, else the agent's default.
+
 `headless: true` uses the built-in preset for `claude`, `codex` or `opencode`.
-A custom block looks like this:
+For those three a custom block *refines* the preset — set only what differs
+(e.g. just `args` to add a flag) and the rest, including the output parsing,
+stays. A full block for another tool looks like this:
 
 ```yaml
     headless:
@@ -168,7 +175,7 @@ be-conductor profile usage <name>
 be-conductor profile leanctx <name> off|shadow|active
 be-conductor profile purge                 # delete ALL profiles, logins and stored keys
 be-conductor run --profile <name> <command> [session]
-be-conductor task <label|command> "<prompt>" [--profile P] [--dir D] [-w] [--timeout S] [-d] [--json]
+be-conductor task <label|command> "<prompt>" [--profile P] [--model M] [--dir D] [-w] [--timeout S] [-d] [--json]
 ```
 
 ## REST
@@ -182,5 +189,5 @@ be-conductor task <label|command> "<prompt>" [--profile P] [--dir D] [-w] [--tim
 | POST | `/profiles/{name}/login` | start the login session |
 | POST | `/profiles/{name}/check` | trivial prompt, 60 s |
 | GET | `/profiles/{name}/usage` | ledger totals |
-| POST | `/sessions/run` | new optional fields: `profile`, `label`, `headless`, `prompt`, `timeout_seconds` |
+| POST | `/sessions/run` | new optional fields: `profile`, `label`, `headless`, `prompt`, `model`, `timeout_seconds` |
 | GET | `/sessions/{id}/result` | `{task_status, result, cost_usd, …}` (`?tail=N` adds live output) |

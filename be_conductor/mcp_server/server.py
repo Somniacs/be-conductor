@@ -46,6 +46,11 @@ _HEADLESS_NOTE = (
     "self-contained. If it stalls you will be notified and can answer from "
     "the dashboard."
 )
+_CONDUCTOR_NOTE = (
+    "The user conducts: call this only when the user asked for this agent / "
+    "account for the task at hand. Never delegate on your own initiative, and "
+    "never swap in a different agent than the one the user named."
+)
 _LONG_RUN_NOTE = (
     "For work likely to take more than ~5 minutes pass wait=false and poll "
     "get_result with the returned session name — the MCP client may give up "
@@ -161,8 +166,13 @@ def _run_tool_description(entry: dict) -> str:
     if pname:
         desc = next((p.get("description") for p in list_profiles() if p["name"] == pname), None)
         parts.append(desc or f"Runs under the '{pname}' account profile.")
+    parts.append(_CONDUCTOR_NOTE)
     parts.append(_HEADLESS_NOTE)
     parts.append(
+        "model is optional: pass it only when the user names a model for this "
+        "run (it goes to the agent's --model flag, e.g. a Claude model id or "
+        "alias for Claude Code, a GPT model id for Codex, provider/model for "
+        "OpenCode); omit it to use the account's default. "
         "working_dir must be inside the server's allowed directories. "
         "worktree=true runs in an isolated git worktree (review it with "
         "list_worktrees / merge_worktree). wait=true blocks until the run is "
@@ -175,14 +185,15 @@ def _run_tool_description(entry: dict) -> str:
 def _make_run_tool(entry: dict):
     label = entry.get("label") or entry["command"]
 
-    async def run(prompt: str, working_dir: str, worktree: bool = False,
-                  wait: bool = True, timeout_seconds: int | None = None,
+    async def run(prompt: str, working_dir: str, model: str | None = None,
+                  worktree: bool = False, wait: bool = True,
+                  timeout_seconds: int | None = None,
                   ctx: Context | None = None) -> str:
         try:
             cwd = tasks.check_allowed_dir(working_dir)
             session = await tasks.start_task(
                 _registry(), label, prompt, cwd=cwd, worktree=worktree,
-                timeout_seconds=timeout_seconds)
+                timeout_seconds=timeout_seconds, model=model)
         except (PermissionError, ValueError, FileNotFoundError) as e:
             return f"Refused: {e}"
 
@@ -223,10 +234,13 @@ def create_mcp() -> ConductorMCP:
         "be-conductor",
         instructions=(
             "be-conductor runs coding agents (Claude Code, Codex, OpenCode, …) as "
-            "managed sessions, optionally under separate account profiles. Use a "
-            "run_* tool to delegate a self-contained task and get the answer back; "
-            "use start_session / send_input / read_output to drive an interactive "
-            "session."),
+            "managed sessions, optionally under separate account profiles. The user "
+            "is the conductor: they decide which agent, account and model gets "
+            "which task. Use a run_* tool only when the user asks for that agent or "
+            "account, pass `model` only when they name one, and bring the result "
+            "back to them — do not delegate, pick an agent, or chain further agents "
+            "on your own. start_session / send_input / read_output drive an "
+            "interactive session, under the same rule."),
         **({} if _MCP_V2 else _TRANSPORT_OPTIONS),
     )
 
@@ -246,6 +260,7 @@ def create_mcp() -> ConductorMCP:
                             profile: str | None = None, worktree: bool = False) -> str:
         """Start an interactive agent session (a terminal you drive with
         send_input / read_output, and the user can open in the dashboard).
+        Only when the user asked for this agent / account.
         command_label is a label from list_profiles' command list or
         allowed_commands; profile overrides the command's own profile."""
         try:

@@ -279,12 +279,13 @@ def register(cli):
     @click.argument("command")
     @click.argument("prompt")
     @click.option("--profile", "-p", default=None, help="Account profile to run under")
+    @click.option("--model", "-m", default=None, help="Model for this run (default: the profile's, else the agent's own)")
     @click.option("--dir", "-C", "workdir", default=None, help="Working directory (default: cwd)")
     @click.option("-w", "--worktree", is_flag=True, help="Run in an isolated git worktree")
     @click.option("--timeout", type=float, default=None, help="Seconds before the run is killed")
     @click.option("-d", "--detach", is_flag=True, help="Start it and print the session name")
     @click.option("--json", "use_json", is_flag=True, help="Output the full task record as JSON")
-    def task(command, prompt, profile, workdir, worktree, timeout, detach, use_json):
+    def task(command, prompt, profile, model, workdir, worktree, timeout, detach, use_json):
         """Run a prompt headless and print the agent's answer.
 
         COMMAND is a label or command from allowed_commands.
@@ -293,6 +294,7 @@ def register(cli):
         Examples:
             be-conductor task claude "summarize README.md"
             be-conductor task "Claude Code — Max5" "fix the failing test" -w
+            be-conductor task claude "plan the refactor" --model claude-fable-5-1
             be-conductor task opencode "review src/" --profile openrouter-any --json
         """
         from be_conductor.sessions.tasks import format_footer, task_name
@@ -303,6 +305,8 @@ def register(cli):
         }
         if profile:
             payload["profile"] = profile
+        if model:
+            payload["model"] = model
         if timeout:
             payload["timeout_seconds"] = timeout
         data = _api("POST", "/sessions/run", quiet=use_json, json=payload)
