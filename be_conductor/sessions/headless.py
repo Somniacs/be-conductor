@@ -194,6 +194,24 @@ def _flatten_numbers(obj, prefix: str = "") -> dict[str, float]:
     return out
 
 
+def _unwrap_error(text: str) -> str:
+    """Agents often pass an API error through verbatim — a JSON object whose
+    only interesting part is its message (Codex: ``{"detail": "..."}``)."""
+    if text.startswith("{"):
+        try:
+            obj = json.loads(text)
+        except ValueError:
+            return text
+        if isinstance(obj, dict):
+            for key in ("detail", "message", "error"):
+                val = obj.get(key)
+                if isinstance(val, dict):
+                    val = val.get("message")
+                if isinstance(val, str) and val.strip():
+                    return val.strip()
+    return text
+
+
 class HeadlessCollector:
     """Incrementally parses a headless run's output.
 
@@ -276,7 +294,7 @@ class HeadlessCollector:
             if b.get("error_message_json_path"):
                 text = _dig(obj, b["error_message_json_path"])
                 if isinstance(text, str) and text.strip():
-                    self.error_message = text.strip()
+                    self.error_message = _unwrap_error(text.strip())
         if b.get("session_json_path"):
             sid = _dig(obj, b["session_json_path"])
             if isinstance(sid, str):

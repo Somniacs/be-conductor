@@ -7739,7 +7739,18 @@
                 html += '</div>';
                 if (p.description) html += `<div style="font-size:11px;color:#8080a0;margin-top:3px;">${escHtml(p.description)}</div>`;
                 html += `<div style="font-size:11px;color:#606080;margin-top:3px;font-family:monospace;word-break:break-all;">${escHtml(p.config_dir || '—')}</div>`;
+                // A profile is only usable through a command bound to it.
+                const bound = ((_settingsData && _settingsData.allowed_commands) || []).filter(c => c.profile === p.name);
+                if (bound.length) {
+                    html += `<div style="font-size:11px;color:#8080a0;margin-top:4px;">Command: ${bound.map(c =>
+                        `<span class="session-chip">${escHtml(c.label || c.command)}</span>${c.headless ? '<span class="session-chip task-running">headless</span>' : ''}`).join(' ')}</div>`;
+                } else if (p.command_template) {
+                    html += '<div style="font-size:11px;color:#8080a0;margin-top:4px;">No command yet — one is needed to start sessions with this profile, or to expose it over MCP.</div>';
+                }
                 html += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:7px;">';
+                if (!bound.length && p.command_template) {
+                    html += `<button style="${_smallBtn}" onclick="_addCommandForProfile(${i})" title="Creates the agent command for this profile, filled in from its backend">+ Command</button>`;
+                }
                 if (p.backend !== 'custom') html += `<button style="${_smallBtn}" onclick="_profileLogin(${i})" title="Open the agent's login flow in a terminal panel">Login</button>`;
                 html += `<button style="${_smallBtn}" id="profile-test-${i}" onclick="_profileTest(${i})" title="Run a trivial prompt under this profile">Test</button>`;
                 html += `<button style="${_smallBtn}" onclick="_profileSetKey(${i})">Set API key</button>`;
@@ -7753,6 +7764,27 @@
             html += '<button class="settings-add-btn" onclick="_editProfile(-1)">+ Add profile</button>';
             html += '</div>';
             el.innerHTML = html;
+        }
+
+        // One click from a profile to the command that uses it: the entry is
+        // built from the backend's own defaults and opened for review; the
+        // Agents tab still owns saving it.
+        function _addCommandForProfile(i) {
+            const p = _profilesData.profiles[i];
+            if (!_settingsData || !Array.isArray(_settingsData.allowed_commands)) return;
+            const cmds = _settingsData.allowed_commands;
+            const existing = cmds.findIndex(c => c.profile === p.name);
+            if (existing < 0) {
+                if (!p.command_template) { showToast('This backend has no template — add the command by hand.'); return; }
+                let label = p.command_template.label, n = 2;
+                while (cmds.some(c => c.label === label)) label = `${p.command_template.label} ${n++}`;
+                cmds.push({ ...p.command_template, label });
+            }
+            const idx = existing < 0 ? cmds.length - 1 : existing;
+            _settingsTab = 'agents';
+            renderSettings();
+            editCommand(idx);
+            if (existing < 0) showToast('Command added — review it, then Save.');
         }
 
         function _rawProfile(p) {
@@ -8058,6 +8090,56 @@
             catch (_) { showToast('Copy failed — select the text manually'); }
         }
 
+        // Show control characters as escapes — saveCommand parses them back.
+        function _stopToText(list) {
+            return (list || []).map(x => String(x)
+                .replace(/\r/g, '\\r').replace(/\n/g, '\\n').replace(/\t/g, '\\t')
+                // eslint-disable-next-line no-control-regex
+                .replace(/[\x00-\x1f\x7f]/g, c => '\\x' + c.charCodeAt(0).toString(16).padStart(2, '0'))
+            ).join(', ');
+        }
+
+        // The Agents tab may be opened before the Profiles tab ever was.
+        async function _ensureProfiles() {
+            if (!_profilesData) {
+                try { _profilesData = await _adminJson('/profiles'); }
+                catch (_) { _profilesData = { profiles: [] }; }
+            }
+            return _profilesData;
+        }
+
+        function _profileByName(name) {
+            return ((_profilesData && _profilesData.profiles) || []).find(p => p.name === name);
+        }
+
+        // Picking a profile fills in what its backend already determines —
+        // the command, its resume/stop settings, a label. Only empty fields
+        // are touched, so an existing command is never rewritten.
+        function _cmdProfilePicked() {
+            const sel = document.getElementById('cmd-edit-profile');
+            const hint = document.getElementById('cmd-edit-profile-hint');
+            const p = sel && _profileByName(sel.value);
+            const t = p && p.command_template;
+            if (!t) return;
+            const cmdEl = document.getElementById('cmd-edit-command');
+            const wasEmpty = !cmdEl.value.trim();
+            const fill = (id, value) => {
+                const el = document.getElementById(id);
+                if (el && !el.value.trim() && value) el.value = value;
+            };
+            fill('cmd-edit-command', t.command);
+            fill('cmd-edit-label', t.label);
+            fill('cmd-edit-resume-command', t.resume_command);
+            fill('cmd-edit-resume-pattern', t.resume_pattern);
+            fill('cmd-edit-resume-flag', t.resume_flag);
+            fill('cmd-edit-stop', _stopToText(t.stop_sequence));
+            if (wasEmpty) {
+                const hl = document.getElementById('cmd-edit-hl-on');
+                if (hl && !hl.checked) { hl.checked = true; document.getElementById('cmd-edit-headless-box').open = true; }
+                if (hint) { hint.textContent = `Filled in from the ${p.backend} profile — adjust anything, then Apply and Save.`; hint.style.color = '#60c080'; }
+            }
+        }
+
         function editCommand(idx) {
             const cmd = _settingsData.allowed_commands[idx];
             if (!cmd) return;
@@ -8070,11 +8152,12 @@
                     <div class="form-row"><label>Resume command</label><input class="settings-input" id="cmd-edit-resume-command" value="${escHtml(cmd.resume_command || '')}" placeholder="e.g. gemini --resume"></div>
                     <div class="form-row"><label>Resume pattern</label><input class="settings-input" id="cmd-edit-resume-pattern" value="${escHtml(cmd.resume_pattern || '')}" placeholder="e.g. --resume\\s+(\\S+)"></div>
                     <div class="form-row"><label>Resume flag</label><input class="settings-input" id="cmd-edit-resume-flag" value="${escHtml(cmd.resume_flag || '')}" placeholder="e.g. --resume"></div>
-                    <div class="form-row"><label>Stop sequence</label><input class="settings-input" id="cmd-edit-stop" value="${escHtml((cmd.stop_sequence || []).join(', '))}" placeholder="e.g. \\x03, /exit, \\r"></div>
-                    <div class="form-row"><label>Profile</label><select class="settings-input" id="cmd-edit-profile">
+                    <div class="form-row"><label>Stop sequence</label><input class="settings-input" id="cmd-edit-stop" value="${escHtml(_stopToText(cmd.stop_sequence))}" placeholder="e.g. \\x03, /exit, \\r"></div>
+                    <div class="form-row"><label>Profile</label><select class="settings-input" id="cmd-edit-profile" data-idx="${idx}" onchange="_cmdProfilePicked()">
                         <option value="">Default login (none)</option>
                         ${_profilesForCommand(cmd.command, cmd.profile).map(n => `<option value="${escHtml(n)}" ${cmd.profile === n ? 'selected' : ''}>${escHtml(n)}</option>`).join('')}
                     </select></div>
+                    <div class="settings-hint" id="cmd-edit-profile-hint" style="margin:-2px 0 6px 0">Picking a profile fills in the fields its backend already implies.</div>
                     <details id="cmd-edit-headless-box" ${cmd.headless ? 'open' : ''} style="margin:6px 0;">
                         <summary style="cursor:pointer;font-size:12px;color:#a0a0d0;">Headless (run as a task via CLI / MCP)</summary>
                         <div style="padding:6px 0 0 0;">
@@ -8095,6 +8178,15 @@
                     </div>
                 </div>`;
             document.getElementById('cmd-edit-label').focus();
+            // The list may still be loading — refresh it in place when it lands.
+            _ensureProfiles().then(() => {
+                const sel = document.getElementById('cmd-edit-profile');
+                if (!sel || sel.dataset.idx !== String(idx)) return;
+                const current = sel.value;
+                const names = _profilesForCommand(document.getElementById('cmd-edit-command').value, current);
+                sel.innerHTML = '<option value="">Default login (none)</option>' + names.map(n =>
+                    `<option value="${escHtml(n)}" ${current === n ? 'selected' : ''}>${escHtml(n)}</option>`).join('');
+            });
         }
 
         function saveCommand(idx) {

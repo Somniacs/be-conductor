@@ -48,6 +48,13 @@ BACKEND_CLI: dict[str, str] = {
     "opencode": "opencode",
 }
 
+# Backend → how it is named in a generated command label.
+BACKEND_DISPLAY: dict[str, str] = {
+    "claude": "Claude Code",
+    "codex": "Codex",
+    "opencode": "OpenCode",
+}
+
 DEFAULT_STRIP_ENV = [
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_AUTH_TOKEN",
@@ -179,6 +186,39 @@ def validate_profile(profile: dict) -> dict:
     return out
 
 
+def command_template(profile: dict) -> dict | None:
+    """A ready-made ``allowed_commands`` entry for this profile.
+
+    The resume and stop settings come from the CLI's own built-in defaults,
+    so a profile-bound command behaves exactly like the stock one — the user
+    only has to confirm it instead of retyping what the profile already says.
+    """
+    cli = BACKEND_CLI.get(profile["backend"])
+    if not cli:
+        return None
+    base: dict = {}
+    for entry in cfg._DEFAULT_ALLOWED_COMMANDS:
+        # The plain entry, not a variant like "claude --dangerously-skip-permissions".
+        if entry.get("command") == cli:
+            base = entry
+            break
+
+    name = profile["name"]
+    suffix = name
+    for prefix in (profile["backend"] + "-", profile["backend"] + "_"):
+        if suffix.startswith(prefix):
+            suffix = suffix[len(prefix):]
+            break
+    display = BACKEND_DISPLAY.get(profile["backend"], cli)
+    pretty = suffix.replace("-", " ").replace("_", " ").title()
+    out = {k: v for k, v in base.items() if k != "label"}
+    out["command"] = out.get("command") or cli
+    out["label"] = f"{display} — {pretty}" if pretty else display
+    out["profile"] = name
+    out["headless"] = True
+    return out
+
+
 def list_profiles() -> list[dict]:
     """All valid profiles from config (invalid entries are skipped)."""
     out, seen = [], set()
@@ -296,6 +336,7 @@ def profile_status(profile: dict) -> dict:
     usage = ledger.usage(profile["name"])
     return {
         **profile,
+        "command_template": command_template(profile),
         "config_dir_exists": bool(cdir and cdir.is_dir()),
         "logged_in": logged_in,
         "secrets": [

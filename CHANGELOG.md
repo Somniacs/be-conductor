@@ -2,6 +2,17 @@
 
 All notable changes to be-conductor are documented here.
 
+## v0.3.56 (unreleased)
+
+### New
+
+- **A profile's command builds itself** — a profile already says which agent it is, so you no longer retype that on the Agents tab. Each profile row has a **+ Command** button that creates its agent command filled in from the backend — name, command, resume behaviour, headless on — and opens it for review; the row afterwards shows which command uses the profile. Picking a profile in the command editor fills in the same blanks for you
+
+### Fixed
+
+- **Agent errors read as plain text** — when an agent passed an API error straight through as JSON (Codex does), the profile test and task results showed the raw `{"detail": ...}` instead of the message inside it
+- **Stop sequences are readable** — control characters in a command's stop sequence showed as invisible characters in the settings field; they now show as `\x03` and so on, which is what the field already accepted as input
+
 ## v0.3.55
 
 ### New

@@ -103,6 +103,12 @@ allowed_commands:
     headless: true                       # see below
 ```
 
+The quickest way is the dashboard: Settings → **Profiles** → **+ Command** on
+the profile's row. The entry is built from the backend — command, resume
+behaviour, a label, headless on — and opens for review; press **Save** on the
+Agents tab to keep it. Picking a profile in the command editor fills in the
+same blanks.
+
 In the dashboard the **+ New** dialog shows a *Profile* dropdown with the
 profiles that fit the chosen command; picking the "Max5" entry preselects its
 profile. Session cards show the profile as a badge, and stall notifications
