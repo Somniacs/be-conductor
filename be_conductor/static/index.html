@@ -7838,12 +7838,12 @@
             el.innerHTML = `
                 <div class="settings-edit-form">
                     <div class="form-row"><label>Name</label><input class="settings-input" id="pf-name" value="${escHtml(p.name || '')}" ${idx >= 0 ? 'disabled' : ''} placeholder="claude-max5 (a-z 0-9 - _)"></div>
-                    <div class="form-row"><label>Backend</label><select class="settings-input" id="pf-backend" onchange="_profileBackendChanged()">
+                    <div class="form-row"><label>Backend</label><select class="settings-input" id="pf-backend" onchange="_profileBackendChanged(); _loadModelOptions()">
                         ${['claude', 'codex', 'opencode', 'custom'].map(b => `<option value="${b}" ${p.backend === b ? 'selected' : ''}>${b}</option>`).join('')}
                     </select></div>
                     <div class="form-row" id="pf-row-dir"><label>Config dir</label><input class="settings-input" id="pf-dir" value="${escHtml(idx >= 0 ? (p.config_dir || '') : '')}" placeholder="default: ~/.be-conductor/profiles/<name>"></div>
                     <div class="settings-hint" id="pf-dir-hint" style="margin:-2px 0 6px 0"></div>
-                    <div class="form-row"><label>API key env vars</label><input class="settings-input" id="pf-secrets" value="${escHtml(secText)}" placeholder="e.g. OPENROUTER_API_KEY (value is set separately)"></div>
+                    <div class="form-row"><label>API key env vars</label><input class="settings-input" id="pf-secrets" value="${escHtml(secText)}" placeholder="e.g. OPENROUTER_API_KEY (value is set separately)" onchange="_loadModelOptions()"></div>
                     <div class="form-row" id="pf-row-model"><label>Model</label><input class="settings-input" id="pf-model" list="pf-model-options" value="${escHtml(p.model || '')}" placeholder="fallback model — empty means choose per run"><datalist id="pf-model-options"></datalist></div>
                     <div class="settings-hint" id="pf-model-hint" style="margin:-2px 0 6px 0">Only a fallback: a run that names its own model always wins.</div>
                     <div class="form-row" id="pf-row-cap"><label>Max cost / run (USD)</label><input class="settings-input" id="pf-cap" type="number" min="0" step="0.1" value="${p.max_cost_usd_per_run || ''}" placeholder="no cap"></div>
@@ -7859,26 +7859,44 @@
                     </div>
                 </div>`;
             _profileBackendChanged();
-            if (idx >= 0) _loadModelOptions(p.name);
-            else document.getElementById('pf-model-hint').textContent =
-                'Add the profile first, then reopen it to pick from its model list.';
+            _loadModelOptions();
         }
 
-        // The list comes from the profile's own environment, so it shows what
-        // that account can actually reach (OpenCode lists nothing for a
-        // provider it has no key for).
-        async function _loadModelOptions(name) {
+        // Two sources: a saved profile's own environment (what that account can
+        // really reach), and the backend's catalogue for a profile that has no
+        // key yet — narrowed by the API-key variables named on the form.
+        const _MODEL_OPTION_LIMIT = 1500;
+
+        async function _loadModelOptions() {
             const dl = document.getElementById('pf-model-options');
             const hint = document.getElementById('pf-model-hint');
-            if (!dl || !name) return;
-            try {
-                const r = await _adminJson(`/profiles/${encodeURIComponent(name)}/models`);
-                const models = r.models || [];
-                dl.innerHTML = models.map(m => `<option value="${escHtml(m)}">`).join('');
-                if (hint) hint.textContent = models.length
-                    ? `${models.length} models available — click or type to filter. Only a fallback: a run that names its own model always wins.`
-                    : 'Only a fallback: a run that names its own model always wins.';
-            } catch (_) {}
+            if (!dl) return;
+            const nameEl = document.getElementById('pf-name');
+            const name = (nameEl && nameEl.disabled) ? nameEl.value.trim() : '';
+            const backend = document.getElementById('pf-backend').value;
+            const envs = document.getElementById('pf-secrets').value;
+            const fallback = 'Only a fallback: a run that names its own model always wins.';
+            let models = [], live = false;
+            if (name) {
+                try {
+                    const r = await _adminJson(`/profiles/${encodeURIComponent(name)}/models`);
+                    models = r.models || [];
+                    live = models.length > 0;
+                } catch (_) {}
+            }
+            if (!live) {
+                try {
+                    const r = await _adminJson(`/profile-models?backend=${encodeURIComponent(backend)}&env=${encodeURIComponent(envs)}`);
+                    models = r.models || [];
+                } catch (_) {}
+            }
+            const shown = models.slice(0, _MODEL_OPTION_LIMIT);
+            dl.innerHTML = shown.map(m => `<option value="${escHtml(m)}">`).join('');
+            if (!hint) return;
+            if (!models.length) hint.textContent = fallback;
+            else if (live) hint.textContent = `${models.length} models this account can reach — click or type to filter. ${fallback}`;
+            else if (models.length > shown.length) hint.textContent = `Catalogue of ${models.length} models, showing ${shown.length} — name your API key variable above to narrow it. ${fallback}`;
+            else hint.textContent = `${models.length} models from the catalogue — click or type to filter. ${fallback}`;
         }
 
         function _profileBackendChanged() {

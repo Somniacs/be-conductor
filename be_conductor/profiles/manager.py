@@ -371,6 +371,38 @@ _MODEL_CACHE: dict[str, tuple[float, list[str]]] = {}
 _MODEL_CACHE_TTL = 300
 
 
+# OpenCode's model catalogue, cached by OpenCode itself. Readable without
+# credentials, so a profile that has no key yet can still offer a model list.
+OPENCODE_CATALOG = Path.home() / ".cache" / "opencode" / "models.json"
+
+
+def catalog_models(backend: str, env_names: list[str] | None = None) -> list[str]:
+    """Models a backend could use, before any key is stored.
+
+    *env_names* (the API-key variables the profile declares) narrows the
+    catalogue to the providers those keys unlock — the whole catalogue is
+    ~7900 models, one provider is a usable list.
+    """
+    import json
+    if backend in STATIC_MODELS:
+        return list(STATIC_MODELS[backend])
+    if backend != "opencode" or not OPENCODE_CATALOG.is_file():
+        return []
+    try:
+        catalog = json.loads(OPENCODE_CATALOG.read_text())
+    except (OSError, ValueError):
+        return []
+    wanted = {e.strip().upper() for e in (env_names or []) if e.strip()}
+    out: list[str] = []
+    for prov_id, prov in catalog.items():
+        if not isinstance(prov, dict):
+            continue
+        if wanted and not wanted & {str(e).upper() for e in (prov.get("env") or [])}:
+            continue
+        out.extend(f"{prov_id}/{m}" for m in (prov.get("models") or {}))
+    return sorted(out)
+
+
 def list_models(profile_name: str, refresh: bool = False) -> list[str]:
     """Model ids available to this profile, newest listing cached briefly."""
     import subprocess

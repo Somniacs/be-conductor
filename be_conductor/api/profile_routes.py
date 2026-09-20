@@ -150,6 +150,18 @@ async def check_profile(name: str):
         return {"ok": False, "error": f"Command not found: {e}"}
 
 
+@router.get("/profile-models")
+async def catalog_models_route(backend: str, env: str = ""):
+    """Models for a backend before a profile exists (the Add-profile form).
+
+    *env* is a comma-separated list of the API-key variables the profile
+    declares; it narrows the catalogue to the providers those keys unlock.
+    """
+    from be_conductor.profiles.manager import catalog_models
+    names = [e for e in (env or "").replace(" ", ",").split(",") if e]
+    return {"models": catalog_models(backend, names)}
+
+
 @router.get("/profiles/{name}/models")
 async def profile_models(name: str, refresh: bool = False):
     """Model ids this profile can use, for the dashboard's model picker."""

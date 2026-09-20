@@ -132,9 +132,11 @@ headless block, then the profile's `model:`, else the agent's default.
 
 A profile's `model:` is therefore only a fallback for calls that name none —
 leave it empty to always choose per run. In the dashboard the field is a
-dropdown of the models that profile can reach; `GET /profiles/<name>/models`
-returns the same list (it runs the backend's own listing with the profile's
-environment, so a provider the profile has no key for does not appear).
+dropdown: `GET /profiles/<name>/models` for a saved profile (the backend's own
+listing run with the profile's environment, so a provider it has no key for
+does not appear), and `GET /profile-models?backend=&env=` while you are still
+adding one — the backend's catalogue narrowed to the providers the named API
+key variables unlock.
 
 `headless: true` uses the built-in preset for `claude`, `codex` or `opencode`.
 For those three a custom block *refines* the preset — set only what differs
