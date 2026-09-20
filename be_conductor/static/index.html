@@ -2910,6 +2910,29 @@
         </div>
     </div>
 
+    <div class="about-overlay" id="secret-dialog" onclick="if(event.target===this)_secretDialogClose()">
+        <div class="about-box" style="min-width:min(460px,92vw);text-align:left;">
+            <button class="about-close" onclick="_secretDialogClose()">&times;</button>
+            <h2 style="font-size:15px;margin-bottom:10px;" id="secret-title">Set API key</h2>
+            <div class="form-row" style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+                <label style="font-size:12px;color:#8080a0;width:110px;flex:0 0 auto;">Variable</label>
+                <input type="text" class="settings-input" id="secret-env" style="flex:1" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="form-row" style="display:flex;align-items:center;gap:10px;">
+                <label style="font-size:12px;color:#8080a0;width:110px;flex:0 0 auto;">Value</label>
+                <input type="password" class="settings-input" id="secret-value" style="flex:1" autocomplete="off" spellcheck="false"
+                       onkeydown="if(event.key==='Enter')_secretDialogSave()">
+                <button type="button" class="folder-pick-btn" onclick="const v=document.getElementById('secret-value'); v.type = v.type==='password'?'text':'password'; this.textContent = v.type==='password'?'Show':'Hide';">Show</button>
+            </div>
+            <div class="settings-hint" id="secret-hint" style="margin-top:8px"></div>
+            <div id="secret-error" style="font-size:11px;color:#ff9060;margin-top:6px;"></div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;">
+                <button class="folder-pick-btn" onclick="_secretDialogClose()">Cancel</button>
+                <button class="folder-pick-btn primary" id="secret-save" onclick="_secretDialogSave()">Store</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Servers dialog removed — now part of the Settings dialog Servers tab -->
 
     <div class="confirm-overlay" id="confirm-dialog">
@@ -8036,19 +8059,50 @@
             }
         }
 
-        async function _profileSetKey(idx) {
+        // A secret does not belong in a browser prompt(), where it shows as
+        // plain text on screen.
+        let _secretForIdx = -1;
+
+        function _profileSetKey(idx) {
             const p = _profilesData.profiles[idx];
             const known = (p.secrets || []).map(s => s.env);
-            const dflt = known[0] || (p.backend === 'opencode' ? 'OPENROUTER_API_KEY' : p.backend === 'codex' ? 'OPENAI_API_KEY' : 'ANTHROPIC_API_KEY');
-            const env = prompt(`Environment variable to set for "${p.name}":`, dflt);
-            if (!env) return;
-            const value = prompt(`Value for ${env}\n\nStored in the ${_profilesData.secret_backend === 'keyring' ? 'OS keyring' : 'local secrets folder'}; it is never shown again.`);
-            if (!value) return;
+            const dflt = known[0] || (p.backend === 'opencode' ? 'OPENROUTER_API_KEY'
+                : p.backend === 'codex' ? 'OPENAI_API_KEY' : 'ANTHROPIC_API_KEY');
+            _secretForIdx = idx;
+            document.getElementById('secret-title').textContent = `API key for "${p.name}"`;
+            document.getElementById('secret-env').value = dflt;
+            const v = document.getElementById('secret-value');
+            v.value = ''; v.type = 'password';
+            document.getElementById('secret-error').textContent = '';
+            document.getElementById('secret-hint').textContent =
+                `Stored in the ${_profilesData.secret_backend === 'keyring' ? 'OS keyring' : 'local secrets folder (no keyring on this machine)'}, never in config.yaml, and scrubbed from session output.`;
+            document.getElementById('secret-dialog').classList.add('open');
+            setTimeout(() => v.focus(), 30);
+        }
+
+        function _secretDialogClose() {
+            document.getElementById('secret-value').value = '';
+            document.getElementById('secret-dialog').classList.remove('open');
+        }
+
+        async function _secretDialogSave() {
+            const idx = _secretForIdx;
+            const p = _profilesData.profiles[idx];
+            const env = document.getElementById('secret-env').value.trim();
+            const value = document.getElementById('secret-value').value;
+            const err = document.getElementById('secret-error');
+            if (!env) { err.textContent = 'Name the environment variable.'; return; }
+            if (!value) { err.textContent = 'Paste the key.'; return; }
+            const btn = document.getElementById('secret-save');
+            btn.disabled = true;
             try {
-                await _adminJson(`/admin/profiles/${encodeURIComponent(p.name)}/secret`, 'POST', { env: env.trim(), value });
+                await _adminJson(`/admin/profiles/${encodeURIComponent(p.name)}/secret`, 'POST', { env, value });
+                _secretDialogClose();
                 await _loadProfilesTab();
-                _profileMsg(idx, `${env.trim()} stored.`, '#60c080');
-            } catch (e) { _profileMsg(idx, 'Could not store key: ' + e.message, '#ff9060'); }
+                _profileMsg(idx, `${env} stored.`, '#60c080');
+            } catch (e) {
+                err.textContent = 'Could not store it: ' + e.message;
+            } finally { btn.disabled = false; }
         }
 
         async function _profileLeanCtx(idx, mode) {
