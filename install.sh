@@ -49,17 +49,22 @@ download() {
 prompt_yn() {
     # Usage: prompt_yn "Question?" Y  → default yes
     #        prompt_yn "Question?" N  → default no
-    local question="$1" default="$2" reply
+    # Usage: prompt_yn "Question?" Y 30  → give up after 30s and take the default
+    local question="$1" default="$2" timeout="${3:-}" reply rt=()
+    [ -n "$timeout" ] && rt=(-t "$timeout")
     if [ "$default" = "Y" ]; then
-        printf "%s [Y/n] " "$question"
+        printf "%s [Y/n]%s " "$question" "${timeout:+ (${timeout}s)}"
     else
-        printf "%s [y/N] " "$question"
+        printf "%s [y/N]%s " "$question" "${timeout:+ (${timeout}s)}"
     fi
-    # When piped from curl, stdin is the script itself — use /dev/tty
+    # When piped from curl, stdin is the script itself — use /dev/tty.
+    # A timeout matters there: this script also runs unattended from the
+    # update dialog, where nobody is present to answer.
     if [ -t 0 ]; then
-        read -r reply
+        read "${rt[@]}" -r reply || reply=""
     elif [ -e /dev/tty ]; then
-        read -r reply </dev/tty
+        read "${rt[@]}" -r reply </dev/tty || reply=""
+        [ -n "$timeout" ] && echo ""
     else
         reply=""
     fi
@@ -164,6 +169,9 @@ fi
 
 # ── Stop running server before upgrade ────────────────────────────────
 
+PIPX_FAILED=0
+VERSION_BEFORE="$(command -v "$PROJECT" >/dev/null 2>&1 && "$PROJECT" --version 2>/dev/null || true)"
+
 if command -v "$PROJECT" &>/dev/null; then
     echo "Stopping running server..."
     "$PROJECT" shutdown -f 2>/dev/null || true
@@ -180,7 +188,7 @@ fi
 if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/pyproject.toml" ]; then
     # ── Local mode ────────────────────────────────────────────────
     echo "Installing $PROJECT from local source..."
-    pipx install -e "$SCRIPT_DIR" --force
+    pipx install -e "$SCRIPT_DIR" --force || PIPX_FAILED=1
     pipx inject --force "$PROJECT" claude-agent-sdk 2>/dev/null || true
 else
     # ── Remote mode ───────────────────────────────────────────────
@@ -198,7 +206,7 @@ else
     tar xzf "$tmpdir/$PROJECT.tar.gz" -C "$tmpdir"
 
     echo "Installing $PROJECT..."
-    pipx install "$tmpdir/$PROJECT" --force
+    pipx install "$tmpdir/$PROJECT" --force || PIPX_FAILED=1
     pipx inject --force "$PROJECT" claude-agent-sdk 2>/dev/null || true
 
     # trap handles cleanup
@@ -269,14 +277,17 @@ if command -v "$PROJECT" &>/dev/null && { [ -d "$CLAUDE_DESKTOP_DIR" ] || comman
     echo ""
 fi
 
-# ── Restart any running server so the new version takes effect ──────
-# Without this, `up` would see the old process still running and do
-# nothing, leaving the dashboard stuck showing the old version.
-if command -v "$PROJECT" &>/dev/null; then
-    if "$PROJECT" status &>/dev/null && "$PROJECT" status 2>/dev/null | grep -qi "url"; then
-        echo "Restarting running server to apply the update..."
-        "$PROJECT" restart -f || true
+# ── Did the upgrade actually land? ───────────────────────────────────
+
+if [ "$PIPX_FAILED" = "1" ]; then
+    echo ""
+    echo "Error: pipx could not install the new version."
+    VERSION_NOW="$(command -v "$PROJECT" >/dev/null 2>&1 && "$PROJECT" --version 2>/dev/null || true)"
+    if [ -n "$VERSION_BEFORE" ] && [ "$VERSION_BEFORE" = "$VERSION_NOW" ]; then
+        echo "The version did not change — this is still the old install."
     fi
+    echo "Close anything still using $PROJECT and run the installer again."
+    echo ""
 fi
 
 echo ""
@@ -366,7 +377,7 @@ OS="$(uname -s)"
 case "$OS" in
     Linux)
         if command -v systemctl &>/dev/null; then
-            if prompt_yn "Start $PROJECT automatically on boot?" Y; then
+            if prompt_yn "Start $PROJECT automatically on boot?" Y 30; then
                 setup_autostart_linux
             else
                 echo "  Skipped. See docs → Auto-Start on Boot"
@@ -374,7 +385,7 @@ case "$OS" in
         else
             # Fallback: cron @reboot
             if command -v crontab &>/dev/null; then
-                if prompt_yn "Start $PROJECT automatically on boot? (via cron @reboot)" Y; then
+                if prompt_yn "Start $PROJECT automatically on boot? (via cron @reboot)" Y 30; then
                     setup_autostart_cron
                 else
                     echo "  Skipped. See docs → Auto-Start on Boot"
@@ -386,7 +397,7 @@ case "$OS" in
         fi
         ;;
     Darwin)
-        if prompt_yn "Start $PROJECT automatically on boot?" Y; then
+        if prompt_yn "Start $PROJECT automatically on boot?" Y 30; then
             setup_autostart_macos
         else
             echo "  Skipped. See docs → Auto-Start on Boot"
@@ -397,6 +408,16 @@ case "$OS" in
         echo "  See docs → Auto-Start on Boot"
         ;;
 esac
+
+# ── The upgrade stopped the server, so start it again ────────────────
+# Whatever the autostart answer was, and even if the upgrade failed: the
+# machine should not be left without a server because of an update.
+if command -v "$PROJECT" &>/dev/null; then
+    if ! "$PROJECT" status 2>/dev/null | grep -qi "url"; then
+        echo "Starting $PROJECT..."
+        "$PROJECT" restart -f 2>/dev/null || "$PROJECT" up || true
+    fi
+fi
 
 # ── Optional: LeanCTX ────────────────────────────────────────────────
 # Dead last, after autostart has the server running again: the build can

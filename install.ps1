@@ -140,7 +140,50 @@ if ($OldProject -and $OldProject -ne $Project) {
     Write-Host ""
 }
 
+# ── Helper: a prompt that gives up ───────────────────────────────────
+# This script also runs unattended from the update dialog, where Read-Host
+# would wait for an answer that never comes. Poll the console instead and
+# fall through to the default.
+function Read-WithTimeout($prompt, $seconds) {
+    Write-Host $prompt -NoNewline
+    $buf = ""
+    try {
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        while ($sw.Elapsed.TotalSeconds -lt $seconds) {
+            if ([Console]::KeyAvailable) {
+                $k = [Console]::ReadKey($true)
+                if ($k.Key -eq "Enter") { break }
+                $buf += $k.KeyChar
+                Write-Host $k.KeyChar -NoNewline
+            }
+            Start-Sleep -Milliseconds 100
+        }
+    } catch {
+        # No interactive console (piped install) - treat as no answer.
+        $buf = ""
+    }
+    Write-Host ""
+    return $buf
+}
+
+# ── Helper: bring the server back up ─────────────────────────────────
+# The upgrade stops it, so every exit path has to start it again - otherwise
+# an update silently leaves the machine without a server.
+function Start-Conductor($exePath) {
+    Write-Host "Starting $Project..."
+    try {
+        & $exePath restart -f 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) { & $exePath up }
+    } catch {
+        try { & $exePath up } catch {}
+    }
+}
+
 # ── Stop running server before upgrade ────────────────────────────────
+
+$versionBefore = $null
+try { $versionBefore = (& $Project --version 2>&1 | Out-String).Trim() } catch {}
+$pipxFailed = $false
 
 try { & $Project shutdown -f 2>&1 | Out-Null } catch {}
 
@@ -157,6 +200,7 @@ if ($scriptDir -and (Test-Path (Join-Path $scriptDir "pyproject.toml"))) {
     # ── Local mode ────────────────────────────────────────────────
     Write-Host "Installing $Project from local source..."
     & pipx install -e $scriptDir --force
+    $pipxFailed = ($LASTEXITCODE -ne 0)
     try { & pipx inject --force $Project claude-agent-sdk 2>&1 | Out-Null } catch {}
 } else {
     # ── Remote mode ───────────────────────────────────────────────
@@ -179,6 +223,7 @@ if ($scriptDir -and (Test-Path (Join-Path $scriptDir "pyproject.toml"))) {
 
         Write-Host "Installing $Project..."
         & pipx install (Join-Path $tmpDir $Project) --force
+        $pipxFailed = ($LASTEXITCODE -ne 0)
         try { & pipx inject --force $Project claude-agent-sdk 2>&1 | Out-Null } catch {}
     } finally {
         Remove-Item -Recurse -Force $tmpDir -ErrorAction SilentlyContinue
@@ -194,10 +239,21 @@ $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "User") + ";" +
 
 $installed = $false
 try {
-    $version = & $Project --version 2>&1
+    $version = (& $Project --version 2>&1 | Out-String).Trim()
     Write-Host "  $Project $version" -NoNewline
-    Write-Host " OK" -ForegroundColor Green
-    $installed = $true
+    if ($pipxFailed) {
+        Write-Host " FAILED" -ForegroundColor Red
+        Write-Host "  pipx could not install the new version." -ForegroundColor Red
+        if ($versionBefore -and $versionBefore -eq $version) {
+            Write-Host "  The version did not change - this is still the old install."
+        }
+        Write-Host "  On Windows this usually means a $Project process still had files"
+        Write-Host "  open. Close any $Project terminals and dashboards, then run the"
+        Write-Host "  installer again."
+    } else {
+        Write-Host " OK" -ForegroundColor Green
+    }
+    $installed = -not $pipxFailed
 } catch {
     Write-Host "  Warning: '$Project' command not found in PATH." -ForegroundColor Yellow
     Write-Host "  Restart your terminal and try again."
@@ -255,30 +311,28 @@ if ($installed -and ((Test-Path $claudeDesktopDir) -or $hasClaudeCli)) {
     Write-Host ""
 }
 
-# ── Restart any running server so the new version takes effect ──────
-# Without this, `up` would see the old process still running and do
-# nothing, leaving the dashboard stuck showing the old version.
-if ($installed) {
-    try {
-        $statusOut = & $Project status 2>&1 | Out-String
-        if ($statusOut -match "URL:") {
-            Write-Host "Restarting running server to apply the update..."
-            & $Project restart -f 2>&1 | Out-Null
-        }
-    } catch {}
-}
-
 Write-Host ""
 
 # ── Autostart setup (Startup folder) ──────────────────────────────────
 
 if ($installed) {
-    $answer = Read-Host "Start $Project automatically on login? [Y/n]"
+    $conductorPath = (Get-Command $Project -ErrorAction SilentlyContinue).Source
+    if (-not $conductorPath) {
+        $conductorPath = "$env:USERPROFILE\.local\bin\$Project.exe"
+    }
+
+    # An update should not re-ask a question already answered: when the task
+    # exists, refresh it silently. Otherwise ask, but give up after 30s so an
+    # unattended update is never left waiting.
+    $taskExists = $false
+    try { $taskExists = [bool](Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) } catch {}
+    if ($taskExists) {
+        $answer = "y"
+    } else {
+        $answer = Read-WithTimeout "Start $Project automatically on login? [Y/n] (30s, then yes) " 30
+    }
+
     if ($answer -eq "" -or $answer -match "^[Yy]") {
-        $conductorPath = (Get-Command $Project -ErrorAction SilentlyContinue).Source
-        if (-not $conductorPath) {
-            $conductorPath = "$env:USERPROFILE\.local\bin\$Project.exe"
-        }
 
         # Clean up legacy autostart (old scheduled task, VBS, shortcut)
         try {
@@ -302,41 +356,22 @@ if ($installed) {
 
         Write-Host "  Autostart configured (scheduled task)" -NoNewline
         Write-Host " OK" -ForegroundColor Green
-
-        # Start the server now
-        & $conductorPath up
     } else {
         Write-Host "  Skipped. See docs -> Auto-Start on Boot"
     }
+
+    Start-Conductor $conductorPath
+} else {
+    # The upgrade stopped the server; if it then failed, put the old one back
+    # rather than leaving the machine with nothing running.
+    $fallback = (Get-Command $Project -ErrorAction SilentlyContinue).Source
+    if ($fallback) { Start-Conductor $fallback }
 }
 
 # ── Optional: LeanCTX ────────────────────────────────────────────────
 # Dead last, after autostart has the server running again: the build can
 # take minutes, and the installer stops the server early on, so anything
 # slow placed before that leaves the server down for its duration.
-# Read-Host cannot time out, so poll the console
-# instead and fall through to "no" - an unattended update must not block.
-function Read-WithTimeout($prompt, $seconds) {
-    Write-Host $prompt -NoNewline
-    $buf = ""
-    try {
-        $sw = [Diagnostics.Stopwatch]::StartNew()
-        while ($sw.Elapsed.TotalSeconds -lt $seconds) {
-            if ([Console]::KeyAvailable) {
-                $k = [Console]::ReadKey($true)
-                if ($k.Key -eq "Enter") { break }
-                $buf += $k.KeyChar
-                Write-Host $k.KeyChar -NoNewline
-            }
-            Start-Sleep -Milliseconds 100
-        }
-    } catch {
-        # No interactive console (piped install) - treat as no answer.
-        $buf = ""
-    }
-    Write-Host ""
-    return $buf
-}
 
 if (-not (Get-Command lean-ctx -ErrorAction SilentlyContinue)) {
     Write-Host "LeanCTX is an optional context-compression layer for agent sessions"

@@ -2,6 +2,15 @@
 
 All notable changes to be-conductor are documented here.
 
+## v0.3.58 (unreleased)
+
+### Fixed
+
+- **An update could leave the server down, on Windows especially** — the installer stops the server before upgrading, but the only call that started it again sat inside the autostart branch. Answer "no" to the autostart question and the machine was left with nothing running. The server is now started on every path, including when the upgrade itself fails, so a broken update restores the old one instead of leaving you with none
+- **The autostart question no longer blocks an unattended update** — it was a plain `Read-Host` on Windows and an untimed `read` on Linux, so an update run from the update dialog waited for an answer nobody was there to give. It now times out into "yes" after 30 seconds, and on an update that already has autostart configured it is not asked at all
+- **A failed install no longer reports success** — `pipx install --force`'s exit code was ignored, so the installer printed the old version and "OK". It now says the install failed, points out that the version did not change, and names the usual Windows cause: a be-conductor process still holding its files open
+- **Removed a restart that never ran** — the "restart any running server" step tested whether a server was running, but the script had stopped it a hundred lines earlier, so the check was always false
+
 ## v0.3.57
 
 ### New
